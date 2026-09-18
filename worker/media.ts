@@ -1,5 +1,8 @@
 import { hmacSign, timingSafeEqual } from "./crypto";
 
+/** Long enough for queued video jobs; signed URLs are hours, not minutes. */
+export const MEDIA_URL_TTL_SECONDS = 12 * 60 * 60;
+
 export async function putMediaObject(
   bucket: R2Bucket,
   bytes: ArrayBuffer,
@@ -25,18 +28,40 @@ function extensionFor(contentType: string): string {
   return "";
 }
 
+/**
+ * Production origin Oxen can GET. Empty / unset → local data-URI fallback.
+ * Trailing slashes are stripped; http and protocol-relative values become https.
+ */
+export function resolvePublicBaseUrl(value: string | undefined | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const stripped = trimmed.replace(/\/+$/, "");
+  if (stripped.startsWith("https://")) return stripped;
+  if (stripped.startsWith("http://")) {
+    return `https://${stripped.slice("http://".length)}`;
+  }
+  return `https://${stripped}`;
+}
+
 export async function createSignedMediaUrl(
   baseUrl: string,
   key: string,
   secret: string,
-  ttlSeconds = 3600,
+  ttlSeconds = MEDIA_URL_TTL_SECONDS,
 ): Promise<string> {
+  const origin = resolvePublicBaseUrl(baseUrl);
+  if (!origin) {
+    throw new Error("signed media URLs require PUBLIC_BASE_URL");
+  }
   const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
   const payload = `${key}:${exp}`;
   const sig = await hmacSign(secret, payload);
-  const url = new URL(`/api/media/${key}`, baseUrl);
+  const url = new URL(`/api/media/${key}`, `${origin}/`);
   url.searchParams.set("exp", String(exp));
   url.searchParams.set("sig", sig);
+  if (url.protocol !== "https:") {
+    throw new Error("signed media URLs must be https so Oxen can fetch them");
+  }
   return url.toString();
 }
 
@@ -46,8 +71,9 @@ export async function verifyMediaSignature(
   sig: string,
   secret: string,
 ): Promise<boolean> {
+  if (!key || !exp || !sig || !secret) return false;
   const expires = Number(exp);
-  if (!expires || expires < Math.floor(Date.now() / 1000)) return false;
+  if (!Number.isFinite(expires) || expires < Math.floor(Date.now() / 1000)) return false;
   const expected = await hmacSign(secret, `${key}:${exp}`);
   return timingSafeEqual(expected, sig);
 }
@@ -57,4 +83,30 @@ export function arrayBufferToDataUri(buffer: ArrayBuffer, contentType: string): 
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
   return `data:${contentType};base64,${btoa(binary)}`;
+}
+
+export async function buildReferenceMediaUrl(options: {
+  publicBaseUrl?: string | null;
+  key: string;
+  secret: string;
+  bytes: ArrayBuffer;
+  contentType: string;
+  ttlSeconds?: number;
+}): Promise<{ url: string; kind: "signed" | "data-uri" }> {
+  const origin = resolvePublicBaseUrl(options.publicBaseUrl);
+  if (!origin) {
+    return {
+      url: arrayBufferToDataUri(options.bytes, options.contentType),
+      kind: "data-uri",
+    };
+  }
+  return {
+    url: await createSignedMediaUrl(
+      origin,
+      options.key,
+      options.secret,
+      options.ttlSeconds ?? MEDIA_URL_TTL_SECONDS,
+    ),
+    kind: "signed",
+  };
 }

@@ -40,7 +40,12 @@ After signing in, open **Settings** and paste your Oxen API key from account set
 
 ### Reference media (edit / ref-to-video / video-to-video)
 
-Oxen must be able to download `input_image` / `input_video` URLs. Locally (no `PUBLIC_BASE_URL`), uploads are sent as data URIs. For production, set `PUBLIC_BASE_URL` to your Worker origin so signed `/api/media/...` URLs work.
+Oxen downloads `input_image` / `input_video` itself, so those values must be URLs Oxen can GET.
+
+- **Local:** leave `PUBLIC_BASE_URL` unset or empty in `.dev.vars`. `POST /api/upload` returns data URIs, which Oxen accepts.
+- **Production:** set `PUBLIC_BASE_URL=https://studio.digisavvy.dev` (no trailing slash). Uploads then return signed `https://studio.digisavvy.dev/api/media/...` URLs with `exp` and `sig`. Oxen fetches those over HTTPS without a session cookie or API key. Signatures last 12 hours so queued video jobs can still download reference files.
+
+Uploads stay session-authenticated. The browser never holds Oxen API keys.
 
 ## Scripts
 
@@ -51,6 +56,7 @@ Oxen must be able to download `input_image` / `input_video` URLs. Locally (no `P
 | `npm run preview` | Preview build in workerd |
 | `npm run deploy` | Build and deploy to Cloudflare |
 | `npm run db:migrate:local` | Apply D1 migrations locally |
+| `npm run test` | Worker media URL tests (no live Oxen / R2) |
 
 ## Deploy
 

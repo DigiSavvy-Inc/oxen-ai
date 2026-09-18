@@ -21,8 +21,7 @@ import {
   userHasAccess,
 } from "./auth";
 import {
-  arrayBufferToDataUri,
-  createSignedMediaUrl,
+  buildReferenceMediaUrl,
   putMediaObject,
   verifyMediaSignature,
 } from "./media";
@@ -441,21 +440,28 @@ app.post("/api/upload", async (c) => {
   const buffer = await file.arrayBuffer();
   const contentType = file.type || "application/octet-stream";
   const { key } = await putMediaObject(c.env.MEDIA, buffer, contentType, `u/${user.id}`);
-
-  const base = publicOrigin(c);
-  let url: string;
-  if (c.env.PUBLIC_BASE_URL) {
-    url = await createSignedMediaUrl(base, key, c.env.ENCRYPTION_KEY || c.env.SESSION_SECRET, 7200);
-  } else {
-    // Local fallback: Oxen accepts data URIs for input media.
-    url = arrayBufferToDataUri(buffer, contentType);
-  }
+  const secret = c.env.ENCRYPTION_KEY || c.env.SESSION_SECRET;
+  const { url } = await buildReferenceMediaUrl({
+    publicBaseUrl: c.env.PUBLIC_BASE_URL,
+    key,
+    secret,
+    bytes: buffer,
+    contentType,
+  });
 
   return c.json({ key, url, contentType, size: file.size, name: file.name });
 });
 
 app.get("/api/media/*", async (c) => {
-  const key = c.req.path.replace(/^\/api\/media\//, "");
+  let key = c.req.path.replace(/^\/api\/media\//, "");
+  try {
+    key = decodeURIComponent(key);
+  } catch {
+    throw new HTTPException(400, { message: "Invalid media key" });
+  }
+  if (!key || key.includes("..")) {
+    throw new HTTPException(400, { message: "Invalid media key" });
+  }
   const exp = c.req.query("exp") || "";
   const sig = c.req.query("sig") || "";
   const secret = c.env.ENCRYPTION_KEY || c.env.SESSION_SECRET;
@@ -469,6 +475,8 @@ app.get("/api/media/*", async (c) => {
   }
   const headers = new Headers();
   object.writeHttpMetadata(headers);
+  const contentType = object.httpMetadata?.contentType || "application/octet-stream";
+  headers.set("Content-Type", contentType);
   headers.set("Cache-Control", "private, max-age=3600");
   return new Response(object.body, { headers });
 });
