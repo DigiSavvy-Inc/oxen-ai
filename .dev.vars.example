@@ -1,0 +1,20 @@
+# Leave GITHUB_CLIENT_* empty for local sign-in via `gh auth token` (GH_TOKEN).
+# A placeholder client id sends users to a GitHub 404.
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+
+# Comma-separated GitHub logins that can always sign in and manage the allowlist
+GITHUB_ADMINS=digisavvy
+
+# 32+ byte secret used to encrypt Oxen API keys and sign media URLs
+ENCRYPTION_KEY=change-me-to-a-long-random-string
+
+# Cookie signing secret
+SESSION_SECRET=change-me-to-another-long-random-string
+
+# Local only. `gh auth token` — do not commit.
+GH_TOKEN=
+
+# Public origin Oxen can reach for uploaded reference media.
+# Leave empty locally to fall back to data URIs for input_image / input_video.
+PUBLIC_BASE_URL=

@@ -1,0 +1,239 @@
+import { useEffect, useState } from "react";
+import { useAuth } from "../auth/AuthContext";
+import { api } from "../lib/api";
+
+type AllowRow = {
+  github_login: string;
+  added_by: string | null;
+  created_at: number;
+};
+
+type SettingsPane = "api-key" | "allowlist";
+
+export function SettingsModal({ onClose }: { onClose: () => void }) {
+  const { user, setHasOxenKey } = useAuth();
+  const [pane, setPane] = useState<SettingsPane>("api-key");
+  const [apiKey, setApiKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const [org, setOrg] = useState("");
+  const [admins, setAdmins] = useState<string[]>([]);
+  const [rows, setRows] = useState<AllowRow[]>([]);
+  const [login, setLogin] = useState("");
+  const [allowBusy, setAllowBusy] = useState(false);
+  const [allowError, setAllowError] = useState<string | null>(null);
+
+  async function loadAllowlist() {
+    const data = await api.allowlist();
+    setOrg(data.org);
+    setAdmins(data.admins);
+    setRows(data.allowlist);
+  }
+
+  useEffect(() => {
+    if (!user?.isAdmin) return;
+    void loadAllowlist().catch((err) =>
+      setAllowError(err instanceof Error ? err.message : "Failed to load allowlist"),
+    );
+  }, [user?.isAdmin]);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await api.saveOxenKey(apiKey);
+      setHasOxenKey(true);
+      setApiKey("");
+      setMessage("Oxen API key saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save key");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clear() {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.clearOxenKey();
+      setHasOxenKey(false);
+      setMessage("Oxen API key removed.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to clear key");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addAllowlistUser() {
+    setAllowBusy(true);
+    setAllowError(null);
+    try {
+      await api.addAllowlist(login);
+      setLogin("");
+      await loadAllowlist();
+    } catch (err) {
+      setAllowError(err instanceof Error ? err.message : "Failed to add user");
+    } finally {
+      setAllowBusy(false);
+    }
+  }
+
+  async function removeAllowlistUser(name: string) {
+    setAllowBusy(true);
+    setAllowError(null);
+    try {
+      await api.removeAllowlist(name);
+      await loadAllowlist();
+    } catch (err) {
+      setAllowError(err instanceof Error ? err.message : "Failed to remove user");
+    } finally {
+      setAllowBusy(false);
+    }
+  }
+
+  function renderPane(selected: SettingsPane) {
+    switch (selected) {
+      case "api-key":
+        return (
+          <>
+            <h3>Oxen API key</h3>
+            <p>
+              Encrypted at rest and only sent server-side to{" "}
+              <code>hub.oxen.ai</code>. Get a key from your Oxen account settings.
+            </p>
+            <label htmlFor="oxen-key">API key</label>
+            <input
+              id="oxen-key"
+              className="field"
+              type="password"
+              placeholder={user?.hasOxenKey ? "•••••••• (saved — paste to replace)" : "oxen_…"}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              autoComplete="off"
+            />
+            {message ? <p className="settings-ok">{message}</p> : null}
+            {error ? <p className="settings-bad">{error}</p> : null}
+            <div className="modal-actions">
+              {user?.hasOxenKey ? (
+                <button className="ghost-btn" disabled={busy} onClick={() => void clear()}>
+                  Remove key
+                </button>
+              ) : null}
+              <button
+                className="primary-btn"
+                style={{ marginLeft: "auto" }}
+                disabled={busy || !apiKey.trim()}
+                onClick={() => void save()}
+              >
+                Save key
+              </button>
+            </div>
+          </>
+        );
+      case "allowlist":
+        return (
+          <>
+            <h3>Access allowlist</h3>
+            <p>
+              Org members of <strong>{org || "…"}</strong> can sign in automatically.
+              Admins ({admins.join(", ") || "none configured"}) can also add individual
+              GitHub users here.
+            </p>
+            <div className="allow-list">
+              {rows.length === 0 ? (
+                <div className="history-empty" style={{ margin: 0 }}>
+                  No ad-hoc users yet.
+                </div>
+              ) : (
+                rows.map((row) => (
+                  <div className="allow-row" key={row.github_login}>
+                    <span>
+                      @{row.github_login}
+                      {row.added_by ? (
+                        <span style={{ color: "var(--text-dim)" }}> · by {row.added_by}</span>
+                      ) : null}
+                    </span>
+                    <button
+                      className="ghost-btn"
+                      disabled={allowBusy}
+                      onClick={() => void removeAllowlistUser(row.github_login)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <label htmlFor="gh-login">GitHub username</label>
+            <div className="allow-add">
+              <input
+                id="gh-login"
+                className="field"
+                placeholder="octocat"
+                value={login}
+                onChange={(e) => setLogin(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && login.trim() && !allowBusy) {
+                    e.preventDefault();
+                    void addAllowlistUser();
+                  }
+                }}
+              />
+              <button
+                className="primary-btn"
+                style={{ marginLeft: 0 }}
+                disabled={allowBusy || !login.trim()}
+                onClick={() => void addAllowlistUser()}
+              >
+                Add user
+              </button>
+            </div>
+            {allowError ? <p className="settings-bad">{allowError}</p> : null}
+          </>
+        );
+      default: {
+        const _exhaustive: never = selected;
+        return _exhaustive;
+      }
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="settings-head">
+          <h2>Settings</h2>
+          <button className="ghost-btn" type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div className="settings-body">
+          <nav className="settings-nav" aria-label="Settings">
+            <button
+              type="button"
+              className={`settings-nav-btn${pane === "api-key" ? " active" : ""}`}
+              onClick={() => setPane("api-key")}
+            >
+              API key
+            </button>
+            {user?.isAdmin ? (
+              <button
+                type="button"
+                className={`settings-nav-btn${pane === "allowlist" ? " active" : ""}`}
+                onClick={() => setPane("allowlist")}
+              >
+                Allowlist
+              </button>
+            ) : null}
+          </nav>
+          <div className="settings-pane">{renderPane(pane)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
