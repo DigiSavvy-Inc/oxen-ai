@@ -1,5 +1,7 @@
 # Leave GITHUB_CLIENT_* empty for local sign-in via `gh auth token` (GH_TOKEN).
-# A placeholder client id sends users to a GitHub 404.
+# A placeholder client id must not be used — the Worker would send users to
+# GitHub's /login/oauth/authorize and GitHub returns 404. Production OAuth is a
+# separate app whose only callback is https://studio.digisavvy.dev/api/auth/callback.
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 

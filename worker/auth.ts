@@ -3,9 +3,33 @@ import type { Env, SessionUser, UserRow } from "./types";
 
 const SESSION_COOKIE = "oxen_session";
 
+const PLACEHOLDER_OAUTH_VALUES = new Set([
+  "replace-me",
+  "placeholder",
+  "changeme",
+  "change-me",
+  "your-client-id",
+  "your_client_id",
+  "client_id",
+  "example",
+  "xxx",
+  "xxxx",
+]);
+
+function isUnsetOrPlaceholder(value: string | undefined): boolean {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return true;
+  const lower = trimmed.toLowerCase();
+  if (PLACEHOLDER_OAUTH_VALUES.has(lower)) return true;
+  if (lower.includes("placeholder") || lower.includes("replace-me") || lower.includes("changeme")) {
+    return true;
+  }
+  return false;
+}
+
+/** True only when a real GitHub OAuth app is configured. Placeholders must not redirect to /login/oauth/authorize. */
 export function oauthConfigured(env: Env): boolean {
-  const id = env.GITHUB_CLIENT_ID?.trim();
-  return Boolean(id && id !== "replace-me" && env.GITHUB_CLIENT_SECRET?.trim() && env.GITHUB_CLIENT_SECRET !== "replace-me");
+  return !isUnsetOrPlaceholder(env.GITHUB_CLIENT_ID) && !isUnsetOrPlaceholder(env.GITHUB_CLIENT_SECRET);
 }
 
 export function isLoopbackHost(hostname: string): boolean {

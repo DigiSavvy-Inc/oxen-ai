@@ -1,9 +1,23 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
+  // Production origin: https://studio.digisavvy.dev
+  // This committed config is local-dev-safe (`npm run dev` on loopback):
+  // - no custom-domain `routes` (attach studio.digisavvy.dev in the dashboard)
+  // - no PUBLIC_BASE_URL / GITHUB_CLIENT_ID (those belong at deploy time)
+  // - GITHUB_ADMINS left blank (set to `digisavvy` when deploying)
+  // CI in this repo does not deploy. See README for the human deploy checklist.
   "name": "oxen-studio",
   "compatibility_date": "2026-09-18",
   "compatibility_flags": ["nodejs_compat"],
   "main": "./worker/index.ts",
+  // workers.dev stays enabled as a fallback hostname. Do not point the GitHub
+  // OAuth callback at workers.dev — the production app callback is only
+  // https://studio.digisavvy.dev/api/auth/callback.
+  // Custom domain (do this in the dashboard, not here, so local dev stays
+  // loopback-only): Workers → oxen-studio → Settings → Domains & Routes →
+  // Add `studio.digisavvy.dev`. Equivalent wrangler route, applied only when
+  // you choose to uncomment and `wrangler deploy` (not used by `npm run dev`):
+  // "routes": [{ "pattern": "studio.digisavvy.dev", "custom_domain": true }],
   "assets": {
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
@@ -16,6 +30,9 @@
     {
       "binding": "DB",
       "database_name": "oxen-studio",
+      // Placeholder for local D1 (`wrangler d1 migrations apply oxen-studio --local`).
+      // Before production deploy: `wrangler d1 create oxen-studio` and paste the
+      // real database_id. Do not invent UUIDs.
       "database_id": "00000000-0000-0000-0000-000000000001",
       "migrations_dir": "migrations"
     }
@@ -23,9 +40,21 @@
   "r2_buckets": [
     {
       "binding": "MEDIA",
+      // Create before deploy: `wrangler r2 bucket create oxen-studio-media`
       "bucket_name": "oxen-studio-media"
     }
   ],
+  // Committed vars = local/dev defaults.
+  // Production vars shape (dashboard / `npx wrangler deploy --var`, not git):
+  //   GITHUB_ORG=DigiSavvy-Inc
+  //   GITHUB_ADMINS=digisavvy
+  //   PUBLIC_BASE_URL=https://studio.digisavvy.dev
+  //   GITHUB_CLIENT_ID=<id from the studio.digisavvy.dev OAuth app>
+  //   SESSION_TTL_SECONDS=604800
+  // Secrets (`wrangler secret put`, never commit):
+  //   GITHUB_CLIENT_SECRET
+  //   ENCRYPTION_KEY
+  //   SESSION_SECRET
   "vars": {
     "GITHUB_ORG": "DigiSavvy-Inc",
     "GITHUB_ADMINS": "",
