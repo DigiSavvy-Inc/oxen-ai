@@ -45,9 +45,15 @@ export function Canvas({ generation }: { generation: Generation | null }) {
           ) : (
             <div className="status-block">
               {generation.status === "queued" ? "Queued on Oxen…" : "Generating…"}
-              <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-dim)" }}>
-                Video jobs can take several minutes. This view polls automatically.
-              </div>
+              {generation.errorMessage ? (
+                <div style={{ marginTop: 8, color: "var(--danger)" }}>
+                  {generation.errorMessage}
+                </div>
+              ) : (
+                <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-dim)" }}>
+                  Video jobs can take several minutes. This view polls automatically.
+                </div>
+              )}
             </div>
           )}
         </div>

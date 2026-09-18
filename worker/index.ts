@@ -21,17 +21,24 @@ import {
   userHasAccess,
 } from "./auth";
 import {
-  arrayBufferToDataUri,
-  createSignedMediaUrl,
+  buildReferenceMediaUrl,
   putMediaObject,
   verifyMediaSignature,
 } from "./media";
 import {
+  buildEnqueuePayload,
   cancelGeneration,
   enqueueGeneration,
+  extractOxenErrorMessage,
+  extractResultUrl,
+  filterModelsForMode,
   getGeneration,
   listModels,
   listQueue,
+  notePollFailure,
+  pollErrorMessage,
+  resetPollFailures,
+  shouldPersistPollFailure,
   type OxenModel,
 } from "./oxen";
 import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
@@ -150,52 +157,6 @@ async function signInWithLocalGithub(c: Context<{ Bindings: Env; Variables: Vari
   const sessionId = await createSession(c.env.DB, user.id, ttl);
   setCookie(c, SESSION_COOKIE, sessionId, sessionCookieOptions(ttl, isSecureRequest(c)));
   return c.redirect("/");
-}
-
-function filterModelsForMode(models: OxenModel[], mode: GenerationMode): OxenModel[] {
-  return models.filter((m) => {
-    const endpoint = m.endpoint || "";
-    const inputs = m.capabilities?.input ?? [];
-    const outputs = m.capabilities?.output ?? [];
-    switch (mode) {
-      case "text-to-image":
-        return (
-          endpoint.includes("/images/generate") &&
-          outputs.includes("image") &&
-          inputs.includes("text") &&
-          !inputs.includes("image")
-        );
-      case "image-to-image":
-        return (
-          (endpoint.includes("/images/edit") || endpoint.includes("/images/generate")) &&
-          outputs.includes("image") &&
-          inputs.includes("image")
-        );
-      case "text-to-video":
-        return (
-          endpoint.includes("/videos/generate") &&
-          outputs.includes("video") &&
-          inputs.includes("text") &&
-          !inputs.includes("image") &&
-          !inputs.includes("video")
-        );
-      case "reference-to-video":
-        return (
-          endpoint.includes("/videos/generate") &&
-          outputs.includes("video") &&
-          inputs.includes("image") &&
-          !inputs.includes("video")
-        );
-      case "video-to-video":
-        return (
-          endpoint.includes("/videos/generate") &&
-          outputs.includes("video") &&
-          inputs.includes("video")
-        );
-      default:
-        return false;
-    }
-  });
 }
 
 function fallbackModels(mode: GenerationMode): OxenModel[] {
@@ -441,21 +402,28 @@ app.post("/api/upload", async (c) => {
   const buffer = await file.arrayBuffer();
   const contentType = file.type || "application/octet-stream";
   const { key } = await putMediaObject(c.env.MEDIA, buffer, contentType, `u/${user.id}`);
-
-  const base = publicOrigin(c);
-  let url: string;
-  if (c.env.PUBLIC_BASE_URL) {
-    url = await createSignedMediaUrl(base, key, c.env.ENCRYPTION_KEY || c.env.SESSION_SECRET, 7200);
-  } else {
-    // Local fallback: Oxen accepts data URIs for input media.
-    url = arrayBufferToDataUri(buffer, contentType);
-  }
+  const secret = c.env.ENCRYPTION_KEY || c.env.SESSION_SECRET;
+  const { url } = await buildReferenceMediaUrl({
+    publicBaseUrl: c.env.PUBLIC_BASE_URL,
+    key,
+    secret,
+    bytes: buffer,
+    contentType,
+  });
 
   return c.json({ key, url, contentType, size: file.size, name: file.name });
 });
 
 app.get("/api/media/*", async (c) => {
-  const key = c.req.path.replace(/^\/api\/media\//, "");
+  let key = c.req.path.replace(/^\/api\/media\//, "");
+  try {
+    key = decodeURIComponent(key);
+  } catch {
+    throw new HTTPException(400, { message: "Invalid media key" });
+  }
+  if (!key || key.includes("..")) {
+    throw new HTTPException(400, { message: "Invalid media key" });
+  }
   const exp = c.req.query("exp") || "";
   const sig = c.req.query("sig") || "";
   const secret = c.env.ENCRYPTION_KEY || c.env.SESSION_SECRET;
@@ -469,6 +437,8 @@ app.get("/api/media/*", async (c) => {
   }
   const headers = new Headers();
   object.writeHttpMetadata(headers);
+  const contentType = object.httpMetadata?.contentType || "application/octet-stream";
+  headers.set("Content-Type", contentType);
   headers.set("Cache-Control", "private, max-age=3600");
   return new Response(object.body, { headers });
 });
@@ -508,17 +478,17 @@ app.post("/api/generate", async (c) => {
     throw new HTTPException(400, { message: "input_video is required for this mode" });
   }
 
-  const payload: Record<string, unknown> = {
+  const payload = buildEnqueuePayload(meta.mediaType, {
     model: body.model.trim(),
     prompt: body.prompt.trim(),
-    num_generations: Math.min(Math.max(body.num_generations ?? 1, 1), 4),
-  };
-  if (body.aspect_ratio) payload.aspect_ratio = body.aspect_ratio;
-  if (body.duration != null) payload.duration = body.duration;
-  if (body.seed != null) payload.seed = body.seed;
-  if (body.input_image) payload.input_image = body.input_image;
-  if (body.input_video) payload.input_video = body.input_video;
-  if (body.generate_audio != null) payload.generate_audio = body.generate_audio;
+    aspect_ratio: body.aspect_ratio,
+    duration: body.duration,
+    seed: body.seed,
+    input_image: body.input_image,
+    input_video: body.input_video,
+    generate_audio: body.generate_audio,
+    num_generations: body.num_generations,
+  });
 
   const generations = await enqueueGeneration(apiKey, payload);
   const now = Math.floor(Date.now() / 1000);
@@ -634,13 +604,15 @@ app.get("/api/generations/:id", async (c) => {
   if (!["succeeded", "failed", "cancelled"].includes(status)) {
     try {
       const remote = await getGeneration(apiKey, row.oxen_generation_id);
+      resetPollFailures(row.id);
       status = String(remote.status ?? status);
-      resultUrl =
-        (remote.result_url as string | null | undefined) ??
-        extractResultUrl(remote) ??
-        resultUrl;
-      errorMessage =
-        (remote.error_message as string | null | undefined) ?? errorMessage;
+      resultUrl = extractResultUrl(remote) ?? resultUrl;
+      const remoteError = extractOxenErrorMessage(remote);
+      if (status === "failed") {
+        errorMessage = remoteError ?? errorMessage ?? "Oxen generation failed";
+      } else {
+        errorMessage = remoteError;
+      }
       const now = Math.floor(Date.now() / 1000);
       await c.env.DB.prepare(
         `UPDATE generations SET status = ?, result_url = ?, error_message = ?, updated_at = ? WHERE id = ?`,
@@ -649,6 +621,16 @@ app.get("/api/generations/:id", async (c) => {
         .run();
     } catch (err) {
       console.error("poll error", err);
+      const failures = notePollFailure(row.id);
+      if (shouldPersistPollFailure(failures)) {
+        errorMessage = pollErrorMessage(err);
+        const now = Math.floor(Date.now() / 1000);
+        await c.env.DB.prepare(
+          `UPDATE generations SET error_message = ?, updated_at = ? WHERE id = ?`,
+        )
+          .bind(errorMessage, now, row.id)
+          .run();
+      }
     }
   }
 
@@ -704,16 +686,5 @@ app.get("/api/oxen/queue", async (c) => {
   const data = await listQueue(apiKey, url.searchParams);
   return c.json(data);
 });
-
-function extractResultUrl(remote: Record<string, unknown>): string | null {
-  if (typeof remote.result_url === "string") return remote.result_url;
-  const images = remote.images as { url?: string }[] | undefined;
-  if (images?.[0]?.url) return images[0].url;
-  const videos = remote.videos as { url?: string }[] | undefined;
-  if (videos?.[0]?.url) return videos[0].url;
-  const result = remote.result as { url?: string } | undefined;
-  if (result?.url) return result.url;
-  return null;
-}
 
 export default app;

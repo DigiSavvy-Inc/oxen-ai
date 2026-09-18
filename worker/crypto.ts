@@ -4,6 +4,10 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function base64ToBytes(value: string): Uint8Array {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
@@ -80,7 +84,8 @@ export async function hmacSign(secret: string, payload: string): Promise<string>
     key,
     new TextEncoder().encode(payload),
   );
-  return bytesToBase64(new Uint8Array(signature));
+  // Hex stays URL-safe so Oxen (and other GET clients) cannot mangle `+` / `/` in query params.
+  return bytesToHex(new Uint8Array(signature));
 }
 
 export async function timingSafeEqual(a: string, b: string): Promise<boolean> {
