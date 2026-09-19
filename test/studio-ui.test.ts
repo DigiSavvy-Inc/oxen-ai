@@ -17,12 +17,13 @@ import { downloadFilename, tilePreviewUrl } from "../src/lib/download";
 import {
   attachmentForMention,
   cycleHotIndex,
+  deleteMentionToken,
+  indexAfterInsertBefore,
   insertMentionToken,
   mentionAtCaret,
   mentionAtOffset,
   moveItem,
   promptHighlightParts,
-  remapMentionTokens,
 } from "../src/lib/mentions";
 import { filterModels, generationCountForModelChange, groupPreferredModels, modelLabel } from "../src/lib/model-menu";
 
@@ -145,15 +146,27 @@ describe("mentions and cost", () => {
     expect(slotRequired(null, "video", "video-to-video")).toBe(true);
   });
 
-  it("reorders attachments and rewrites @ImageN tokens to match", () => {
+  it("reorders attachments without rewriting prompt tokens", () => {
     const a = { name: "a.png", kind: "image" as const };
     const b = { name: "b.png", kind: "image" as const };
     const c = { name: "c.png", kind: "image" as const };
-    const next = moveItem([a, b, c], 2, 0);
-    expect(next).toEqual([c, a, b]);
-    expect(remapMentionTokens("hero @Image1 with @Image3", [a, b, c], next)).toBe(
-      "hero @Image2 with @Image1",
-    );
+    expect(moveItem([a, b, c], 2, 0)).toEqual([c, a, b]);
+    expect(indexAfterInsertBefore(2, 0)).toBe(0);
+    expect(indexAfterInsertBefore(0, 2)).toBe(1);
+    expect(indexAfterInsertBefore(1, 1)).toBe(1);
+    expect(indexAfterInsertBefore(1, 2)).toBe(1);
+  });
+
+  it("deletes a completed @ImageN token in one step", () => {
+    expect(deleteMentionToken("look @Image1 now", 12, "backward")).toEqual({
+      next: "look now",
+      caret: 5,
+    });
+    expect(deleteMentionToken("look @Image1 now", 8, "forward")).toEqual({
+      next: "look now",
+      caret: 5,
+    });
+    expect(deleteMentionToken("plain text", 4, "backward")).toBeNull();
   });
 
   it("scales image cost by variations", () => {

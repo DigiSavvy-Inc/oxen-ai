@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
+import { useMemo, useRef, useState, type DragEvent, type PointerEvent, type ReactNode } from "react";
 import {
   ALL_MODES,
   MODE_LABELS,
@@ -13,7 +13,9 @@ import {
 import {
   attachmentForMention,
   cycleHotIndex,
+  deleteMentionToken,
   filterMentionItems,
+  indexAfterInsertBefore,
   insertMentionToken,
   mentionAtCaret,
   promptHighlightParts,
@@ -101,7 +103,8 @@ export function Composer(props: Props) {
     top: number;
   } | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [dropInsertBefore, setDropInsertBefore] = useState<number | null>(null);
+  const [promptHeight, setPromptHeight] = useState(96);
 
   const imageMax = Math.max(slotMax(props.controls, "image"), props.mode === "image-to-image" ? 1 : 0);
   const videoMax = Math.max(
@@ -184,6 +187,25 @@ export function Composer(props: Props) {
     if (!el) return;
     el.focus();
     el.setSelectionRange(nextCaret, nextCaret);
+  }
+
+  function startPromptResize(event: PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const startY = event.clientY;
+    const startHeight = promptHeight;
+    handle.setPointerCapture(event.pointerId);
+    function onMove(move: globalThis.PointerEvent) {
+      const next = Math.round(startHeight + (move.clientY - startY));
+      setPromptHeight(Math.min(420, Math.max(76, next)));
+    }
+    function onUp() {
+      handle.releasePointerCapture(event.pointerId);
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+    }
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
   }
 
   function insertMention(item: AttachItem) {
@@ -293,7 +315,7 @@ export function Composer(props: Props) {
             props.onAddFiles(event.dataTransfer.files);
           }}
         >
-          <div className="prompt-field">
+          <div className="prompt-field" style={{ height: promptHeight }}>
             <div className="prompt-highlight" aria-hidden ref={highlightRef}>
               {highlightParts.map((part, index) => {
                 if (part.type === "text") return <span key={`t-${index}`}>{part.value}</span>;
@@ -327,6 +349,22 @@ export function Composer(props: Props) {
                   : "Describe what to generate…"
               }
               onKeyDown={(e) => {
+                if (
+                  (e.key === "Backspace" || e.key === "Delete") &&
+                  e.currentTarget.selectionStart === e.currentTarget.selectionEnd
+                ) {
+                  const result = deleteMentionToken(
+                    props.prompt,
+                    e.currentTarget.selectionStart ?? 0,
+                    e.key === "Backspace" ? "backward" : "forward",
+                  );
+                  if (result) {
+                    e.preventDefault();
+                    props.onPromptChange(result.next);
+                    placeCaret(result.caret);
+                    return;
+                  }
+                }
                 if (showMentions) {
                   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                     e.preventDefault();
@@ -364,6 +402,13 @@ export function Composer(props: Props) {
               }}
             />
           </div>
+          <div
+            className="prompt-resize"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize prompt"
+            onPointerDown={startPromptResize}
+          />
           {dragging ? (
             <div className="prompt-drop-overlay" aria-hidden>
               Drop media to attach
@@ -398,71 +443,101 @@ export function Composer(props: Props) {
         </div>
 
         {props.attachments.length > 0 ? (
-          <div className="attach-preview">
+          <div
+            className="attach-preview"
+            onDragOver={(event) => {
+              if (dragIndex == null) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              const from = Number(event.dataTransfer.getData("text/plain"));
+              const insertBefore = dropInsertBefore ?? props.attachments.length;
+              setDragIndex(null);
+              setDropInsertBefore(null);
+              if (!Number.isInteger(from)) return;
+              props.onReorderAttachments(from, indexAfterInsertBefore(from, insertBefore));
+            }}
+          >
             {props.attachments.map((item, index) => {
               const ofKind = props.attachments.filter((entry) => entry.kind === item.kind);
               const kindIndex = ofKind.indexOf(item);
               const token = mentionToken(item.kind, kindIndex);
+              const showSlot =
+                dragIndex != null &&
+                dropInsertBefore === index &&
+                dropInsertBefore !== dragIndex &&
+                dropInsertBefore !== dragIndex + 1;
               return (
-                <div
-                  className={`attach-chip${dragIndex === index ? " is-dragging" : ""}${dropIndex === index ? " is-drop" : ""}`}
-                  key={`${item.kind}-${item.name}-${index}`}
-                  draggable
-                  onDragStart={(event) => {
-                    if ((event.target as HTMLElement).closest("button")) {
+                <div key={`${item.kind}-${item.name}-${index}`} className="attach-slot">
+                  {showSlot ? (
+                    <div className="attach-drop-slot" aria-hidden>
+                      Drop
+                    </div>
+                  ) : null}
+                  <div
+                    className={`attach-chip${dragIndex === index ? " is-dragging" : ""}`}
+                    draggable
+                    onDragStart={(event) => {
+                      if ((event.target as HTMLElement).closest("button")) {
+                        event.preventDefault();
+                        return;
+                      }
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", String(index));
+                      setDragIndex(index);
+                    }}
+                    onDragOver={(event) => {
                       event.preventDefault();
-                      return;
-                    }
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("text/plain", String(index));
-                    setDragIndex(index);
-                  }}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "move";
-                    if (dropIndex !== index) setDropIndex(index);
-                  }}
-                  onDragLeave={() => {
-                    if (dropIndex === index) setDropIndex(null);
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    const from = Number(event.dataTransfer.getData("text/plain"));
-                    setDragIndex(null);
-                    setDropIndex(null);
-                    if (Number.isInteger(from)) props.onReorderAttachments(from, index);
-                  }}
-                  onDragEnd={() => {
-                    setDragIndex(null);
-                    setDropIndex(null);
-                  }}
-                >
-                  <div className="attach-thumb">
-                    {item.kind === "image" ? (
-                      <img src={item.preview} alt="" draggable={false} />
-                    ) : item.kind === "video" ? (
-                      <video src={item.preview} muted draggable={false} />
-                    ) : (
-                      <span className="pill">AUD</span>
-                    )}
-                    {item.preview ? (
-                      <ExpandMediaButton
-                        label={`Expand ${token}`}
-                        onClick={() => setLightbox(item)}
-                      />
-                    ) : null}
-                  </div>
-                  <span>{token}</span>
-                  <button
-                    className="ghost-btn"
-                    type="button"
-                    onClick={() => props.onClearAttachment(item.kind, kindIndex)}
+                      event.stopPropagation();
+                      event.dataTransfer.dropEffect = "move";
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const insertBefore = event.clientX < rect.left + rect.width / 2 ? index : index + 1;
+                      if (dropInsertBefore !== insertBefore) setDropInsertBefore(insertBefore);
+                    }}
+                    onDragEnd={() => {
+                      setDragIndex(null);
+                      setDropInsertBefore(null);
+                    }}
                   >
-                    Remove
-                  </button>
+                    <span className="attach-grip" aria-hidden>
+                      ⋮⋮
+                    </span>
+                    <div className="attach-thumb">
+                      {item.kind === "image" ? (
+                        <img src={item.preview} alt="" draggable={false} />
+                      ) : item.kind === "video" ? (
+                        <video src={item.preview} muted draggable={false} />
+                      ) : (
+                        <span className="pill">AUD</span>
+                      )}
+                      {item.preview ? (
+                        <ExpandMediaButton
+                          label={`Expand ${token}`}
+                          onClick={() => setLightbox(item)}
+                        />
+                      ) : null}
+                    </div>
+                    <span>{token}</span>
+                    <button
+                      className="ghost-btn"
+                      type="button"
+                      onClick={() => props.onClearAttachment(item.kind, kindIndex)}
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
               );
             })}
+            {dragIndex != null &&
+            dropInsertBefore === props.attachments.length &&
+            dragIndex !== props.attachments.length - 1 ? (
+              <div className="attach-drop-slot" aria-hidden>
+                Drop
+              </div>
+            ) : null}
           </div>
         ) : null}
 

@@ -741,20 +741,16 @@ a {
   position: relative;
 }
 
-.prompt-field {
-  position: relative;
-}
-
 .prompt-highlight,
 .prompt-field textarea {
   width: 100%;
   margin: 0;
   border: 0;
   outline: none;
-  resize: none;
   background: transparent;
   padding: 14px 14px 8px;
   min-height: 76px;
+  height: 100%;
   line-height: 1.45;
   font-size: 14px;
   font-family: inherit;
@@ -763,13 +759,18 @@ a {
   word-break: break-word;
 }
 
+.prompt-field {
+  position: relative;
+  min-height: 76px;
+}
+
 .prompt-highlight {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
   color: var(--text);
-  overflow: hidden;
+  overflow: auto;
 }
 
 .prompt-field textarea {
@@ -777,6 +778,25 @@ a {
   z-index: 1;
   color: transparent;
   caret-color: var(--text);
+  resize: none;
+  overflow: auto;
+}
+
+.prompt-resize {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 12px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.prompt-resize::after {
+  content: "";
+  width: 36px;
+  height: 3px;
+  border-radius: 99px;
+  background: var(--border-strong);
 }
 
 .prompt-field textarea::placeholder {
@@ -1376,6 +1396,28 @@ a {
   gap: 8px;
   padding: 0 10px 10px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.attach-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.attach-drop-slot {
+  display: grid;
+  place-items: center;
+  min-width: 72px;
+  height: 48px;
+  border: 1.5px dashed var(--blue);
+  border-radius: 10px;
+  background: rgba(29, 78, 137, 0.08);
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .attach-chip {
@@ -1389,14 +1431,26 @@ a {
   color: var(--text-muted);
   background: #fff;
   cursor: grab;
+  box-shadow: none;
+  transition: transform 80ms ease, box-shadow 80ms ease, opacity 80ms ease;
+}
+
+.attach-chip:active {
+  cursor: grabbing;
 }
 
 .attach-chip.is-dragging {
-  opacity: 0.45;
+  opacity: 0.4;
+  transform: scale(0.96);
+  box-shadow: var(--shadow);
 }
 
-.attach-chip.is-drop {
-  border-color: var(--blue);
+.attach-grip {
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: -2px;
+  line-height: 1;
+  user-select: none;
 }
 
 .attach-thumb {

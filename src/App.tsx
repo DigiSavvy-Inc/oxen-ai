@@ -22,7 +22,7 @@ import {
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations } from "./lib/batches";
 import { completedMedia, downloadAllMedia } from "./lib/download";
 import { filesFromList, kindFromFile } from "./lib/files";
-import { moveItem, remapMentionTokens } from "./lib/mentions";
+import { moveItem } from "./lib/mentions";
 import { generationCountForModelChange } from "./lib/model-menu";
 
 type StagedFile = {
@@ -458,7 +458,6 @@ export default function App() {
   function onReorderAttachments(from: number, to: number) {
     const next = moveItem(staged, from, to);
     if (next === staged) return;
-    setPrompt(remapMentionTokens(prompt, staged, next));
     setStaged(next);
   }
 

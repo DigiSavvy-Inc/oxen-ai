@@ -149,22 +149,29 @@ export function moveItem<T>(items: T[], from: number, to: number): T[] {
   return next;
 }
 
-export function remapMentionTokens<T extends { kind: MentionItem["kind"] }>(
-  prompt: string,
-  before: T[],
-  after: T[],
-): string {
-  const mentions = parsePromptMentions(prompt);
-  let next = prompt;
-  for (let i = mentions.length - 1; i >= 0; i -= 1) {
-    const mention = mentions[i];
-    if (!mention) continue;
-    const item = before.filter((entry) => entry.kind === mention.kind)[mention.index];
-    if (!item) continue;
-    const newIndex = after.filter((entry) => entry.kind === mention.kind).findIndex((entry) => entry === item);
-    if (newIndex < 0 || newIndex === mention.index) continue;
-    const token = mentionToken(mention.kind, newIndex);
-    next = `${next.slice(0, mention.start)}${token}${next.slice(mention.end)}`;
-  }
-  return next;
+export function indexAfterInsertBefore(from: number, insertBefore: number): number {
+  if (insertBefore === from || insertBefore === from + 1) return from;
+  return from < insertBefore ? insertBefore - 1 : insertBefore;
+}
+
+export function deleteMentionToken(
+  text: string,
+  caret: number,
+  direction: "backward" | "forward",
+): { next: string; caret: number } | null {
+  const mentions = parsePromptMentions(text);
+  const mention =
+    direction === "backward"
+      ? (mentions.find((item) => caret > item.start && caret <= item.end) ??
+        (text[caret - 1] === " "
+          ? mentions.find((item) => item.end === caret - 1)
+          : undefined))
+      : mentions.find((item) => caret >= item.start && caret < item.end);
+  if (!mention) return null;
+  let end = mention.end;
+  if (text[end] === " ") end += 1;
+  return {
+    next: `${text.slice(0, mention.start)}${text.slice(end)}`,
+    caret: mention.start,
+  };
 }
