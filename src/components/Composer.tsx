@@ -24,7 +24,7 @@ import {
   tokenForItem,
   type PromptMention,
 } from "../lib/mentions";
-import { ExpandMediaButton, MediaLightbox } from "./MediaLightbox";
+import { ExpandMediaButton } from "./MediaLightbox";
 import { ModelMenu } from "./ModelMenu";
 
 type AttachItem = {
@@ -97,7 +97,6 @@ export function Composer(props: Props) {
   const [caret, setCaret] = useState(0);
   const [mentionOpen, setMentionOpen] = useState(true);
   const [hotMention, setHotMention] = useState<number | null>(null);
-  const [lightbox, setLightbox] = useState<AttachItem | null>(null);
   const [hoveredMention, setHoveredMention] = useState<{
     mention: PromptMention;
     item: AttachItem;
@@ -525,8 +524,9 @@ export function Composer(props: Props) {
                       )}
                       {item.preview ? (
                         <ExpandMediaButton
-                          label={`Expand ${token}`}
-                          onClick={() => setLightbox(item)}
+                          label={`Preview ${token}`}
+                          preview={item.preview}
+                          kind={item.kind === "video" ? "video" : "image"}
                         />
                       ) : null}
                     </div>
@@ -801,7 +801,6 @@ export function Composer(props: Props) {
           <span>{hoveredMention.mention.token}</span>
         </div>
       ) : null}
-      {lightbox ? <MediaLightbox item={lightbox} onClose={() => setLightbox(null)} /> : null}
     </div>
   );
 }

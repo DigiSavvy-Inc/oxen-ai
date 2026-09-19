@@ -35,7 +35,7 @@ export function generationCountForModelChange(
   nextModel: string,
   currentCount: number,
 ): number {
-  if (!previousModel || previousModel === nextModel) return currentCount;
+  if (previousModel && previousModel === nextModel) return currentCount;
   return 1;
 }
 

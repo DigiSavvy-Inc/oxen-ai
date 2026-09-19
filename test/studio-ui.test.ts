@@ -14,6 +14,7 @@ import {
   type Generation,
 } from "../src/lib/api";
 import { downloadFilename, tilePreviewUrl } from "../src/lib/download";
+import { kindFromMediaType, libraryRefFromGeneration, mergeLibraryRefs } from "../src/lib/library-refs";
 import {
   attachmentForMention,
   cycleHotIndex,
@@ -279,7 +280,7 @@ describe("model menu filter", () => {
   it("resets variation count to 1x when the selected model changes", () => {
     expect(generationCountForModelChange("flux", "kling", 4)).toBe(1);
     expect(generationCountForModelChange("flux", "flux", 3)).toBe(3);
-    expect(generationCountForModelChange("", "flux", 4)).toBe(4);
+    expect(generationCountForModelChange("", "flux", 4)).toBe(1);
   });
 
   it("does not auto-select a model until a mode is chosen", () => {
@@ -288,5 +289,37 @@ describe("model menu filter", () => {
     expect(pickModel(models, favorites, "flux", "", false)).toBe("");
     expect(pickModel(models, favorites, "flux", "kling", false)).toBe("kling");
     expect(pickModel(models, favorites, "flux", "", true)).toBe("flux");
+  });
+});
+
+describe("library refs", () => {
+  it("only attaches succeeded media with a result url", () => {
+    expect(kindFromMediaType("video")).toBe("video");
+    expect(kindFromMediaType("chat")).toBeNull();
+    expect(
+      libraryRefFromGeneration(
+        gen({ id: "ok", status: "succeeded", resultUrl: "https://x/a.png", thumbUrl: "t.avif" }),
+      ),
+    ).toMatchObject({
+      generationId: "ok",
+      kind: "image",
+      url: "https://x/a.png",
+      preview: "t.avif",
+    });
+    expect(
+      libraryRefFromGeneration(gen({ id: "nope", status: "failed", resultUrl: "https://x/a.png" })),
+    ).toBeNull();
+  });
+
+  it("dedupes library items and respects the per-kind cap", () => {
+    const a = { kind: "image" as const, generationId: "a" };
+    const b = { kind: "image" as const, generationId: "b" };
+    const c = { kind: "image" as const, generationId: "c" };
+    expect(mergeLibraryRefs([a], [a], () => 4)).toEqual([a]);
+    expect(mergeLibraryRefs([a], [b], () => 1)).toEqual([a]);
+    expect(mergeLibraryRefs([a], [b, c], () => 2).map((item) => item.generationId)).toEqual([
+      "a",
+      "b",
+    ]);
   });
 });

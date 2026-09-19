@@ -1222,7 +1222,6 @@ app.post("/api/generate", async (c) => {
         duration: body.duration,
         seed: body.seed,
         generate_audio: body.generate_audio,
-        num_generations: body.num_generations,
         quality: body.quality,
         resolution: body.resolution,
         output_format: body.output_format,

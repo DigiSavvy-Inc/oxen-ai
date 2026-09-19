@@ -8,7 +8,7 @@
 - Local placeholder GitHub OAuth must not send users to `/login/oauth/authorize`.
 - Do not set global model defaults; let each user pick preferred models and persist their settings. Do not pre-select a mode chip (including Text → Image) until the user chooses a mode or a model. Use Oxen’s live catalog and keep controls consistent across models; image models that support resolution (including Seedream 5.x) must expose those options. Ghost unsupported mode pills for the selected model; choosing a ghosted mode resets the model.
 - Brand the product as DS Studio with the DigiSavvy favicon from digisavvy.com, not “Oxen Studio”.
-- Credits control is labeled “Buy Credits”, shows a live dollar balance, and links to https://www.oxen.ai/digisavvy/settings/billing; the generate button shows live estimated cost (including resolution, count, and duration) and keeps bold keyboard-hint icons.
+- Credits control is labeled “Buy Credits”, shows a live dollar balance, and links to https://www.oxen.ai/digisavvy/settings/billing; the generate button shows live estimated cost (including resolution, count, and duration) and keeps bold keyboard-hint icons. Count always starts at 1× and is not restored from the last job, so a previous 4× run cannot surprise-charge the next session.
 - Support multiple generations per prompt and `@Image`/`@Video`/`@Audio` mentions for models that accept references.
 - History is a click-to-toggle slide-out on desktop and mobile, filterable by tag, and should use generated thumbnails rather than full-size files. Tags apply to a generation group, not each output. Settings and logout live under the user avatar.
 

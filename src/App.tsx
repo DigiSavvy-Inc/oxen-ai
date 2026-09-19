@@ -4,6 +4,7 @@ import { AccountMenu } from "./components/AccountMenu";
 import { Canvas } from "./components/Canvas";
 import { Composer } from "./components/Composer";
 import { CreditMeter } from "./components/CreditMeter";
+import { LibraryPeek } from "./components/LibraryPeek";
 import { LoginPage } from "./components/LoginPage";
 import { SettingsModal } from "./components/SettingsModal";
 import { Sidebar } from "./components/Sidebar";
@@ -24,13 +25,17 @@ import {
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations } from "./lib/batches";
 import { completedMedia, downloadAllMedia } from "./lib/download";
 import { filesFromList, kindFromFile } from "./lib/files";
+import { libraryRefFromGeneration, mergeLibraryRefs, releasePreview } from "./lib/library-refs";
 import { moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 
-type StagedFile = {
-  file: File;
+type StagedMedia = {
+  file?: File;
   preview: string;
   kind: "image" | "video" | "audio";
+  name: string;
+  url?: string;
+  generationId?: string;
 };
 
 function initialLibraryOpen(): boolean {
@@ -66,10 +71,11 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [staged, setStaged] = useState<StagedFile[]>([]);
+  const [staged, setStaged] = useState<StagedMedia[]>([]);
   const [credits, setCredits] = useState<CreditBalance | null>(null);
   const [keepCanvasClear, setKeepCanvasClear] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(initialLibraryOpen);
+  const [peekId, setPeekId] = useState<string | null>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
 
@@ -84,6 +90,23 @@ export default function App() {
     const batch = batches.find((entry) => entry.items.some((item) => item.id === selected.id));
     return batch?.items ?? [selected];
   }, [generations, selected]);
+
+  const peek = useMemo(
+    () => generations.find((g) => g.id === peekId) ?? null,
+    [generations, peekId],
+  );
+
+  const peekVariants = useMemo(() => {
+    if (!peek) return [];
+    const batches = groupGenerationBatches(generations);
+    const batch = batches.find((entry) => entry.items.some((item) => item.id === peek.id));
+    return batch?.items ?? [peek];
+  }, [generations, peek]);
+
+  const attachedIds = useMemo(
+    () => new Set(staged.map((item) => item.generationId).filter((id): id is string => Boolean(id))),
+    [staged],
+  );
 
   const favoriteIds = useMemo(
     () => new Set(favorites.map((item) => item.id)),
@@ -141,7 +164,6 @@ export default function App() {
         setSettings(data);
         if (data.lastParams.aspect_ratio) setAspectRatio(data.lastParams.aspect_ratio);
         if (data.lastParams.duration != null) setDuration(String(data.lastParams.duration));
-        if (data.lastParams.num_generations) setNumGenerations(data.lastParams.num_generations);
         if (typeof data.lastParams.generate_audio === "boolean") {
           setGenerateAudio(data.lastParams.generate_audio);
         }
@@ -175,13 +197,18 @@ export default function App() {
   }, [libraryOpen]);
 
   useEffect(() => {
-    if (!libraryOpen) return;
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setLibraryOpen(false);
+      if (event.key !== "Escape") return;
+      if (peekId) {
+        event.preventDefault();
+        setPeekId(null);
+        return;
+      }
+      if (libraryOpen) setLibraryOpen(false);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [libraryOpen]);
+  }, [peekId, libraryOpen]);
 
   useEffect(() => {
     if (!user || !libraryOpen) return;
@@ -342,7 +369,7 @@ export default function App() {
       });
       if (next.length !== prev.length) {
         for (const item of prev) {
-          if (!next.includes(item)) URL.revokeObjectURL(item.preview);
+          if (!next.includes(item)) releasePreview(item.preview);
         }
       }
       return next;
@@ -372,14 +399,31 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [generations, refreshCredits]);
 
-  function addFilesOfKind(kind: "image" | "video" | "audio", incoming: File[]) {
-    if (incoming.length === 0) return;
-    const max = Math.max(
+  function capForKind(kind: "image" | "video" | "audio") {
+    return Math.max(
       slotMax(controls, kind),
       kind === "image" && (mode === "image-to-image" || mode === "reference-to-video") ? 1 : 0,
       kind === "video" && mode === "video-to-video" ? 1 : 0,
+      1,
     );
-    const cap = Math.max(max, 1);
+  }
+
+  function appendMentionTokens(kind: "image" | "video" | "audio", existingCount: number, addedCount: number) {
+    const mentionsOn = Boolean(controls?.mentions || controls?.slots.some((slot) => slot.kind === kind));
+    if (!mentionsOn || addedCount <= 0) return;
+    setPrompt((current) => {
+      let next = current;
+      for (let offset = 0; offset < addedCount; offset += 1) {
+        const token = mentionToken(kind, existingCount + offset);
+        if (!next.includes(token)) next = next.trim() ? `${next.trim()} ${token}` : token;
+      }
+      return next;
+    });
+  }
+
+  function addFilesOfKind(kind: "image" | "video" | "audio", incoming: File[]) {
+    if (incoming.length === 0) return;
+    const cap = capForKind(kind);
     const existingCount = staged.filter((item) => item.kind === kind).length;
     setStaged((prev) => {
       const others = prev.filter((item) => item.kind !== kind);
@@ -387,26 +431,16 @@ export default function App() {
       const added = incoming.map((file) => ({
         file,
         kind,
+        name: file.name,
         preview: kind === "audio" ? "" : URL.createObjectURL(file),
       }));
       const merged = [...existing, ...added].slice(0, cap);
       for (const item of existing) {
-        if (!merged.includes(item) && item.preview) URL.revokeObjectURL(item.preview);
+        if (!merged.includes(item)) releasePreview(item.preview);
       }
       return [...others, ...merged];
     });
-    const mentionsOn = Boolean(controls?.mentions || controls?.slots.some((slot) => slot.kind === kind));
-    if (mentionsOn) {
-      setPrompt((current) => {
-        let next = current;
-        const addedCount = Math.min(incoming.length, Math.max(0, cap - existingCount));
-        for (let offset = 0; offset < addedCount; offset += 1) {
-          const token = mentionToken(kind, existingCount + offset);
-          if (!next.includes(token)) next = next.trim() ? `${next.trim()} ${token}` : token;
-        }
-        return next;
-      });
-    }
+    appendMentionTokens(kind, existingCount, Math.min(incoming.length, Math.max(0, cap - existingCount)));
   }
 
   function onAddFiles(list: FileList | File[] | null) {
@@ -420,23 +454,48 @@ export default function App() {
     addFilesOfKind("audio", audios);
   }
 
+  function addLibraryItem(generation: Generation) {
+    const ref = libraryRefFromGeneration(generation);
+    if (!ref) return;
+    const existingCount = staged.filter((item) => item.kind === ref.kind).length;
+    let added = 0;
+    setStaged((prev) => {
+      const next = mergeLibraryRefs(
+        prev,
+        [
+          {
+            kind: ref.kind,
+            name: ref.name,
+            preview: ref.preview,
+            url: ref.url,
+            generationId: ref.generationId,
+          },
+        ],
+        capForKind,
+      );
+      added = next.length - prev.length;
+      return next;
+    });
+    appendMentionTokens(ref.kind, existingCount, added);
+  }
+
   function startNew() {
     setStaged((prev) => {
-      for (const item of prev) {
-        if (item.preview) URL.revokeObjectURL(item.preview);
-      }
+      for (const item of prev) releasePreview(item.preview);
       return [];
     });
     setKeepCanvasClear(true);
     setSelectedId(null);
+    setPeekId(null);
     setError(null);
+    setNumGenerations(1);
   }
 
   function onClearAttachment(kind: "image" | "video" | "audio", index: number) {
     setStaged((prev) => {
       const ofKind = prev.filter((item) => item.kind === kind);
       const target = ofKind[index];
-      if (target?.preview) URL.revokeObjectURL(target.preview);
+      if (target?.preview) releasePreview(target.preview);
       let seen = 0;
       return prev.filter((item) => {
         if (item.kind !== kind) return true;
@@ -513,6 +572,7 @@ export default function App() {
     const removing = new Set(ids);
     setGenerations((prev) => prev.filter((row) => !removing.has(row.id)));
     setSelectedId((prev) => (prev && removing.has(prev) ? null : prev));
+    setPeekId((prev) => (prev && removing.has(prev) ? null : prev));
     setError(null);
     try {
       await Promise.all(ids.map((id) => api.cancelGeneration(id)));
@@ -557,10 +617,11 @@ export default function App() {
       const videos: string[] = [];
       const audios: string[] = [];
       for (const item of staged) {
-        const uploaded = await api.upload(item.file);
-        if (item.kind === "image") images.push(uploaded.url);
-        else if (item.kind === "video") videos.push(uploaded.url);
-        else audios.push(uploaded.url);
+        const url = item.url ?? (item.file ? (await api.upload(item.file)).url : "");
+        if (!url) continue;
+        if (item.kind === "image") images.push(url);
+        else if (item.kind === "video") videos.push(url);
+        else audios.push(url);
       }
 
       const payload: Record<string, unknown> = {
@@ -588,6 +649,7 @@ export default function App() {
 
       const { generations: created } = await api.generate(payload);
       setKeepCanvasClear(false);
+      setPeekId(null);
       setGenerations((prev) => mergeGenerations(prev, created));
       setSelectedId(created[0]?.id ?? null);
       void refreshCredits();
@@ -610,12 +672,11 @@ export default function App() {
     <div className={`app-shell${libraryOpen ? " library-open" : ""}`}>
       <Sidebar
         generations={generations}
-        selectedId={selectedId}
+        selectedId={peekId}
         loading={libraryLoading}
         downloadingAll={downloadingAll}
         onSelect={(id) => {
-          setKeepCanvasClear(false);
-          setSelectedId(id);
+          setPeekId(id);
           if (window.matchMedia("(max-width: 860px)").matches) setLibraryOpen(false);
         }}
         onClose={() => setLibraryOpen(false)}
@@ -658,12 +719,24 @@ export default function App() {
             />
           </div>
         </div>
-        <Canvas
-          generation={selected}
-          variants={selectedVariants}
-          onSelect={setSelectedId}
-          onTagsChange={(id, tags) => void onSaveTags(id, tags)}
-        />
+        <div className="workspace">
+          <Canvas
+            generation={selected}
+            variants={selectedVariants}
+            onSelect={setSelectedId}
+            onTagsChange={(id, tags) => void onSaveTags(id, tags)}
+          />
+          {peek ? (
+            <LibraryPeek
+              generation={peek}
+              variants={peekVariants}
+              attachedIds={attachedIds}
+              onClose={() => setPeekId(null)}
+              onAttach={addLibraryItem}
+              onSelectVariant={setPeekId}
+            />
+          ) : null}
+        </div>
         <Composer
           mode={mode}
           onModeChange={handleModeChange}
@@ -697,7 +770,7 @@ export default function App() {
           background={background}
           onBackgroundChange={setBackground}
           attachments={staged.map((item) => ({
-            name: item.file.name,
+            name: item.name,
             preview: item.preview,
             kind: item.kind,
           }))}
