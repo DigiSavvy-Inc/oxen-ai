@@ -444,6 +444,36 @@ a {
   max-width: 240px;
 }
 
+.select-model {
+  max-width: 280px;
+}
+
+.model-search {
+  width: 140px;
+}
+
+.star-btn.active {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.audio-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.audio-toggle input {
+  margin: 0;
+}
+
+.composer-hint {
+  margin: 0;
+  padding: 0 12px 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 .attach {
   display: inline-flex;
   align-items: center;

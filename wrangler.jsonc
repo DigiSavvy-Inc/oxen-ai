@@ -30,10 +30,8 @@
     {
       "binding": "DB",
       "database_name": "oxen-studio",
-      // Placeholder for local D1 (`wrangler d1 migrations apply oxen-studio --local`).
-      // Before production deploy: `wrangler d1 create oxen-studio` and paste the
-      // real database_id. Do not invent UUIDs.
-      "database_id": "00000000-0000-0000-0000-000000000001",
+      // Local `npm run dev` still uses .wrangler/state; this id is the production D1.
+      "database_id": "e9c9de54-3169-4e18-b804-7a82eafde255",
       "migrations_dir": "migrations"
     }
   ],

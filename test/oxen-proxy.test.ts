@@ -45,6 +45,16 @@ const catalog: OxenModel[] = [
     capabilities: { input: ["text", "image"], output: ["image"] },
   },
   {
+    id: "gpt-image-2-5-flare",
+    endpoint: "/images/edit",
+    capabilities: { input: ["text", "image"], output: ["image"] },
+  },
+  {
+    id: "gpt-image-2-5-sunburst",
+    endpoint: "/images/edit",
+    capabilities: { input: ["text", "image"], output: ["image"] },
+  },
+  {
     id: "qwen-edit",
     endpoint: "/api/ai/images/edit",
     capabilities: { input: ["text", "image"], output: ["image"] },
@@ -189,6 +199,8 @@ describe("filterModelsForMode", () => {
       "flux-no-caps",
       "flux-optional-image",
       "flux-prefixed",
+      "gpt-image-2-5-flare",
+      "gpt-image-2-5-sunburst",
     ]);
   });
 
@@ -196,6 +208,8 @@ describe("filterModelsForMode", () => {
     expect(ids(filterModelsForMode(catalog, "image-to-image")).sort()).toEqual([
       "flux-no-caps",
       "flux-optional-image",
+      "gpt-image-2-5-flare",
+      "gpt-image-2-5-sunburst",
       "qwen-edit",
     ]);
   });
@@ -258,6 +272,20 @@ describe("buildEnqueuePayload", () => {
     });
     expect(payload.duration).toBe(5);
     expect(payload.generate_audio).toBe(false);
+  });
+
+  it("includes Seedance input_images on video jobs", () => {
+    const payload = buildEnqueuePayload("video", {
+      model: "bytedance-seedance-2-0-reference-to-video",
+      prompt: "@Image1 waves",
+      input_images: ["https://example.com/a.png"],
+      duration: "8",
+      num_generations: 2,
+    });
+    expect(payload.input_images).toEqual(["https://example.com/a.png"]);
+    expect(payload.duration).toBe("8");
+    expect(payload.num_generations).toBe(2);
+    expect("input_image" in payload).toBe(false);
   });
 });
 

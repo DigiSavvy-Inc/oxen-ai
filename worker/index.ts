@@ -31,17 +31,33 @@ import {
   enqueueGeneration,
   extractOxenErrorMessage,
   extractResultUrl,
+  favoriteModel,
   filterModelsForMode,
   getGeneration,
+  getModel,
+  listFavoriteModels,
   listModels,
   listQueue,
   notePollFailure,
   pollErrorMessage,
   resetPollFailures,
+  searchModels,
   shouldPersistPollFailure,
+  unfavoriteModel,
   type OxenModel,
 } from "./oxen";
+import {
+  asSingleString,
+  asStringList,
+  clampDuration,
+  imageSlotRequired,
+  mapMediaUrls,
+  parseModelControls,
+  pickCompatible,
+  videoSlotRequired,
+} from "./schema";
 import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
+import { getStudioSettings, saveStudioSettings } from "./user-settings";
 
 type Variables = {
   user: UserRow;
@@ -168,11 +184,47 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         endpoint: "/images/generate",
         capabilities: { input: ["text"], output: ["image"] },
       },
+      {
+        id: "gpt-image-2-5-flare",
+        display_name: "GPT Image 2.5 Flare",
+        endpoint: "/images/edit",
+        capabilities: { input: ["text", "image"], output: ["image"] },
+      },
+      {
+        id: "gpt-image-2-5-sunburst",
+        display_name: "GPT Image 2.5 Sunburst",
+        endpoint: "/images/edit",
+        capabilities: { input: ["text", "image"], output: ["image"] },
+      },
+      {
+        id: "bytedance-seedream-5-0-lite",
+        display_name: "Seedream 5.0 Lite",
+        endpoint: "/images/generate",
+        capabilities: { input: ["text"], output: ["image"] },
+      },
+      {
+        id: "bytedance-seedream-5-0-pro",
+        display_name: "Seedream 5.0 Pro",
+        endpoint: "/images/generate",
+        capabilities: { input: ["text"], output: ["image"] },
+      },
     ],
     "image-to-image": [
       {
         id: "qwen-image-edit",
         display_name: "Qwen Image Edit",
+        endpoint: "/images/edit",
+        capabilities: { input: ["text", "image"], output: ["image"] },
+      },
+      {
+        id: "gpt-image-2-5-flare",
+        display_name: "GPT Image 2.5 Flare",
+        endpoint: "/images/edit",
+        capabilities: { input: ["text", "image"], output: ["image"] },
+      },
+      {
+        id: "gpt-image-2-5-sunburst",
+        display_name: "GPT Image 2.5 Sunburst",
         endpoint: "/images/edit",
         capabilities: { input: ["text", "image"], output: ["image"] },
       },
@@ -189,6 +241,12 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
       {
         id: "kling-video-o3-pro-reference-to-video",
         display_name: "Kling O3 Pro Reference-to-Video",
+        endpoint: "/videos/generate",
+        capabilities: { input: ["text", "image"], output: ["video"] },
+      },
+      {
+        id: "bytedance-seedance-2-0-reference-to-video",
+        display_name: "Seedance 2.0 Reference-to-Video",
         endpoint: "/videos/generate",
         capabilities: { input: ["text", "image"], output: ["video"] },
       },
@@ -363,6 +421,72 @@ app.delete("/api/admin/allowlist/:login", async (c) => {
   return c.json({ ok: true });
 });
 
+app.get("/api/settings/studio", async (c) => {
+  const user = await requireUser(c);
+  const settings = await getStudioSettings(c.env.DB, user.id);
+  return c.json(settings);
+});
+
+app.put("/api/settings/studio", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{
+    defaultModelByMode?: Partial<Record<GenerationMode, string>>;
+    lastParams?: Record<string, unknown>;
+  }>();
+  const settings = await saveStudioSettings(c.env.DB, user.id, {
+    defaultModelByMode: body.defaultModelByMode,
+    lastParams: body.lastParams,
+  });
+  return c.json(settings);
+});
+
+app.get("/api/models/favorites", async (c) => {
+  const user = await requireUser(c);
+  const apiKey = await requireOxenKey(user, c.env);
+  const models = await listFavoriteModels(apiKey);
+  return c.json({ models });
+});
+
+app.post("/api/models/:id/favorite", async (c) => {
+  const user = await requireUser(c);
+  const apiKey = await requireOxenKey(user, c.env);
+  await favoriteModel(apiKey, c.req.param("id"));
+  return c.json({ ok: true });
+});
+
+app.delete("/api/models/:id/favorite", async (c) => {
+  const user = await requireUser(c);
+  const apiKey = await requireOxenKey(user, c.env);
+  await unfavoriteModel(apiKey, c.req.param("id"));
+  return c.json({ ok: true });
+});
+
+app.get("/api/models/search", async (c) => {
+  const user = await requireUser(c);
+  const mode = c.req.query("mode") as GenerationMode | undefined;
+  if (mode && !(mode in MODE_META)) {
+    throw new HTTPException(400, { message: "Invalid mode" });
+  }
+  const query = (c.req.query("q") || "").trim();
+  if (!query) return c.json({ mode: mode ?? null, models: [] });
+  const apiKey = await requireOxenKey(user, c.env);
+  const found = await searchModels(apiKey, query);
+  return c.json({
+    mode: mode ?? null,
+    models: mode ? filterModelsForMode(found, mode) : found.filter((model) => {
+      const endpoint = (model.endpoint || "").toLowerCase();
+      return endpoint.includes("image") || endpoint.includes("video");
+    }),
+  });
+});
+
+app.get("/api/models/:id", async (c) => {
+  const user = await requireUser(c);
+  const apiKey = await requireOxenKey(user, c.env);
+  const model = await getModel(apiKey, c.req.param("id"));
+  return c.json({ model, controls: parseModelControls(model) });
+});
+
 app.get("/api/models", async (c) => {
   const user = await requireUser(c);
   const mode = (c.req.query("mode") || "text-to-image") as GenerationMode;
@@ -451,12 +575,23 @@ app.post("/api/generate", async (c) => {
     model: string;
     prompt?: string;
     aspect_ratio?: string;
-    duration?: number;
+    duration?: number | string;
     seed?: number;
     input_image?: string | string[];
+    input_images?: string[];
     input_video?: string;
+    input_videos?: string[];
+    input_audios?: string[];
+    images?: string[];
+    videos?: string[];
+    audios?: string[];
     generate_audio?: boolean;
     num_generations?: number;
+    quality?: string;
+    resolution?: string;
+    output_format?: string;
+    background?: string;
+    moderation?: string;
   }>();
 
   const mode = body.mode;
@@ -471,23 +606,92 @@ app.post("/api/generate", async (c) => {
   }
 
   const meta = MODE_META[mode];
-  if (meta.needsImage && !body.input_image) {
+  let controls = parseModelControls({ id: body.model.trim() });
+  try {
+    const detail = await getModel(apiKey, body.model.trim());
+    controls = parseModelControls(detail);
+  } catch (err) {
+    console.error("model schema error", err);
+  }
+
+  const imageUrls = [
+    ...(body.images ?? []),
+    ...(Array.isArray(body.input_image)
+      ? body.input_image
+      : body.input_image
+        ? [body.input_image]
+        : []),
+    ...(body.input_images ?? []),
+  ].filter((url) => url.trim());
+  const videoUrls = [
+    ...(body.videos ?? []),
+    ...(body.input_video ? [body.input_video] : []),
+    ...(body.input_videos ?? []),
+  ].filter((url) => url.trim());
+  const audioUrls = [...(body.audios ?? []), ...(body.input_audios ?? [])].filter((url) =>
+    url.trim(),
+  );
+
+  const mapped =
+    controls.slots.length > 0
+      ? mapMediaUrls(controls.slots, {
+          image: imageUrls,
+          video: videoUrls,
+          audio: audioUrls,
+        })
+      : {};
+  const useFallback = controls.slots.length === 0;
+
+  const needsImage =
+    mode === "image-to-image" ||
+    imageSlotRequired(controls) ||
+    (mode === "reference-to-video" && meta.needsImage && useFallback);
+  const needsVideo =
+    mode === "video-to-video" ||
+    videoSlotRequired(controls) ||
+    (meta.needsVideo && useFallback);
+
+  if (needsImage && imageUrls.length === 0) {
     throw new HTTPException(400, { message: "input_image is required for this mode" });
   }
-  if (meta.needsVideo && !body.input_video) {
+  if (needsVideo && videoUrls.length === 0) {
     throw new HTTPException(400, { message: "input_video is required for this mode" });
   }
 
   const payload = buildEnqueuePayload(meta.mediaType, {
     model: body.model.trim(),
     prompt: body.prompt.trim(),
-    aspect_ratio: body.aspect_ratio,
-    duration: body.duration,
-    seed: body.seed,
-    input_image: body.input_image,
-    input_video: body.input_video,
-    generate_audio: body.generate_audio,
+    aspect_ratio: controls.aspectRatios
+      ? pickCompatible(body.aspect_ratio, controls.aspectRatios)
+      : body.aspect_ratio,
+    duration: clampDuration(body.duration, controls.duration),
+    seed: controls.seed || useFallback ? body.seed : undefined,
+    generate_audio: controls.generateAudio || useFallback ? body.generate_audio : undefined,
     num_generations: body.num_generations,
+    quality: pickCompatible(body.quality, controls.quality) ?? (useFallback ? body.quality : undefined),
+    resolution:
+      pickCompatible(body.resolution, controls.resolution) ??
+      (useFallback ? body.resolution : undefined),
+    output_format:
+      pickCompatible(body.output_format, controls.outputFormat) ??
+      (useFallback ? body.output_format : undefined),
+    background:
+      pickCompatible(body.background, controls.background) ??
+      (useFallback ? body.background : undefined),
+    moderation: body.moderation,
+    input_image:
+      mapped.input_image ?? (useFallback && imageUrls.length === 1 ? imageUrls[0] : undefined),
+    input_images:
+      asStringList(mapped.input_images) ??
+      (useFallback && imageUrls.length > 1 ? imageUrls : undefined),
+    input_video:
+      asSingleString(mapped.input_video) ??
+      (useFallback && videoUrls.length === 1 ? videoUrls[0] : undefined),
+    input_videos:
+      asStringList(mapped.input_videos) ??
+      (useFallback && videoUrls.length > 1 ? videoUrls : undefined),
+    input_audios:
+      asStringList(mapped.input_audios) ?? (useFallback && audioUrls.length > 0 ? audioUrls : undefined),
   });
 
   const generations = await enqueueGeneration(apiKey, payload);
@@ -528,6 +732,24 @@ app.post("/api/generate", async (c) => {
       createdAt: now,
       updatedAt: now,
     });
+  }
+
+  try {
+    await saveStudioSettings(c.env.DB, user.id, {
+      lastParams: {
+        aspect_ratio: body.aspect_ratio,
+        duration: body.duration,
+        seed: body.seed,
+        generate_audio: body.generate_audio,
+        num_generations: body.num_generations,
+        quality: body.quality,
+        resolution: body.resolution,
+        output_format: body.output_format,
+        background: body.background,
+      },
+    });
+  } catch (err) {
+    console.error("settings persist error", err);
   }
 
   return c.json({ generations: saved });

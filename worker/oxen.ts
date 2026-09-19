@@ -18,6 +18,9 @@ export type OxenModel = {
   developer?: { name?: string; logo?: string } | null;
 };
 
+const modelDetailCache = new Map<string, { at: number; model: OxenModel }>();
+const MODEL_DETAIL_TTL_MS = 5 * 60 * 1000;
+
 export type OxenQueuedGeneration = {
   generation_id: string;
   status: string;
@@ -33,12 +36,20 @@ export type EnqueueBody = {
   model: string;
   prompt: string;
   aspect_ratio?: string;
-  duration?: number;
+  duration?: number | string;
   seed?: number;
   input_image?: string | string[];
+  input_images?: string[];
   input_video?: string;
+  input_videos?: string[];
+  input_audios?: string[];
   generate_audio?: boolean;
   num_generations?: number;
+  quality?: string;
+  resolution?: string;
+  output_format?: string;
+  background?: string;
+  moderation?: string;
 };
 
 const pollFailures = new Map<string, number>();
@@ -97,7 +108,17 @@ export function shouldPersistPollFailure(count: number): boolean {
   return count >= POLL_FAILURE_THRESHOLD;
 }
 
-/** Image and video jobs share POST /api/ai/queue; duration is video-only. */
+function assignIfPresent(
+  payload: Record<string, unknown>,
+  key: string,
+  value: unknown,
+) {
+  if (value === undefined || value === null || value === "") return;
+  if (Array.isArray(value) && value.length === 0) return;
+  payload[key] = value;
+}
+
+/** Image and video jobs share POST /api/ai/queue; extra fields are Oxen passthrough. */
 export function buildEnqueuePayload(
   mediaType: "image" | "video",
   body: EnqueueBody,
@@ -107,16 +128,24 @@ export function buildEnqueuePayload(
     prompt: body.prompt.trim(),
     num_generations: Math.min(Math.max(body.num_generations ?? 1, 1), 4),
   };
-  if (body.aspect_ratio) payload.aspect_ratio = body.aspect_ratio;
+  assignIfPresent(payload, "aspect_ratio", body.aspect_ratio);
   if (body.seed != null) payload.seed = body.seed;
-  if (body.input_image) payload.input_image = body.input_image;
+  assignIfPresent(payload, "input_image", body.input_image);
+  assignIfPresent(payload, "input_images", body.input_images);
+  assignIfPresent(payload, "quality", body.quality);
+  assignIfPresent(payload, "resolution", body.resolution);
+  assignIfPresent(payload, "output_format", body.output_format);
+  assignIfPresent(payload, "background", body.background);
+  assignIfPresent(payload, "moderation", body.moderation);
 
   switch (mediaType) {
     case "image":
       break;
     case "video":
-      if (body.input_video) payload.input_video = body.input_video;
-      if (body.duration != null) payload.duration = body.duration;
+      assignIfPresent(payload, "input_video", body.input_video);
+      assignIfPresent(payload, "input_videos", body.input_videos);
+      assignIfPresent(payload, "input_audios", body.input_audios);
+      assignIfPresent(payload, "duration", body.duration);
       if (body.generate_audio != null) payload.generate_audio = body.generate_audio;
       break;
     default: {
@@ -178,6 +207,12 @@ function modalities(model: OxenModel): {
   };
 }
 
+/** GPT Image 2.x uses /images/edit with optional refs — still valid T2I. */
+export function isUnifiedImageModel(model: OxenModel): boolean {
+  const id = model.id.toLowerCase();
+  return id.startsWith("gpt-image") && !id.includes("edit");
+}
+
 export function filterModelsForMode(
   models: OxenModel[],
   mode: GenerationMode,
@@ -196,8 +231,9 @@ export function filterModelsForMode(
           caps.hasText &&
           !caps.hasVideoIn &&
           !videoGen &&
-          !imageEdit &&
-          (imageGen || (!caps.noCaps && caps.outputs.includes("image")))
+          (isUnifiedImageModel(model) ||
+            (!imageEdit &&
+              (imageGen || (!caps.noCaps && caps.outputs.includes("image")))))
         );
       case "image-to-image":
         return (
@@ -256,13 +292,74 @@ async function oxenFetch(
   return fetch(`${OXEN_BASE}${path}`, { ...init, headers });
 }
 
+function modelsFromListPayload(data: { data?: OxenModel[] }): OxenModel[] {
+  return data.data ?? [];
+}
+
 export async function listModels(apiKey: string): Promise<OxenModel[]> {
   const res = await oxenFetch("/models", apiKey);
   const data = await readOxenJson<{ data?: OxenModel[] } & OxenErrorBody>(res);
   if (!res.ok) {
     throw new Error(oxenErrorText(data, `Oxen models failed (${res.status})`));
   }
-  return data.data ?? [];
+  return modelsFromListPayload(data);
+}
+
+export async function searchModels(apiKey: string, query: string): Promise<OxenModel[]> {
+  const params = new URLSearchParams({ search: query });
+  const res = await oxenFetch(`/models/search?${params.toString()}`, apiKey);
+  const data = await readOxenJson<{ data?: OxenModel[] } & OxenErrorBody>(res);
+  if (!res.ok) {
+    throw new Error(oxenErrorText(data, `Oxen model search failed (${res.status})`));
+  }
+  return modelsFromListPayload(data);
+}
+
+export async function getModel(apiKey: string, id: string): Promise<OxenModel> {
+  const cached = modelDetailCache.get(id);
+  if (cached && Date.now() - cached.at < MODEL_DETAIL_TTL_MS) {
+    return cached.model;
+  }
+  const res = await oxenFetch(`/models/${encodeURIComponent(id)}`, apiKey);
+  const data = await readOxenJson<OxenModel & OxenErrorBody & { data?: OxenModel }>(res);
+  if (!res.ok) {
+    throw new Error(oxenErrorText(data, `Oxen model detail failed (${res.status})`));
+  }
+  const model = data.data ?? data;
+  if (!model.id) {
+    throw new Error(oxenErrorText(data, "Oxen model detail returned no id"));
+  }
+  modelDetailCache.set(id, { at: Date.now(), model });
+  return model;
+}
+
+export async function listFavoriteModels(apiKey: string): Promise<OxenModel[]> {
+  const res = await oxenFetch("/models/favorites", apiKey);
+  const data = await readOxenJson<{ data?: OxenModel[] } & OxenErrorBody>(res);
+  if (!res.ok) {
+    throw new Error(oxenErrorText(data, `Oxen favorites failed (${res.status})`));
+  }
+  return modelsFromListPayload(data);
+}
+
+export async function favoriteModel(apiKey: string, id: string): Promise<void> {
+  const res = await oxenFetch(`/models/${encodeURIComponent(id)}/favorite`, apiKey, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const data = await readOxenJson<OxenErrorBody>(res);
+    throw new Error(oxenErrorText(data, `Oxen favorite failed (${res.status})`));
+  }
+}
+
+export async function unfavoriteModel(apiKey: string, id: string): Promise<void> {
+  const res = await oxenFetch(`/models/${encodeURIComponent(id)}/favorite`, apiKey, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const data = await readOxenJson<OxenErrorBody>(res);
+    throw new Error(oxenErrorText(data, `Oxen unfavorite failed (${res.status})`));
+  }
 }
 
 export async function enqueueGeneration(
