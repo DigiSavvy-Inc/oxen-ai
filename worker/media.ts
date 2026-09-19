@@ -21,6 +21,7 @@ function extensionFor(contentType: string): string {
   if (contentType.includes("png")) return ".png";
   if (contentType.includes("jpeg") || contentType.includes("jpg")) return ".jpg";
   if (contentType.includes("webp")) return ".webp";
+  if (contentType.includes("avif")) return ".avif";
   if (contentType.includes("gif")) return ".gif";
   if (contentType.includes("mp4")) return ".mp4";
   if (contentType.includes("webm")) return ".webm";

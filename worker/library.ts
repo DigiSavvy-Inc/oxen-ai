@@ -1,4 +1,5 @@
-import { createImageThumbnail, isRasterImage } from "./thumbs";
+import { createImageThumbnail, isRasterImage, THUMB_MAX_BYTES } from "./thumbs";
+import { putMediaObject } from "./media";
 import type { Env } from "./types";
 
 export type CleanupAction = "failed" | "thumbs";
@@ -78,15 +79,19 @@ export async function backfillMissingThumbnails(
   const rows = await env.DB.prepare(
     `SELECT id, status, result_key, thumb_key FROM generations
      WHERE user_id = ? AND status = 'succeeded' AND result_key IS NOT NULL
-       AND (thumb_key IS NULL OR thumb_key = '')
      ORDER BY created_at DESC LIMIT ?`,
   )
-    .bind(userId, limit)
+    .bind(userId, Math.max(limit * 3, 24))
     .all<LibraryAssetRow>();
   const list = rows.results ?? [];
   let built = 0;
+  let considered = 0;
   for (const row of list) {
+    if (built >= limit) break;
     if (!row.result_key) continue;
+    const existing = row.thumb_key ? await env.MEDIA.head(row.thumb_key) : null;
+    if (existing && existing.size > 0 && existing.size <= THUMB_MAX_BYTES) continue;
+    considered += 1;
     const object = await env.MEDIA.get(row.result_key);
     if (!object) continue;
     const contentType = object.httpMetadata?.contentType || "application/octet-stream";
@@ -94,26 +99,30 @@ export async function backfillMissingThumbnails(
     const bytes = await object.arrayBuffer();
     const thumb = await createImageThumbnail(env.IMAGES, bytes, contentType);
     if (!thumb) continue;
-    const ext = ".jpg";
-    const key = `u/${userId}/thumbs/${crypto.randomUUID()}${ext}`;
-    await env.MEDIA.put(key, thumb.bytes, {
-      httpMetadata: { contentType: thumb.contentType },
-    });
+    const stored = await putMediaObject(
+      env.MEDIA,
+      thumb.bytes,
+      thumb.contentType,
+      `u/${userId}/thumbs`,
+    );
+    if (row.thumb_key && row.thumb_key !== stored.key) {
+      await deleteStoredMedia(env, [row.thumb_key]);
+    }
     try {
       await env.DB.prepare(
         `UPDATE generations SET thumb_key = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
       )
-        .bind(key, Math.floor(Date.now() / 1000), row.id, userId)
+        .bind(stored.key, Math.floor(Date.now() / 1000), row.id, userId)
         .run();
       built += 1;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes("thumb_key") || message.includes("SQLITE_ERROR")) {
-        await env.MEDIA.delete(key);
+        await env.MEDIA.delete(stored.key);
         break;
       }
       throw err;
     }
   }
-  return { built, remaining: list.length >= limit };
+  return { built, remaining: considered >= limit || built >= limit };
 }

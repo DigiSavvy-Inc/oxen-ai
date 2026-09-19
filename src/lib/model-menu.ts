@@ -29,3 +29,12 @@ export function groupPreferredModels<T extends { id: string }>(
     rest: models.filter((model) => !preferredIds.has(model.id)),
   };
 }
+
+export function generationCountForModelChange(
+  previousModel: string,
+  nextModel: string,
+  currentCount: number,
+): number {
+  if (!previousModel || previousModel === nextModel) return currentCount;
+  return 1;
+}

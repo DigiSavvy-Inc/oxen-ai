@@ -4,6 +4,13 @@ export function completedMedia(generations: Generation[]): Generation[] {
   return generations.filter((item) => item.status === "succeeded" && Boolean(item.resultUrl));
 }
 
+export function tilePreviewUrl(
+  item: Pick<Generation, "mediaType" | "thumbUrl" | "resultUrl">,
+): string | null {
+  if (item.mediaType === "image") return item.thumbUrl || null;
+  return item.thumbUrl || item.resultUrl || null;
+}
+
 export function downloadFilename(generation: Generation, index = 0): string {
   const ext =
     generation.mediaType === "video" ? "mp4" : generation.mediaType === "audio" ? "mp3" : "png";

@@ -237,8 +237,8 @@ export function Canvas({
                     aria-label={`Variation ${index + 1}${item.mediaType === "video" ? ", video" : ""}`}
                     aria-current={item.id === generation.id ? "true" : undefined}
                   >
-                    {item.resultUrl && item.mediaType === "image" ? (
-                      <img src={item.resultUrl} alt="" />
+                    {item.mediaType === "image" && item.thumbUrl ? (
+                      <img src={item.thumbUrl} alt="" />
                     ) : item.resultUrl && item.mediaType === "video" ? (
                       <video src={item.resultUrl} muted playsInline preload="metadata" />
                     ) : (

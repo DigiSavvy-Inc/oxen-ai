@@ -12,9 +12,9 @@ import {
   mentionToken,
   type Generation,
 } from "../src/lib/api";
-import { downloadFilename } from "../src/lib/download";
+import { downloadFilename, tilePreviewUrl } from "../src/lib/download";
 import { insertMentionToken, mentionAtCaret } from "../src/lib/mentions";
-import { filterModels, groupPreferredModels, modelLabel } from "../src/lib/model-menu";
+import { filterModels, generationCountForModelChange, groupPreferredModels, modelLabel } from "../src/lib/model-menu";
 
 function gen(partial: Partial<Generation> & Pick<Generation, "id">): Generation {
   return {
@@ -139,6 +139,15 @@ describe("mentions and cost", () => {
       downloadFilename(gen({ id: "v", prompt: "clip", mediaType: "video" }), 2),
     ).toBe("ds-studio-clip-3.mp4");
   });
+
+  it("uses compact thumbs for image tiles instead of full results", () => {
+    expect(
+      tilePreviewUrl(
+        gen({ id: "a", mediaType: "image", resultUrl: "full.png", thumbUrl: "tiny.avif" }),
+      ),
+    ).toBe("tiny.avif");
+    expect(tilePreviewUrl(gen({ id: "b", mediaType: "image", resultUrl: "full.png" }))).toBeNull();
+  });
 });
 
 describe("model menu filter", () => {
@@ -176,5 +185,11 @@ describe("model menu filter", () => {
   it("falls back to the model id when no display name is set", () => {
     expect(modelLabel({ id: "gpt-image-2" })).toBe("gpt-image-2");
     expect(modelLabel(flux)).toBe("FLUX.2 Pro");
+  });
+
+  it("resets variation count to 1x when the selected model changes", () => {
+    expect(generationCountForModelChange("flux", "kling", 4)).toBe(1);
+    expect(generationCountForModelChange("flux", "flux", 3)).toBe(3);
+    expect(generationCountForModelChange("", "flux", 4)).toBe(4);
   });
 });

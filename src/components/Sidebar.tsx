@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { coverGeneration, groupGenerationBatches } from "../lib/batches";
 import type { Generation } from "../lib/api";
-import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "../lib/download";
+import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia, tilePreviewUrl } from "../lib/download";
 import { collectUniqueTags, suggestTags, tagsMatchQuery } from "../lib/tags";
 import { DownloadButton } from "./DownloadButton";
 
@@ -12,7 +12,7 @@ function statusClass(status: string) {
 }
 
 function tileSrc(item: Generation): string | null {
-  return item.thumbUrl || item.resultUrl;
+  return tilePreviewUrl(item);
 }
 
 function TileFace({ item }: { item: Generation }) {

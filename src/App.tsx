@@ -22,6 +22,7 @@ import {
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations } from "./lib/batches";
 import { completedMedia, downloadAllMedia } from "./lib/download";
 import { filesFromList, kindFromFile } from "./lib/files";
+import { generationCountForModelChange } from "./lib/model-menu";
 
 type StagedFile = {
   file: File;
@@ -221,7 +222,11 @@ export default function App() {
         const data = await api.models(mode);
         if (cancelled) return;
         setModels(data.models);
-        setModel((prev) => pickModel(data.models, favorites, settings, mode, prev));
+        setModel((prev) => {
+          const next = pickModel(data.models, favorites, settings, mode, prev);
+          setNumGenerations((count) => generationCountForModelChange(prev, next, count));
+          return next;
+        });
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load models");
@@ -472,6 +477,11 @@ export default function App() {
     }
   }
 
+  function handleModelChange(next: string) {
+    setNumGenerations((count) => generationCountForModelChange(model, next, count));
+    setModel(next);
+  }
+
   async function onDownloadAll() {
     if (readyMedia.length === 0 || downloadingAll) return;
     setDownloadingAll(true);
@@ -647,7 +657,7 @@ export default function App() {
           models={models}
           preferred={favorites}
           model={model}
-          onModelChange={setModel}
+          onModelChange={handleModelChange}
           modelQuery={modelQuery}
           onModelQueryChange={setModelQuery}
           isFavorite={favoriteIds.has(model)}

@@ -1228,6 +1228,9 @@ app.get("/api/generations", async (c) => {
   }
   const query = generationListQuery(scope);
   const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
+  if (scope === "library" || scope === "active") {
+    await backfillMissingThumbnails(c.env, user.id);
+  }
   const rows = await c.env.DB.prepare(query.sql).bind(user.id).all<GenerationRow>();
 
   const typicals = await typicalWaitByMedia(c.env, user.id);
