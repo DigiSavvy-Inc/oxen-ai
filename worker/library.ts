@@ -71,17 +71,38 @@ export async function deleteFailedGenerations(
   return list.length;
 }
 
+export type BackfillThumbnailsOptions = {
+  limit?: number;
+  rebuildOversized?: boolean;
+};
+
+export function thumbIsReusable(
+  existing: { size: number } | null,
+  rebuildOversized: boolean,
+): boolean {
+  if (!existing || existing.size <= 0) return false;
+  if (!rebuildOversized) return true;
+  return existing.size <= THUMB_MAX_BYTES;
+}
+
 export async function backfillMissingThumbnails(
   env: Env,
   userId: string,
-  limit = 8,
+  options: BackfillThumbnailsOptions | number = {},
 ): Promise<{ built: number; remaining: boolean }> {
+  const parsed = typeof options === "number" ? { limit: options } : options;
+  const limit = parsed.limit ?? 8;
+  const rebuildOversized = parsed.rebuildOversized === true;
+  const fetchLimit = rebuildOversized ? Math.max(limit * 3, 24) : limit;
+  const filter = rebuildOversized
+    ? `AND result_key IS NOT NULL`
+    : `AND result_key IS NOT NULL AND thumb_key IS NULL`;
   const rows = await env.DB.prepare(
     `SELECT id, status, result_key, thumb_key FROM generations
-     WHERE user_id = ? AND status = 'succeeded' AND result_key IS NOT NULL
+     WHERE user_id = ? AND status = 'succeeded' ${filter}
      ORDER BY created_at DESC LIMIT ?`,
   )
-    .bind(userId, Math.max(limit * 3, 24))
+    .bind(userId, fetchLimit)
     .all<LibraryAssetRow>();
   const list = rows.results ?? [];
   let built = 0;
@@ -89,8 +110,10 @@ export async function backfillMissingThumbnails(
   for (const row of list) {
     if (built >= limit) break;
     if (!row.result_key) continue;
-    const existing = row.thumb_key ? await env.MEDIA.head(row.thumb_key) : null;
-    if (existing && existing.size > 0 && existing.size <= THUMB_MAX_BYTES) continue;
+    if (rebuildOversized) {
+      const existing = row.thumb_key ? await env.MEDIA.head(row.thumb_key) : null;
+      if (thumbIsReusable(existing, true)) continue;
+    }
     considered += 1;
     const object = await env.MEDIA.get(row.result_key);
     if (!object) continue;

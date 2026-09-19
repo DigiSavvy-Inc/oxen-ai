@@ -2,6 +2,16 @@ import { hmacSign, timingSafeEqual } from "./crypto";
 
 /** Long enough for queued video jobs; signed URLs are hours, not minutes. */
 export const MEDIA_URL_TTL_SECONDS = 12 * 60 * 60;
+/** Keep `exp`/`sig` stable within this window so the browser can cache thumbs. */
+export const MEDIA_URL_STABLE_WINDOW_SECONDS = 60 * 60;
+
+export function signedMediaExpiry(
+  nowSeconds = Math.floor(Date.now() / 1000),
+  ttlSeconds = MEDIA_URL_TTL_SECONDS,
+): number {
+  if (ttlSeconds <= 0) return nowSeconds + ttlSeconds;
+  return Math.floor(nowSeconds / MEDIA_URL_STABLE_WINDOW_SECONDS) * MEDIA_URL_STABLE_WINDOW_SECONDS + ttlSeconds;
+}
 
 export async function putMediaObject(
   bucket: R2Bucket,
@@ -54,7 +64,7 @@ export async function createSignedMediaUrl(
   if (!origin) {
     throw new Error("signed media URLs require PUBLIC_BASE_URL");
   }
-  const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+  const exp = signedMediaExpiry(Math.floor(Date.now() / 1000), ttlSeconds);
   const payload = `${key}:${exp}`;
   const sig = await hmacSign(secret, payload);
   const url = new URL(`/api/media/${key}`, `${origin}/`);

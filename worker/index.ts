@@ -1016,7 +1016,11 @@ app.get("/api/media/*", async (c) => {
   object.writeHttpMetadata(headers);
   const contentType = object.httpMetadata?.contentType || "application/octet-stream";
   headers.set("Content-Type", contentType);
-  headers.set("Cache-Control", "private, max-age=3600");
+  const remaining = Number(exp) - Math.floor(Date.now() / 1000);
+  headers.set(
+    "Cache-Control",
+    `private, max-age=${Math.max(0, remaining)}, immutable`,
+  );
   return new Response(object.body, { headers });
 });
 
@@ -1220,6 +1224,17 @@ app.post("/api/generate", async (c) => {
   return c.json({ generations: saved });
 });
 
+function runInBackground(c: Context<{ Bindings: Env }>, work: Promise<unknown>) {
+  const task = work.catch((err) => {
+    console.error("background task error", err);
+  });
+  try {
+    c.executionCtx.waitUntil(task);
+  } catch {
+    /* unit tests call app.request without an execution context */
+  }
+}
+
 app.get("/api/generations", async (c) => {
   const user = await requireUser(c);
   const scope = parseGenerationListScope(c.req.query("scope"));
@@ -1228,8 +1243,8 @@ app.get("/api/generations", async (c) => {
   }
   const query = generationListQuery(scope);
   const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
-  if (scope === "library" || scope === "active") {
-    await backfillMissingThumbnails(c.env, user.id);
+  if (scope === "library") {
+    runInBackground(c, backfillMissingThumbnails(c.env, user.id));
   }
   const rows = await c.env.DB.prepare(query.sql).bind(user.id).all<GenerationRow>();
 
@@ -1343,7 +1358,9 @@ app.post("/api/library/cleanup", async (c) => {
       return c.json({ action, deleted, built: 0, remaining: false });
     }
     case "thumbs": {
-      const result = await backfillMissingThumbnails(c.env, user.id);
+      const result = await backfillMissingThumbnails(c.env, user.id, {
+        rebuildOversized: true,
+      });
       return c.json({ action, deleted: 0, built: result.built, remaining: result.remaining });
     }
     default: {

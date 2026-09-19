@@ -4,6 +4,7 @@ import {
   buildReferenceMediaUrl,
   createSignedMediaUrl,
   resolvePublicBaseUrl,
+  signedMediaExpiry,
   verifyMediaSignature,
 } from "../worker/media";
 
@@ -91,6 +92,18 @@ describe("signed media URLs", () => {
     );
     expect(await verifyMediaSignature(KEY, exp, "aa".repeat(32), SECRET)).toBe(false);
     expect(await verifyMediaSignature(KEY, exp, sig, "wrong-secret")).toBe(false);
+  });
+
+  it("keeps exp aligned to an hourly window so the same object reuses one URL", () => {
+    const now = 1_777_000_000;
+    expect(signedMediaExpiry(now)).toBe(signedMediaExpiry(now + 59));
+    expect(signedMediaExpiry(now + 3600)).not.toBe(signedMediaExpiry(now));
+  });
+
+  it("issues the same signed URL twice within the stable window", async () => {
+    const first = await createSignedMediaUrl("https://studio.digisavvy.dev", KEY, SECRET);
+    const second = await createSignedMediaUrl("https://studio.digisavvy.dev", KEY, SECRET);
+    expect(first).toBe(second);
   });
 });
 
