@@ -16,6 +16,7 @@ import {
   mentionAtCaret,
   tokenForItem,
 } from "../lib/mentions";
+import { ModelMenu } from "./ModelMenu";
 
 type AttachItem = {
   name: string;
@@ -77,10 +78,6 @@ type Props = {
   canGenerate: boolean;
 };
 
-function modelLabel(model: OxenModel): string {
-  return model.display_name || model.id;
-}
-
 export function Composer(props: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -90,9 +87,6 @@ export function Composer(props: Props) {
   const [mentionOpen, setMentionOpen] = useState(true);
   const [hotMention, setHotMention] = useState<number | null>(null);
 
-  const preferredIds = new Set(props.preferred.map((model) => model.id));
-  const preferredInMode = props.models.filter((model) => preferredIds.has(model.id));
-  const rest = props.models.filter((model) => !preferredIds.has(model.id));
   const imageMax = Math.max(slotMax(props.controls, "image"), props.mode === "image-to-image" ? 1 : 0);
   const videoMax = Math.max(
     slotMax(props.controls, "video"),
@@ -321,48 +315,14 @@ export function Composer(props: Props) {
         {props.error ? <div className="error-banner">{props.error}</div> : null}
 
         <div className="composer-toolbar">
-          <input
-            className="field model-search"
-            type="search"
-            placeholder="Search models"
-            value={props.modelQuery}
-            onChange={(e) => props.onModelQueryChange(e.target.value)}
-          />
-          <select
-            className="select select-model"
+          <ModelMenu
+            models={props.models}
+            preferred={props.preferred}
             value={props.model}
-            aria-label="Model"
-            onChange={(e) => props.onModelChange(e.target.value)}
-          >
-            <option value="">Select a model</option>
-            {preferredInMode.length > 0 ? (
-              <optgroup label="Preferred">
-                {preferredInMode.map((m) => (
-                  <option key={`fav-${m.id}`} value={m.id}>
-                    {modelLabel(m)}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
-            {rest.length > 0 ? (
-              <optgroup label={preferredInMode.length > 0 ? "All" : "Models"}>
-                {rest.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {modelLabel(m)}
-                  </option>
-                ))}
-              </optgroup>
-            ) : preferredInMode.length === 0 ? (
-              props.models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {modelLabel(m)}
-                </option>
-              ))
-            ) : null}
-            {props.model && !props.models.some((item) => item.id === props.model) ? (
-              <option value={props.model}>{props.model}</option>
-            ) : null}
-          </select>
+            query={props.modelQuery}
+            onQueryChange={props.onModelQueryChange}
+            onChange={props.onModelChange}
+          />
           <ToolbarField label="Favorite">
             <button
               type="button"

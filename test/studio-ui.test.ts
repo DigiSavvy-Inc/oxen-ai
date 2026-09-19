@@ -9,6 +9,7 @@ import { estimateGenerationCost, mentionToken } from "../src/lib/api";
 import type { Generation } from "../src/lib/api";
 import { downloadFilename } from "../src/lib/download";
 import { insertMentionToken, mentionAtCaret } from "../src/lib/mentions";
+import { filterModels, groupPreferredModels, modelLabel } from "../src/lib/model-menu";
 
 function gen(partial: Partial<Generation> & Pick<Generation, "id">): Generation {
   return {
@@ -125,5 +126,43 @@ describe("mentions and cost", () => {
     expect(
       downloadFilename(gen({ id: "v", prompt: "clip", mediaType: "video" }), 2),
     ).toBe("ds-studio-clip-3.mp4");
+  });
+});
+
+describe("model menu filter", () => {
+  const flux = {
+    id: "black-forest-labs/flux-2-pro",
+    display_name: "FLUX.2 Pro",
+    description: "High quality text-to-image",
+  };
+  const kling = {
+    id: "kling-v2",
+    display_name: "Kling 2.0",
+    description: "Text to video",
+  };
+  const seedream = { id: "seedream-4", display_name: "Seedream 4" };
+
+  it("matches id, display name, and description", () => {
+    expect(filterModels([flux, kling, seedream], "flux")).toEqual([flux]);
+    expect(filterModels([flux, kling, seedream], "2.0")).toEqual([kling]);
+    expect(filterModels([flux, kling, seedream], "text-to-image")).toEqual([flux]);
+    expect(filterModels([flux, kling, seedream], "SEEDREAM")).toEqual([seedream]);
+  });
+
+  it("returns the full list when the query is blank", () => {
+    expect(filterModels([flux, kling], "   ")).toEqual([flux, kling]);
+  });
+
+  it("keeps preferred models first after filtering", () => {
+    const hits = filterModels([flux, kling, seedream], "2");
+    expect(groupPreferredModels(hits, [kling])).toEqual({
+      preferred: [kling],
+      rest: [flux],
+    });
+  });
+
+  it("falls back to the model id when no display name is set", () => {
+    expect(modelLabel({ id: "gpt-image-2" })).toBe("gpt-image-2");
+    expect(modelLabel(flux)).toBe("FLUX.2 Pro");
   });
 });
