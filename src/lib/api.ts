@@ -106,7 +106,7 @@ export const MODE_LABELS: Record<GenerationMode, string> = {
   "text-to-image": "Text → Image",
   "image-to-image": "Image → Image",
   "text-to-video": "Text → Video",
-  "reference-to-video": "Ref → Video",
+  "reference-to-video": "Image → Video",
   "video-to-video": "Video → Video",
 };
 

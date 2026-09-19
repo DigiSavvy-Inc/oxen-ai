@@ -5,8 +5,13 @@ import {
   isActiveGeneration,
   mergeGenerations,
 } from "../src/lib/batches";
-import { estimateGenerationCost, mentionToken } from "../src/lib/api";
-import type { Generation } from "../src/lib/api";
+import {
+  ALL_MODES,
+  MODE_LABELS,
+  estimateGenerationCost,
+  mentionToken,
+  type Generation,
+} from "../src/lib/api";
 import { downloadFilename } from "../src/lib/download";
 import { insertMentionToken, mentionAtCaret } from "../src/lib/mentions";
 import { filterModels, groupPreferredModels, modelLabel } from "../src/lib/model-menu";
@@ -51,6 +56,13 @@ describe("groupGenerationBatches", () => {
     expect(merged[0]?.status).toBe("succeeded");
     expect(isActiveGeneration(queued)).toBe(true);
     expect(isActiveGeneration(archive[1]!)).toBe(false);
+  });
+});
+
+describe("mode chips", () => {
+  it("labels still-to-video as Image → Video", () => {
+    expect(MODE_LABELS["reference-to-video"]).toBe("Image → Video");
+    expect(ALL_MODES).toContain("reference-to-video");
   });
 });
 

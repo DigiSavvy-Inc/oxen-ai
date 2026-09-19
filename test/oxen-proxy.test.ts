@@ -241,7 +241,7 @@ describe("filterModelsForMode", () => {
     expect(ids(filterModelsForMode(catalog, "video-to-video"))).toEqual(["kling-v2v"]);
   });
 
-  it("keeps Seedance 2.5 reference models in Ref → Video even when they also accept video", () => {
+  it("keeps Seedance 2.5 reference models in Image → Video even when they also accept video", () => {
     const seedanceRef: OxenModel = {
       id: "bytedance-seedance-2-5-reference-to-video",
       display_name: "Seedance 2.5 Reference-to-Video",
