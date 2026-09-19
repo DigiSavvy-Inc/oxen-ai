@@ -243,6 +243,37 @@ export function Composer(props: Props) {
     });
   }
 
+  function onFileDragEnter(event: DragEvent) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    dragDepth.current += 1;
+    setDragging(true);
+  }
+
+  function onFileDragOver(event: DragEvent) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setDragging(true);
+  }
+
+  function onFileDragLeave(event: DragEvent) {
+    if (!isFileDrag(event)) return;
+    dragDepth.current -= 1;
+    if (dragDepth.current <= 0) {
+      dragDepth.current = 0;
+      setDragging(false);
+    }
+  }
+
+  function onFileDrop(event: DragEvent) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    props.onAddFiles(event.dataTransfer.files);
+  }
+
   function hoverMentionAtPoint(clientX: number, clientY: number) {
     const spans = highlightRef.current?.querySelectorAll<HTMLElement>("[data-mention-start]");
     if (!spans) {
@@ -272,7 +303,13 @@ export function Composer(props: Props) {
 
   return (
     <div className="composer">
-      <div className="composer-inner">
+      <div
+        className={`composer-inner${dragging ? " is-drop-target" : ""}`}
+        onDragEnter={onFileDragEnter}
+        onDragOver={onFileDragOver}
+        onDragLeave={onFileDragLeave}
+        onDrop={onFileDrop}
+      >
         <div className="mode-row">
           {ALL_MODES.map((m) => {
             const unsupported = Boolean(selectedModel && !modelSupportsMode(selectedModel, m));
@@ -295,36 +332,7 @@ export function Composer(props: Props) {
           })}
         </div>
 
-        <div
-          className={`prompt-drop${dragging ? " dragging" : ""}`}
-          onDragEnter={(event) => {
-            if (!isFileDrag(event)) return;
-            event.preventDefault();
-            dragDepth.current += 1;
-            setDragging(true);
-          }}
-          onDragOver={(event) => {
-            if (!isFileDrag(event)) return;
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "copy";
-            setDragging(true);
-          }}
-          onDragLeave={(event) => {
-            if (!isFileDrag(event)) return;
-            dragDepth.current -= 1;
-            if (dragDepth.current <= 0) {
-              dragDepth.current = 0;
-              setDragging(false);
-            }
-          }}
-          onDrop={(event) => {
-            if (!isFileDrag(event)) return;
-            event.preventDefault();
-            dragDepth.current = 0;
-            setDragging(false);
-            props.onAddFiles(event.dataTransfer.files);
-          }}
-        >
+        <div className="prompt-drop">
           <div className="prompt-field" style={{ height: promptHeight }}>
             <div className="prompt-highlight" aria-hidden ref={highlightRef}>
               {highlightParts.map((part, index) => {
@@ -419,11 +427,6 @@ export function Composer(props: Props) {
             aria-label="Resize prompt"
             onPointerDown={startPromptResize}
           />
-          {dragging ? (
-            <div className="prompt-drop-overlay" aria-hidden>
-              Drop media to attach
-            </div>
-          ) : null}
           {showMentions ? (
             <div className="mention-menu" role="listbox">
               {mentionItems.map((item, index) => (
@@ -456,11 +459,12 @@ export function Composer(props: Props) {
           <div
             className="attach-preview"
             onDragOver={(event) => {
-              if (dragIndex == null) return;
+              if (isFileDrag(event) || dragIndex == null) return;
               event.preventDefault();
               event.dataTransfer.dropEffect = "move";
             }}
             onDrop={(event) => {
+              if (isFileDrag(event)) return;
               event.preventDefault();
               const from = Number(event.dataTransfer.getData("text/plain"));
               const insertBefore = dropInsertBefore ?? props.attachments.length;
@@ -499,6 +503,7 @@ export function Composer(props: Props) {
                       setDragIndex(index);
                     }}
                     onDragOver={(event) => {
+                      if (isFileDrag(event)) return;
                       event.preventDefault();
                       event.stopPropagation();
                       event.dataTransfer.dropEffect = "move";
@@ -785,6 +790,11 @@ export function Composer(props: Props) {
         ) : null}
         {slotRequired(props.controls, "video", props.mode) ? (
           <p className="composer-hint">This model needs a reference video.</p>
+        ) : null}
+        {dragging ? (
+          <div className="prompt-drop-overlay" aria-hidden>
+            Drop media to attach
+          </div>
         ) : null}
       </div>
       {hoveredMention ? (

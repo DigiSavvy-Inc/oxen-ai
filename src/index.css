@@ -976,20 +976,15 @@ a {
   background: var(--accent-soft);
 }
 
-.prompt-drop.dragging textarea {
-  border-color: var(--text);
-  background: #fff;
-}
-
 .prompt-drop-overlay {
   pointer-events: none;
   position: absolute;
-  inset: 8px;
-  z-index: 3;
+  inset: 0;
+  z-index: 5;
   display: grid;
   place-items: center;
   border: 1.5px dashed var(--text);
-  border-radius: 10px;
+  border-radius: inherit;
   background: rgba(246, 245, 242, 0.92);
   color: var(--text);
   font-size: 13px;
@@ -1285,6 +1280,7 @@ a {
 }
 
 .composer-inner {
+  position: relative;
   max-width: 920px;
   margin: 0 auto;
   border: 1px solid var(--border-strong);
