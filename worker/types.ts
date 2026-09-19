@@ -1,3 +1,5 @@
+export type { GenerationMode } from "./model-modes";
+
 export type Env = {
   DB: D1Database;
   MEDIA: R2Bucket;
@@ -13,13 +15,6 @@ export type Env = {
   /** Local-only: `gh auth token`. Used when no OAuth app is configured. */
   GH_TOKEN?: string;
 };
-
-export type GenerationMode =
-  | "text-to-image"
-  | "image-to-image"
-  | "text-to-video"
-  | "reference-to-video"
-  | "video-to-video";
 
 export type UserRow = {
   id: string;

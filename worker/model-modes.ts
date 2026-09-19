@@ -1,4 +1,9 @@
-import type { GenerationMode } from "./types";
+export type GenerationMode =
+  | "text-to-image"
+  | "image-to-image"
+  | "text-to-video"
+  | "reference-to-video"
+  | "video-to-video";
 
 export type ModeFilterModel = {
   id: string;
