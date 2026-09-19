@@ -1,5 +1,5 @@
 ## Learned User Preferences
-- Keep the Studio UI light and minimal; do not restyle it dark or add a Cursor UI package. Prefer one auto-detected media drop zone over Atlas-style separate image/video/audio areas.
+- Keep the Studio UI light and minimal; do not restyle it dark or add a Cursor UI package. Prefer one auto-detected media drop zone over Atlas-style separate image/video/audio areas. Make the prompt box resizable. Hover a mention or attached-media expand control for a small thumbnail preview, not a large scrolling lightbox.
 - Never print, commit, or echo secrets (`.dev.vars`, Oxen API keys, OAuth client secrets, encryption/session keys). Prefer `pbpaste` or in-app Settings over chat.
 - Do not invent a synchronous Oxen generation path; image and video stay on the async queue.
 - Allowlist lives in Settings as a left-nav category with the form on the right, not as a standalone sidebar button.
@@ -8,9 +8,9 @@
 - Local placeholder GitHub OAuth must not send users to `/login/oauth/authorize`.
 - Do not set global model defaults; let each user pick preferred models and persist their settings. Do not pre-select a mode chip (including Text → Image) until the user chooses a mode or a model. Use Oxen’s live catalog and keep controls consistent across models; image models that support resolution (including Seedream 5.x) must expose those options. Ghost unsupported mode pills for the selected model; choosing a ghosted mode resets the model.
 - Brand the product as DS Studio with the DigiSavvy favicon from digisavvy.com, not “Oxen Studio”.
-- Credits control is labeled “Buy Credits”, shows a live dollar balance, and links to https://www.oxen.ai/digisavvy/settings/billing; the generate button shows live estimated cost (including resolution, count, and duration) and keeps bold keyboard-hint icons. Count always starts at 1× and is not restored from the last job, so a previous 4× run cannot surprise-charge the next session.
-- Support multiple generations per prompt and `@Image`/`@Video`/`@Audio` mentions for models that accept references.
-- History is a click-to-toggle slide-out on desktop and mobile, filterable by tag, and should use generated thumbnails rather than full-size files. Tags apply to a generation group, not each output. Settings and logout live under the user avatar.
+- Credits control is labeled “Buy Credits”, shows a live dollar balance, and links to https://www.oxen.ai/digisavvy/settings/billing; the generate button shows live estimated cost (including resolution, count, and duration) and keeps bold keyboard-hint icons. Count always starts at 1× and resets to 1× when the model changes, so a previous 4× run cannot surprise-charge the next session.
+- Support multiple generations per prompt and `@Image`/`@Video`/`@Audio` mentions for models that accept references. Mention pills stay editable (changing the number does not delete the mention) and do not rewrite when chips are reordered; reference chips are draggable with live-updating numbers. Reference modes including Seedance 2.5 do not require a reference. Library items attach via a light slide-in peek (prompt + thumbs, click to attach, Esc/X to close).
+- History is a click-to-toggle slide-out on desktop and mobile, filterable by tag, and should use small generated thumbnails rather than full-size files. Tags apply to a generation group, not each output. Settings and logout live under the user avatar; do not bind Settings to Cmd+, (that opens the browser settings).
 
 ## Learned Workspace Facts
 - DS Studio is a Cloudflare Workers + Vite/React app (Hono API, D1, R2) in [DigiSavvy-Inc/oxen-ai](https://github.com/DigiSavvy-Inc/oxen-ai).
@@ -18,7 +18,7 @@
 - Production origin is https://studio.digisavvy.dev (Worker `oxen-studio`); users sign in with GitHub, then add their Oxen key in Settings.
 - Access is DigiSavvy-Inc org members or the D1 allowlist; bootstrap admin is `GITHUB_ADMINS=digisavvy`.
 - Each user stores an Oxen API key in Settings; the Worker encrypts it and proxies Oxen. Never expose the key to the browser after save.
-- Modes (text-to-image, image-to-image, text-to-video, reference-to-video, video-to-video) go through the Oxen async queue only; 1–4 outputs share a `batch_id` with group-level tags, and succeeded results are archived to R2 (`result_key`) then listed with fresh signed URLs.
+- Modes (text-to-image, image-to-image, text-to-video, reference-to-video, video-to-video) go through the Oxen async queue only; 1–4 outputs share a `batch_id` with group-level tags, and succeeded results are archived to R2 (`result_key`) then listed with fresh signed URLs. Reference-to-video models (including Seedance 2.5) can run without a reference file.
 - Local uploads without `PUBLIC_BASE_URL` return data URIs; production uses signed R2 media URLs via `PUBLIC_BASE_URL=https://studio.digisavvy.dev`.
 - Worker unit tests use Vitest (`npm test`); CI lints, tests, and builds, and does not deploy.
 - Production GitHub OAuth callback is only `https://studio.digisavvy.dev/api/auth/callback`; do not reuse another app’s callback or point it at `workers.dev`.
