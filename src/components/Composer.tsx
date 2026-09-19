@@ -11,11 +11,16 @@ import {
   type OxenModel,
 } from "../lib/api";
 import {
+  attachmentForMention,
+  cycleHotIndex,
   filterMentionItems,
   insertMentionToken,
   mentionAtCaret,
+  promptHighlightParts,
   tokenForItem,
+  type PromptMention,
 } from "../lib/mentions";
+import { ExpandMediaButton, MediaLightbox } from "./MediaLightbox";
 import { ModelMenu } from "./ModelMenu";
 
 type AttachItem = {
@@ -72,6 +77,7 @@ type Props = {
   attachments: AttachItem[];
   onAddFiles: (files: FileList | File[] | null) => void;
   onClearAttachment: (kind: "image" | "video" | "audio", index: number) => void;
+  onReorderAttachments: (from: number, to: number) => void;
   busy: boolean;
   error: string | null;
   onGenerate: () => void;
@@ -81,11 +87,21 @@ type Props = {
 export function Composer(props: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const highlightRef = useRef<HTMLDivElement>(null);
   const dragDepth = useRef(0);
   const [dragging, setDragging] = useState(false);
   const [caret, setCaret] = useState(0);
   const [mentionOpen, setMentionOpen] = useState(true);
   const [hotMention, setHotMention] = useState<number | null>(null);
+  const [lightbox, setLightbox] = useState<AttachItem | null>(null);
+  const [hoveredMention, setHoveredMention] = useState<{
+    mention: PromptMention;
+    item: AttachItem;
+    left: number;
+    top: number;
+  } | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
 
   const imageMax = Math.max(slotMax(props.controls, "image"), props.mode === "image-to-image" ? 1 : 0);
   const videoMax = Math.max(
@@ -158,6 +174,9 @@ export function Composer(props: Props) {
   const showMentions = Boolean(
     mentionOpen && props.controls?.mentions && mention && mentionItems.length > 0,
   );
+  const highlightParts = useMemo(() => promptHighlightParts(props.prompt), [props.prompt]);
+  const activeMention =
+    mentionItems.length === 0 ? 0 : Math.min(hotMention ?? 0, mentionItems.length - 1);
 
   function placeCaret(nextCaret: number) {
     setCaret(nextCaret);
@@ -167,7 +186,8 @@ export function Composer(props: Props) {
     el.setSelectionRange(nextCaret, nextCaret);
   }
 
-  function insertMention(item: AttachItem, index: number) {
+  function insertMention(item: AttachItem) {
+    const index = Math.max(0, props.attachments.indexOf(item));
     const token = tokenForItem(props.attachments, item, index);
     const result = insertMentionToken(props.prompt, caret, token);
     if (!result) return;
@@ -175,6 +195,56 @@ export function Composer(props: Props) {
     setHotMention(null);
     props.onPromptChange(result.next);
     placeCaret(result.caret);
+  }
+
+  function openMentionHover(mention: PromptMention, el: HTMLElement) {
+    const item = attachmentForMention(props.attachments, mention);
+    if (!item?.preview) {
+      setHoveredMention(null);
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    const left = rect.left + rect.width / 2;
+    const top = rect.top;
+    setHoveredMention((current) => {
+      if (
+        current &&
+        current.mention.start === mention.start &&
+        current.item === item &&
+        current.left === left &&
+        current.top === top
+      ) {
+        return current;
+      }
+      return { mention, item, left, top };
+    });
+  }
+
+  function hoverMentionAtPoint(clientX: number, clientY: number) {
+    const spans = highlightRef.current?.querySelectorAll<HTMLElement>("[data-mention-start]");
+    if (!spans) {
+      setHoveredMention(null);
+      return;
+    }
+    for (const span of spans) {
+      const rect = span.getBoundingClientRect();
+      if (
+        clientX < rect.left ||
+        clientX > rect.right ||
+        clientY < rect.top ||
+        clientY > rect.bottom
+      ) {
+        continue;
+      }
+      const start = Number(span.dataset.mentionStart);
+      const part = highlightParts.find(
+        (entry) => entry.type === "mention" && entry.mention.start === start,
+      );
+      if (part?.type !== "mention") break;
+      openMentionHover(part.mention, span);
+      return;
+    }
+    setHoveredMention(null);
   }
 
   return (
@@ -223,34 +293,77 @@ export function Composer(props: Props) {
             props.onAddFiles(event.dataTransfer.files);
           }}
         >
-          <textarea
-            ref={promptRef}
-            value={props.prompt}
-            onChange={(e) => {
-              setMentionOpen(true);
-              props.onPromptChange(e.target.value);
-              setCaret(e.target.selectionStart);
-            }}
-            onClick={(e) => setCaret(e.currentTarget.selectionStart)}
-            onKeyUp={(e) => setCaret(e.currentTarget.selectionStart)}
-            placeholder={
-              showDropzone
-                ? "Describe the shot… drop refs here, then @Image1 / @Video1 / @Audio1"
-                : "Describe what to generate…"
-            }
-            onKeyDown={(e) => {
-              if (e.key === "Escape" && showMentions) {
-                e.preventDefault();
-                setMentionOpen(false);
-                setHotMention(null);
-                return;
+          <div className="prompt-field">
+            <div className="prompt-highlight" aria-hidden ref={highlightRef}>
+              {highlightParts.map((part, index) => {
+                if (part.type === "text") return <span key={`t-${index}`}>{part.value}</span>;
+                const item = attachmentForMention(props.attachments, part.mention);
+                return (
+                  <span
+                    key={`m-${part.mention.start}-${part.mention.token}`}
+                    data-mention-start={part.mention.start}
+                    className={`prompt-mention${item ? "" : " is-missing"}`}
+                  >
+                    {part.mention.token}
+                  </span>
+                );
+              })}
+            </div>
+            <textarea
+              ref={promptRef}
+              value={props.prompt}
+              onChange={(e) => {
+                setMentionOpen(true);
+                props.onPromptChange(e.target.value);
+                setCaret(e.target.selectionStart);
+              }}
+              onClick={(e) => setCaret(e.currentTarget.selectionStart)}
+              onKeyUp={(e) => setCaret(e.currentTarget.selectionStart)}
+              onPointerMove={(e) => hoverMentionAtPoint(e.clientX, e.clientY)}
+              onPointerLeave={() => setHoveredMention(null)}
+              placeholder={
+                showDropzone
+                  ? "Describe the shot… drop refs here, then @Image1 / @Video1 / @Audio1"
+                  : "Describe what to generate…"
               }
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && props.canGenerate) {
-                e.preventDefault();
-                props.onGenerate();
-              }
-            }}
-          />
+              onKeyDown={(e) => {
+                if (showMentions) {
+                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    const delta = e.key === "ArrowDown" ? 1 : -1;
+                    setHotMention((current) => cycleHotIndex(current, delta, mentionItems.length));
+                    return;
+                  }
+                  if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) {
+                    const item = mentionItems[activeMention];
+                    if (item) {
+                      e.preventDefault();
+                      insertMention(item);
+                      return;
+                    }
+                  }
+                  if (e.key === "Tab") {
+                    const item = mentionItems[activeMention];
+                    if (item) {
+                      e.preventDefault();
+                      insertMention(item);
+                      return;
+                    }
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setMentionOpen(false);
+                    setHotMention(null);
+                    return;
+                  }
+                }
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && props.canGenerate) {
+                  e.preventDefault();
+                  props.onGenerate();
+                }
+              }}
+            />
+          </div>
           {dragging ? (
             <div className="prompt-drop-overlay" aria-hidden>
               Drop media to attach
@@ -262,12 +375,12 @@ export function Composer(props: Props) {
                 <button
                   key={`${item.kind}-${item.name}-${index}`}
                   type="button"
-                  className={`mention-option${hotMention === index ? " is-hot" : ""}`}
+                  className={`mention-option${activeMention === index ? " is-hot" : ""}`}
                   onPointerEnter={() => setHotMention(index)}
                   onPointerLeave={() => setHotMention((current) => (current === index ? null : current))}
                   onMouseDown={(event) => {
                     event.preventDefault();
-                    insertMention(item, index);
+                    insertMention(item);
                   }}
                 >
                   {item.kind === "image" && item.preview ? (
@@ -289,16 +402,57 @@ export function Composer(props: Props) {
             {props.attachments.map((item, index) => {
               const ofKind = props.attachments.filter((entry) => entry.kind === item.kind);
               const kindIndex = ofKind.indexOf(item);
+              const token = mentionToken(item.kind, kindIndex);
               return (
-                <div className="attach-chip" key={`${item.kind}-${item.name}-${index}`}>
-                  {item.kind === "image" ? (
-                    <img src={item.preview} alt="" />
-                  ) : item.kind === "video" ? (
-                    <video src={item.preview} muted />
-                  ) : (
-                    <span className="pill">AUD</span>
-                  )}
-                  <span>{mentionToken(item.kind, kindIndex)}</span>
+                <div
+                  className={`attach-chip${dragIndex === index ? " is-dragging" : ""}${dropIndex === index ? " is-drop" : ""}`}
+                  key={`${item.kind}-${item.name}-${index}`}
+                  draggable
+                  onDragStart={(event) => {
+                    if ((event.target as HTMLElement).closest("button")) {
+                      event.preventDefault();
+                      return;
+                    }
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", String(index));
+                    setDragIndex(index);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    if (dropIndex !== index) setDropIndex(index);
+                  }}
+                  onDragLeave={() => {
+                    if (dropIndex === index) setDropIndex(null);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const from = Number(event.dataTransfer.getData("text/plain"));
+                    setDragIndex(null);
+                    setDropIndex(null);
+                    if (Number.isInteger(from)) props.onReorderAttachments(from, index);
+                  }}
+                  onDragEnd={() => {
+                    setDragIndex(null);
+                    setDropIndex(null);
+                  }}
+                >
+                  <div className="attach-thumb">
+                    {item.kind === "image" ? (
+                      <img src={item.preview} alt="" draggable={false} />
+                    ) : item.kind === "video" ? (
+                      <video src={item.preview} muted draggable={false} />
+                    ) : (
+                      <span className="pill">AUD</span>
+                    )}
+                    {item.preview ? (
+                      <ExpandMediaButton
+                        label={`Expand ${token}`}
+                        onClick={() => setLightbox(item)}
+                      />
+                    ) : null}
+                  </div>
+                  <span>{token}</span>
                   <button
                     className="ghost-btn"
                     type="button"
@@ -547,6 +701,21 @@ export function Composer(props: Props) {
           <p className="composer-hint">This model needs a reference video.</p>
         ) : null}
       </div>
+      {hoveredMention ? (
+        <div
+          className="mention-hover"
+          style={{ left: hoveredMention.left, top: hoveredMention.top }}
+          role="tooltip"
+        >
+          {hoveredMention.item.kind === "video" ? (
+            <video src={hoveredMention.item.preview} muted playsInline />
+          ) : (
+            <img src={hoveredMention.item.preview} alt="" />
+          )}
+          <span>{hoveredMention.mention.token}</span>
+        </div>
+      ) : null}
+      {lightbox ? <MediaLightbox item={lightbox} onClose={() => setLightbox(null)} /> : null}
     </div>
   );
 }

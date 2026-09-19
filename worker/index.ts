@@ -1100,13 +1100,12 @@ app.post("/api/generate", async (c) => {
   const useFallback = controls.slots.length === 0;
 
   const needsImage =
-    mode === "image-to-image" ||
     imageSlotRequired(controls) ||
-    (mode === "reference-to-video" && meta.needsImage && useFallback);
+    (useFallback &&
+      (mode === "image-to-image" || (mode === "reference-to-video" && Boolean(meta.needsImage))));
   const needsVideo =
-    mode === "video-to-video" ||
     videoSlotRequired(controls) ||
-    (meta.needsVideo && useFallback);
+    (useFallback && (mode === "video-to-video" || Boolean(meta.needsVideo)));
 
   if (needsImage && imageUrls.length === 0) {
     throw new HTTPException(400, { message: "input_image is required for this mode" });

@@ -154,19 +154,16 @@ export function mentionToken(kind: MediaSlot["kind"], index: number): string {
 }
 
 export function slotRequired(
-  controls: ModelControls | null,
+  controls: Pick<ModelControls, "slots"> | null,
   kind: MediaSlot["kind"],
   mode: GenerationMode,
 ): boolean {
-  if (kind === "image" && mode === "image-to-image") return true;
-  if (kind === "video" && mode === "video-to-video") return true;
-  if (!controls) {
-    return (
-      (kind === "image" && mode === "reference-to-video") ||
-      (kind === "video" && mode === "video-to-video")
-    );
+  if (controls) {
+    return controls.slots.some((slot) => slot.kind === kind && slot.required);
   }
-  return controls.slots.some((slot) => slot.kind === kind && slot.required);
+  if (kind === "image") return mode === "image-to-image" || mode === "reference-to-video";
+  if (kind === "video") return mode === "video-to-video";
+  return false;
 }
 
 async function parseJson<T>(res: Response): Promise<T> {

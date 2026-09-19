@@ -86,6 +86,7 @@ describe("parseModelControls", () => {
       input_images: ["https://a", "https://b"],
       input_videos: ["https://v"],
     });
+    expect(controls.slots.every((slot) => slot.required === false)).toBe(true);
   });
 
   it("sets mentions from @Image/@Video/@Audio in the prompt description", () => {

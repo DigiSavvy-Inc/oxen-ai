@@ -10,10 +10,20 @@ import {
   MODE_LABELS,
   estimateGenerationCost,
   mentionToken,
+  slotRequired,
   type Generation,
 } from "../src/lib/api";
 import { downloadFilename, tilePreviewUrl } from "../src/lib/download";
-import { insertMentionToken, mentionAtCaret } from "../src/lib/mentions";
+import {
+  attachmentForMention,
+  cycleHotIndex,
+  insertMentionToken,
+  mentionAtCaret,
+  mentionAtOffset,
+  moveItem,
+  promptHighlightParts,
+  remapMentionTokens,
+} from "../src/lib/mentions";
 import { filterModels, generationCountForModelChange, groupPreferredModels, modelLabel } from "../src/lib/model-menu";
 
 function gen(partial: Partial<Generation> & Pick<Generation, "id">): Generation {
@@ -84,6 +94,66 @@ describe("mentions and cost", () => {
     const result = insertMentionToken("look @", 6, "@Image1");
     expect(result).toEqual({ next: "look @Image1 ", caret: 13 });
     expect(mentionAtCaret(result?.next ?? "", result?.caret ?? 0)).toBeNull();
+  });
+
+  it("highlights completed @ImageN tokens in the prompt", () => {
+    const parts = promptHighlightParts("look @Image1 and @Video2 now");
+    expect(parts).toEqual([
+      { type: "text", value: "look " },
+      {
+        type: "mention",
+        mention: { start: 5, end: 12, token: "@Image1", kind: "image", index: 0 },
+      },
+      { type: "text", value: " and " },
+      {
+        type: "mention",
+        mention: { start: 17, end: 24, token: "@Video2", kind: "video", index: 1 },
+      },
+      { type: "text", value: " now" },
+    ]);
+    expect(mentionAtOffset("look @Image1 now", 8)?.token).toBe("@Image1");
+    expect(mentionAtOffset("look @Image1 now", 4)).toBeNull();
+  });
+
+  it("cycles the mention highlight through the attachment list", () => {
+    expect(cycleHotIndex(null, 1, 3)).toBe(0);
+    expect(cycleHotIndex(0, 1, 3)).toBe(1);
+    expect(cycleHotIndex(2, 1, 3)).toBe(0);
+    expect(cycleHotIndex(0, -1, 3)).toBe(2);
+  });
+
+  it("resolves a prompt mention to the matching attachment", () => {
+    const items = [
+      { name: "a.png", kind: "image" as const },
+      { name: "b.mp4", kind: "video" as const },
+      { name: "c.png", kind: "image" as const },
+    ];
+    expect(attachmentForMention(items, { kind: "image", index: 1 })?.name).toBe("c.png");
+    expect(attachmentForMention(items, { kind: "video", index: 0 })?.name).toBe("b.mp4");
+    expect(attachmentForMention(items, { kind: "audio", index: 0 })).toBeNull();
+  });
+
+  it("does not require optional Seedance video refs just because the mode is Video → Video", () => {
+    const seedance = {
+      slots: [
+        { field: "input_images" as const, kind: "image" as const, required: false, maxItems: 30, asArray: true },
+        { field: "input_videos" as const, kind: "video" as const, required: false, maxItems: 10, asArray: true },
+      ],
+    };
+    expect(slotRequired(seedance, "video", "video-to-video")).toBe(false);
+    expect(slotRequired(seedance, "image", "reference-to-video")).toBe(false);
+    expect(slotRequired(null, "video", "video-to-video")).toBe(true);
+  });
+
+  it("reorders attachments and rewrites @ImageN tokens to match", () => {
+    const a = { name: "a.png", kind: "image" as const };
+    const b = { name: "b.png", kind: "image" as const };
+    const c = { name: "c.png", kind: "image" as const };
+    const next = moveItem([a, b, c], 2, 0);
+    expect(next).toEqual([c, a, b]);
+    expect(remapMentionTokens("hero @Image1 with @Image3", [a, b, c], next)).toBe(
+      "hero @Image2 with @Image1",
+    );
   });
 
   it("scales image cost by variations", () => {

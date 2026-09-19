@@ -3,7 +3,7 @@
 - Never print, commit, or echo secrets (`.dev.vars`, Oxen API keys, OAuth client secrets, encryption/session keys). Prefer `pbpaste` or in-app Settings over chat.
 - Do not invent a synchronous Oxen generation path; image and video stay on the async queue.
 - Allowlist lives in Settings as a left-nav category with the form on the right, not as a standalone sidebar button.
-- Do not commit, push, merge, or `wrangler deploy` unless asked.
+- When a DS Studio slice is done, commit to `main`, push, and `wrangler deploy` to studio.digisavvy.dev with the required `--var` flags. Do not wait for a separate ship prompt. Never force-push, skip hooks, or print secrets.
 - Continue existing work; do not restart the project or revert finished work.
 - Local placeholder GitHub OAuth must not send users to `/login/oauth/authorize`.
 - Do not set global model defaults; let each user pick preferred models and persist their settings. Use Oxen’s live catalog and keep controls consistent across models; image models that support resolution (including Seedream 5.x) must expose those options. Ghost unsupported mode pills for the selected model; choosing a ghosted mode resets the model.
