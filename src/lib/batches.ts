@@ -32,3 +32,25 @@ export function coverGeneration(items: Generation[]): Generation | undefined {
     items[0]
   );
 }
+
+const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
+
+export function isActiveGeneration(generation: Generation): boolean {
+  return !TERMINAL_STATUSES.has(generation.status);
+}
+
+export function mergeGenerations(
+  existing: Generation[],
+  incoming: Generation[],
+): Generation[] {
+  const map = new Map<string, Generation>();
+  for (const item of existing) map.set(item.id, item);
+  for (const item of incoming) {
+    const prev = map.get(item.id);
+    if (!prev || item.updatedAt >= prev.updatedAt) map.set(item.id, item);
+  }
+  return [...map.values()].sort((a, b) => {
+    if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt;
+    return b.id.localeCompare(a.id);
+  });
+}

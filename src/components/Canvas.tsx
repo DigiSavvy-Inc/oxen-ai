@@ -175,8 +175,8 @@ export function Canvas({
         <div className="canvas-empty">
           <h2>What do you want to make?</h2>
           <p>
-            Pick a mode, choose a model, and describe the image or video. Generations queue on Oxen
-            and appear here when ready.
+            Pick a mode, choose a model, and describe the image or video. This canvas stays on the
+            current session — open Library when you want past work.
           </p>
         </div>
       </div>

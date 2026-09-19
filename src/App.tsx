@@ -18,7 +18,7 @@ import {
   type OxenModel,
   type StudioSettings,
 } from "./lib/api";
-import { groupGenerationBatches } from "./lib/batches";
+import { groupGenerationBatches, isActiveGeneration, mergeGenerations } from "./lib/batches";
 import { completedMedia, downloadAllMedia } from "./lib/download";
 import { filesFromList, kindFromFile } from "./lib/files";
 
@@ -45,15 +45,12 @@ function pickModel(
 }
 
 function initialLibraryOpen(): boolean {
-  if (typeof window === "undefined") return true;
+  if (typeof window === "undefined") return false;
   try {
-    const stored = window.localStorage.getItem("ds-studio-library-open");
-    if (stored === "1") return true;
-    if (stored === "0") return false;
+    return window.localStorage.getItem("ds-studio-library-open") === "1";
   } catch {
-    /* ignore */
+    return false;
   }
-  return window.matchMedia("(min-width: 861px)").matches;
 }
 
 export default function App() {
@@ -84,6 +81,7 @@ export default function App() {
   const [credits, setCredits] = useState<CreditBalance | null>(null);
   const [keepCanvasClear, setKeepCanvasClear] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(initialLibraryOpen);
+  const [libraryLoading, setLibraryLoading] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
 
   const selected = useMemo(
@@ -103,14 +101,20 @@ export default function App() {
     [favorites],
   );
 
-  const refreshHistory = useCallback(async () => {
-    const data = await api.listGenerations();
-    setGenerations(data.generations);
+  const refreshActive = useCallback(async () => {
+    const data = await api.listGenerations("active");
+    setGenerations((prev) => mergeGenerations(prev, data.generations));
     setSelectedId((prev) => {
       if (keepCanvasClear) return null;
-      return prev ?? data.generations[0]?.id ?? null;
+      if (prev) return prev;
+      return data.generations[0]?.id ?? null;
     });
   }, [keepCanvasClear]);
+
+  const refreshLibrary = useCallback(async () => {
+    const data = await api.listGenerations("library");
+    setGenerations((prev) => mergeGenerations(prev, data.generations));
+  }, []);
 
   const refreshCredits = useCallback(async () => {
     if (!user?.hasOxenKey) {
@@ -139,8 +143,8 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return;
-    void refreshHistory().catch((err) =>
-      setError(err instanceof Error ? err.message : "Failed to load history"),
+    void refreshActive().catch((err) =>
+      setError(err instanceof Error ? err.message : "Failed to resume jobs"),
     );
     void api
       .studioSettings()
@@ -163,7 +167,7 @@ export default function App() {
       });
     void refreshFavorites();
     void refreshCredits();
-  }, [user, refreshHistory, refreshFavorites, refreshCredits]);
+  }, [user, refreshActive, refreshFavorites, refreshCredits]);
 
   useEffect(() => {
     if (!user?.hasOxenKey) return;
@@ -189,6 +193,24 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [libraryOpen]);
+
+  useEffect(() => {
+    if (!user || !libraryOpen) return;
+    let cancelled = false;
+    setLibraryLoading(true);
+    void refreshLibrary()
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load library");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLibraryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, libraryOpen, refreshLibrary]);
 
   useEffect(() => {
     if (!user) return;
@@ -329,9 +351,7 @@ export default function App() {
   }, [mode, controls]);
 
   useEffect(() => {
-    const active = generations.filter(
-      (g) => !["succeeded", "failed", "cancelled"].includes(g.status),
-    );
+    const active = generations.filter(isActiveGeneration);
     if (active.length === 0) return;
 
     const timer = window.setInterval(() => {
@@ -339,9 +359,7 @@ export default function App() {
         for (const g of active) {
           try {
             const { generation } = await api.getGeneration(g.id);
-            setGenerations((prev) =>
-              prev.map((row) => (row.id === generation.id ? generation : row)),
-            );
+            setGenerations((prev) => mergeGenerations(prev, [generation]));
             if (generation.status === "succeeded" || generation.status === "failed") {
               void refreshCredits();
             }
@@ -477,7 +495,12 @@ export default function App() {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save tags");
-      void refreshHistory();
+      try {
+        const { generation } = await api.getGeneration(id);
+        setGenerations((prev) => mergeGenerations(prev, [generation]));
+      } catch {
+        /* keep optimistic tags until the next library refresh */
+      }
     }
   }
 
@@ -527,7 +550,7 @@ export default function App() {
 
       const { generations: created } = await api.generate(payload);
       setKeepCanvasClear(false);
-      setGenerations((prev) => [...created, ...prev]);
+      setGenerations((prev) => mergeGenerations(prev, created));
       setSelectedId(created[0]?.id ?? null);
       void refreshCredits();
     } catch (err) {
@@ -550,12 +573,15 @@ export default function App() {
       <Sidebar
         generations={generations}
         selectedId={selectedId}
+        loading={libraryLoading}
+        downloadingAll={downloadingAll}
         onSelect={(id) => {
           setKeepCanvasClear(false);
           setSelectedId(id);
           if (window.matchMedia("(max-width: 860px)").matches) setLibraryOpen(false);
         }}
         onClose={() => setLibraryOpen(false)}
+        onDownloadAll={() => void onDownloadAll()}
         onOpenSettings={() => setShowSettings(true)}
         onLogout={() => void logout()}
         userLogin={user.login}
@@ -586,16 +612,6 @@ export default function App() {
             <button type="button" className="ghost-btn" onClick={startNew}>
               New
             </button>
-            {readyMedia.length > 0 ? (
-              <button
-                type="button"
-                className="ghost-btn"
-                disabled={downloadingAll}
-                onClick={() => void onDownloadAll()}
-              >
-                {downloadingAll ? "Downloading…" : "Download all"}
-              </button>
-            ) : null}
           </div>
           <CreditMeter credits={credits} />
         </div>

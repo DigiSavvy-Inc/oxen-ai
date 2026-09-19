@@ -24,8 +24,11 @@ function TileFace({ item }: { item: Generation }) {
 export function Sidebar({
   generations,
   selectedId,
+  loading,
+  downloadingAll,
   onSelect,
   onClose,
+  onDownloadAll,
   onOpenSettings,
   onLogout,
   userLogin,
@@ -35,8 +38,11 @@ export function Sidebar({
 }: {
   generations: Generation[];
   selectedId: string | null;
+  loading?: boolean;
+  downloadingAll?: boolean;
   onSelect: (id: string) => void;
   onClose?: () => void;
+  onDownloadAll?: () => void;
   onOpenSettings: () => void;
   onLogout: () => void;
   userLogin: string;
@@ -57,6 +63,7 @@ export function Sidebar({
       batch.items.some((item) => tagsMatchQuery(item.tags, tagQuery)),
     );
   }, [generations, tagQuery]);
+  const readyAll = useMemo(() => completedMedia(generations), [generations]);
 
   return (
     <aside className="sidebar" id="media-library">
@@ -68,11 +75,23 @@ export function Sidebar({
             <span>Media library</span>
           </div>
         </div>
-        {onClose ? (
-          <button type="button" className="icon-btn sidebar-close" aria-label="Close library" onClick={onClose}>
-            ×
-          </button>
-        ) : null}
+        <div className="sidebar-header-actions">
+          {onDownloadAll && readyAll.length > 0 ? (
+            <button
+              type="button"
+              className="ghost-btn"
+              disabled={downloadingAll}
+              onClick={onDownloadAll}
+            >
+              {downloadingAll ? "Downloading…" : "Download all"}
+            </button>
+          ) : null}
+          {onClose ? (
+            <button type="button" className="icon-btn sidebar-close" aria-label="Close library" onClick={onClose}>
+              ×
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="tag-filter">
@@ -109,11 +128,13 @@ export function Sidebar({
       </div>
 
       <div className="history history-grid">
-        {batches.length === 0 ? (
+        {loading && batches.length === 0 ? (
+          <div className="history-empty">Loading library…</div>
+        ) : batches.length === 0 ? (
           <div className="history-empty">
             {tagQuery.trim()
               ? "No media with that tag."
-              : "No generations yet. Write a prompt below and hit Generate — jobs run through Oxen's async queue."}
+              : "No generations yet. Write a prompt and hit Generate — jobs run through Oxen's async queue."}
           </div>
         ) : (
           batches.map((batch) => {

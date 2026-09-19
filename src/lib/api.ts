@@ -234,10 +234,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).then((r) => parseJson<{ generations: Generation[] }>(r)),
-  listGenerations: () =>
-    fetch("/api/generations").then((r) =>
+  listGenerations: (scope: "active" | "library" = "library") => {
+    const params = new URLSearchParams({ scope });
+    return fetch(`/api/generations?${params}`).then((r) =>
       parseJson<{ generations: Generation[] }>(r),
-    ),
+    );
+  },
   getGeneration: (id: string) =>
     fetch(`/api/generations/${id}`).then((r) =>
       parseJson<{ generation: Generation }>(r),

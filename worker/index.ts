@@ -59,9 +59,11 @@ import {
   clampDuration,
   imageSlotRequired,
   mapMediaUrls,
+  parseGenerationListScope,
   parseModelControls,
   pickCompatible,
   videoSlotRequired,
+  type GenerationListScope,
 } from "./schema";
 import { parseTagList } from "./tags";
 import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
@@ -509,6 +511,28 @@ async function typicalWaitByMedia(
     out[row.mediaType] = Math.round(clamped);
   }
   return out;
+}
+
+function generationListQuery(scope: GenerationListScope): {
+  sql: string;
+  persistMissing: boolean;
+} {
+  switch (scope) {
+    case "active":
+      return {
+        sql: `SELECT * FROM generations WHERE user_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled') ORDER BY created_at DESC LIMIT 50`,
+        persistMissing: false,
+      };
+    case "library":
+      return {
+        sql: `SELECT * FROM generations WHERE user_id = ? ORDER BY created_at DESC LIMIT 100`,
+        persistMissing: true,
+      };
+    default: {
+      const _never: never = scope;
+      throw new Error(`Unhandled generation list scope: ${_never}`);
+    }
+  }
 }
 
 async function persistOxenResult(
@@ -1110,12 +1134,13 @@ app.post("/api/generate", async (c) => {
 
 app.get("/api/generations", async (c) => {
   const user = await requireUser(c);
+  const scope = parseGenerationListScope(c.req.query("scope"));
+  if (!scope) {
+    throw new HTTPException(400, { message: "Invalid generation list scope" });
+  }
+  const query = generationListQuery(scope);
   const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
-  const rows = await c.env.DB.prepare(
-    `SELECT * FROM generations WHERE user_id = ? ORDER BY created_at DESC LIMIT 100`,
-  )
-    .bind(user.id)
-    .all<GenerationRow>();
+  const rows = await c.env.DB.prepare(query.sql).bind(user.id).all<GenerationRow>();
 
   const typicals = await typicalWaitByMedia(c.env, user.id);
   const tagMap = await tagsByGeneration(
@@ -1126,7 +1151,7 @@ app.get("/api/generations", async (c) => {
   const generations = await Promise.all(
     (rows.results ?? []).map((row) =>
       syncGenerationRow(c.env, user.id, apiKey, row, {
-        persistMissing: true,
+        persistMissing: query.persistMissing,
         pollActive: false,
         typicalSeconds: row.media_type ? typicals[row.media_type] ?? null : null,
         tags: tagMap.get(row.id) ?? [],

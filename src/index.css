@@ -102,6 +102,18 @@ a {
   border-bottom: 1px solid var(--border);
 }
 
+.sidebar-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sidebar-header-actions .ghost-btn {
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
 .brand {
   display: flex;
   align-items: center;

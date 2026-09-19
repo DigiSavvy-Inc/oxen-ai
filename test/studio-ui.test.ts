@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { coverGeneration, groupGenerationBatches } from "../src/lib/batches";
+import {
+  coverGeneration,
+  groupGenerationBatches,
+  isActiveGeneration,
+  mergeGenerations,
+} from "../src/lib/batches";
 import { estimateGenerationCost, mentionToken } from "../src/lib/api";
 import type { Generation } from "../src/lib/api";
 import { downloadFilename } from "../src/lib/download";
@@ -32,6 +37,19 @@ describe("groupGenerationBatches", () => {
     expect(batches).toHaveLength(2);
     expect(batches[0]?.items.map((item) => item.id)).toEqual(["a", "b"]);
     expect(coverGeneration(batches[0]?.items ?? [])?.id).toBe("a");
+  });
+
+  it("merges newer rows without dropping in-session jobs", () => {
+    const queued = gen({ id: "live", status: "queued", createdAt: 20, updatedAt: 20 });
+    const archive = [
+      gen({ id: "old", createdAt: 10, updatedAt: 10 }),
+      gen({ id: "live", status: "succeeded", createdAt: 20, updatedAt: 30, resultUrl: "https://x" }),
+    ];
+    const merged = mergeGenerations([queued], archive);
+    expect(merged.map((item) => item.id)).toEqual(["live", "old"]);
+    expect(merged[0]?.status).toBe("succeeded");
+    expect(isActiveGeneration(queued)).toBe(true);
+    expect(isActiveGeneration(archive[1]!)).toBe(false);
   });
 });
 

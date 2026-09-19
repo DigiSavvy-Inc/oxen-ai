@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { clampDuration, mapMediaUrls, parseModelControls } from "../worker/schema";
+import {
+  clampDuration,
+  mapMediaUrls,
+  parseGenerationListScope,
+  parseModelControls,
+} from "../worker/schema";
 import type { OxenModel } from "../worker/oxen";
 
 describe("parseModelControls", () => {
@@ -150,5 +155,18 @@ describe("clampDuration", () => {
     expect(clampDuration(8, duration)).toBe(8);
     expect(clampDuration(1, duration)).toBe(3);
     expect(clampDuration("auto", duration)).toBe(5);
+  });
+});
+
+describe("parseGenerationListScope", () => {
+  it("defaults missing or library to the archive list", () => {
+    expect(parseGenerationListScope(undefined)).toBe("library");
+    expect(parseGenerationListScope("")).toBe("library");
+    expect(parseGenerationListScope("library")).toBe("library");
+  });
+
+  it("accepts active in-flight jobs and rejects unknown scopes", () => {
+    expect(parseGenerationListScope("active")).toBe("active");
+    expect(parseGenerationListScope("all")).toBeNull();
   });
 });

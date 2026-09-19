@@ -253,6 +253,16 @@ export function asSingleString(value: string | string[] | undefined): string | u
   return Array.isArray(value) ? value[0] : value;
 }
 
+export type GenerationListScope = "active" | "library";
+
+export function parseGenerationListScope(
+  raw: string | undefined | null,
+): GenerationListScope | null {
+  if (raw == null || raw === "" || raw === "library") return "library";
+  if (raw === "active") return "active";
+  return null;
+}
+
 export function clampDuration(
   value: number | string | undefined,
   duration: DurationControl | null,
