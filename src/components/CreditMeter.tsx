@@ -5,10 +5,16 @@ export function CreditMeter({ credits }: { credits: CreditBalance | null }) {
   const label =
     credits?.remaining != null
       ? `${credits.currency === "USD" ? "$" : ""}${credits.remaining.toFixed(2)}`
-      : "Oxen credits";
+      : "Buy Credits";
 
   return (
-    <a className="credit-meter" href={href} target="_blank" rel="noreferrer">
+    <a
+      className="credit-meter"
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      aria-label="Buy Credits"
+    >
       {label}
     </a>
   );

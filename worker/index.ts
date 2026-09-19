@@ -23,9 +23,8 @@ import {
 import { creditBalanceResponse, fetchOxenCredits } from "./credits";
 import {
   buildReferenceMediaUrl,
-  createSignedMediaUrl,
+  displayStoredMediaUrl,
   putMediaObject,
-  resolvePublicBaseUrl,
   verifyMediaSignature,
 } from "./media";
 import {
@@ -62,10 +61,18 @@ import {
   parseGenerationListScope,
   parseModelControls,
   pickCompatible,
+  resolutionPayloadFields,
   videoSlotRequired,
   type GenerationListScope,
 } from "./schema";
 import { parseTagList } from "./tags";
+import { createImageThumbnail } from "./thumbs";
+import {
+  backfillMissingThumbnails,
+  deleteFailedGenerations,
+  deleteGenerationRecord,
+  parseCleanupAction,
+} from "./library";
 import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
 import { getStudioSettings, saveStudioSettings } from "./user-settings";
 
@@ -207,6 +214,18 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         capabilities: { input: ["text", "image"], output: ["image"] },
       },
       {
+        id: "bytedance-seedream-5-lite",
+        display_name: "Seedream 5.0 Lite",
+        endpoint: "/images/edit",
+        capabilities: { input: ["text", "image"], output: ["image"] },
+      },
+      {
+        id: "bytedance-seedream-5-pro",
+        display_name: "Seedream 5.0 Pro",
+        endpoint: "/images/edit",
+        capabilities: { input: ["text", "image"], output: ["image"] },
+      },
+      {
         id: "bytedance-seedream-5-0-lite",
         display_name: "Seedream 5.0 Lite",
         endpoint: "/images/generate",
@@ -223,6 +242,18 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
       {
         id: "qwen-image-edit",
         display_name: "Qwen Image Edit",
+        endpoint: "/images/edit",
+        capabilities: { input: ["text", "image"], output: ["image"] },
+      },
+      {
+        id: "bytedance-seedream-5-lite",
+        display_name: "Seedream 5.0 Lite",
+        endpoint: "/images/edit",
+        capabilities: { input: ["text", "image"], output: ["image"] },
+      },
+      {
+        id: "bytedance-seedream-5-pro",
+        display_name: "Seedream 5.0 Pro",
         endpoint: "/images/edit",
         capabilities: { input: ["text", "image"], output: ["image"] },
       },
@@ -355,26 +386,19 @@ type GenerationRow = {
   media_type: string | null;
   result_url: string | null;
   result_key?: string | null;
+  thumb_key?: string | null;
   error_message: string | null;
   batch_id?: string | null;
   created_at: number;
   updated_at: number;
 };
 
-function generationSecret(env: Env): string {
-  return env.ENCRYPTION_KEY || env.SESSION_SECRET;
-}
-
 async function displayResultUrl(
   env: Env,
   resultKey: string | null | undefined,
   resultUrl: string | null,
 ): Promise<string | null> {
-  const origin = resolvePublicBaseUrl(env.PUBLIC_BASE_URL);
-  if (resultKey && origin) {
-    return createSignedMediaUrl(origin, resultKey, generationSecret(env));
-  }
-  return resultUrl;
+  return displayStoredMediaUrl(env, resultKey, resultUrl);
 }
 
 function toGenerationJson(
@@ -390,6 +414,7 @@ function toGenerationJson(
     progress?: number | null;
     typicalSeconds?: number | null;
     tags?: string[];
+    thumbUrl?: string | null;
   },
 ) {
   return {
@@ -401,6 +426,7 @@ function toGenerationJson(
     status: extras?.status ?? row.status,
     mediaType: row.media_type,
     resultUrl,
+    thumbUrl: extras?.thumbUrl ?? null,
     errorMessage: extras?.errorMessage === undefined ? row.error_message : extras.errorMessage,
     batchId: row.batch_id ?? null,
     createdAt: row.created_at,
@@ -540,10 +566,58 @@ async function persistOxenResult(
   userId: string,
   apiKey: string,
   resultUrl: string,
-): Promise<{ resultKey: string; oxenUrl: string }> {
+): Promise<{ resultKey: string; thumbKey: string | null; oxenUrl: string }> {
   const { bytes, contentType } = await downloadOxenResult(apiKey, resultUrl);
   const { key } = await putMediaObject(env.MEDIA, bytes, contentType, `u/${userId}/results`);
-  return { resultKey: key, oxenUrl: resultUrl };
+  let thumbKey: string | null = null;
+  const thumb = await createImageThumbnail(env.IMAGES, bytes, contentType);
+  if (thumb) {
+    const stored = await putMediaObject(
+      env.MEDIA,
+      thumb.bytes,
+      thumb.contentType,
+      `u/${userId}/thumbs`,
+    );
+    thumbKey = stored.key;
+  }
+  return { resultKey: key, thumbKey, oxenUrl: resultUrl };
+}
+
+async function writeGenerationRow(
+  env: Env,
+  row: {
+    id: string;
+    status: string;
+    resultUrl: string | null;
+    resultKey: string | null;
+    thumbKey: string | null;
+    errorMessage: string | null;
+    updatedAt: number;
+  },
+) {
+  try {
+    await env.DB.prepare(
+      `UPDATE generations SET status = ?, result_url = ?, result_key = ?, thumb_key = ?, error_message = ?, updated_at = ? WHERE id = ?`,
+    )
+      .bind(
+        row.status,
+        row.resultUrl,
+        row.resultKey,
+        row.thumbKey,
+        row.errorMessage,
+        row.updatedAt,
+        row.id,
+      )
+      .run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes("thumb_key") && !message.includes("SQLITE_ERROR")) throw err;
+    await env.DB.prepare(
+      `UPDATE generations SET status = ?, result_url = ?, result_key = ?, error_message = ?, updated_at = ? WHERE id = ?`,
+    )
+      .bind(row.status, row.resultUrl, row.resultKey, row.errorMessage, row.updatedAt, row.id)
+      .run();
+  }
 }
 
 async function syncGenerationRow(
@@ -561,6 +635,7 @@ async function syncGenerationRow(
   let status = row.status;
   let resultUrl = row.result_url;
   let resultKey = row.result_key ?? null;
+  let thumbKey = row.thumb_key ?? null;
   let errorMessage = row.error_message;
   let updatedAt = row.updated_at;
   let dirty = false;
@@ -601,6 +676,7 @@ async function syncGenerationRow(
     try {
       const persisted = await persistOxenResult(env, userId, apiKey, resultUrl);
       resultKey = persisted.resultKey;
+      thumbKey = persisted.thumbKey ?? thumbKey;
       resultUrl = persisted.oxenUrl;
       dirty = true;
     } catch (err) {
@@ -610,14 +686,22 @@ async function syncGenerationRow(
 
   if (dirty) {
     updatedAt = Math.floor(Date.now() / 1000);
-    await env.DB.prepare(
-      `UPDATE generations SET status = ?, result_url = ?, result_key = ?, error_message = ?, updated_at = ? WHERE id = ?`,
-    )
-      .bind(status, resultUrl, resultKey, errorMessage, updatedAt, row.id)
-      .run();
+    await writeGenerationRow(env, {
+      id: row.id,
+      status,
+      resultUrl,
+      resultKey,
+      thumbKey,
+      errorMessage,
+      updatedAt,
+    });
   }
 
-  return toGenerationJson(row, await displayResultUrl(env, resultKey, resultUrl), {
+  const [displayUrl, thumbUrl] = await Promise.all([
+    displayResultUrl(env, resultKey, resultUrl),
+    displayStoredMediaUrl(env, thumbKey, null),
+  ]);
+  return toGenerationJson(row, displayUrl, {
     status,
     errorMessage,
     updatedAt,
@@ -627,6 +711,7 @@ async function syncGenerationRow(
     progress,
     typicalSeconds: options.typicalSeconds ?? null,
     tags: options.tags ?? [],
+    thumbUrl,
   });
 }
 
@@ -1037,9 +1122,11 @@ app.post("/api/generate", async (c) => {
     generate_audio: controls.generateAudio || useFallback ? body.generate_audio : undefined,
     num_generations: body.num_generations,
     quality: pickCompatible(body.quality, controls.quality) ?? (useFallback ? body.quality : undefined),
-    resolution:
+    ...resolutionPayloadFields(
+      controls.resolutionField,
       pickCompatible(body.resolution, controls.resolution) ??
-      (useFallback ? body.resolution : undefined),
+        (useFallback ? body.resolution : undefined),
+    ),
     output_format:
       pickCompatible(body.output_format, controls.outputFormat) ??
       (useFallback ? body.output_format : undefined),
@@ -1098,6 +1185,7 @@ app.post("/api/generate", async (c) => {
       status: gen.status || "queued",
       mediaType: meta.mediaType,
       resultUrl: null as string | null,
+      thumbUrl: null as string | null,
       errorMessage: null as string | null,
       batchId,
       createdAt: now,
@@ -1218,30 +1306,48 @@ app.put("/api/generations/:id/tags", async (c) => {
 
 app.delete("/api/generations/:id", async (c) => {
   const user = await requireUser(c);
-  const apiKey = await requireOxenKey(user, c.env);
   const id = c.req.param("id");
-  const row = await c.env.DB.prepare(
-    `SELECT oxen_generation_id, status FROM generations WHERE id = ? AND user_id = ?`,
-  )
+  const row = await c.env.DB.prepare(`SELECT * FROM generations WHERE id = ? AND user_id = ?`)
     .bind(id, user.id)
-    .first<{ oxen_generation_id: string; status: string }>();
+    .first<GenerationRow>();
   if (!row) {
     throw new HTTPException(404, { message: "Generation not found" });
   }
   if (!["succeeded", "failed", "cancelled"].includes(row.status)) {
-    try {
-      await cancelGeneration(apiKey, row.oxen_generation_id);
-    } catch (err) {
-      console.error("cancel error", err);
+    const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
+    if (apiKey) {
+      try {
+        await cancelGeneration(apiKey, row.oxen_generation_id);
+      } catch (err) {
+        console.error("cancel error", err);
+      }
     }
   }
-  const now = Math.floor(Date.now() / 1000);
-  await c.env.DB.prepare(
-    `UPDATE generations SET status = 'cancelled', updated_at = ? WHERE id = ?`,
-  )
-    .bind(now, id)
-    .run();
+  await deleteGenerationRecord(c.env, user.id, row);
   return c.json({ ok: true });
+});
+
+app.post("/api/library/cleanup", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ action?: unknown }>().catch(() => ({ action: null }));
+  const action = parseCleanupAction(body.action);
+  if (!action) {
+    throw new HTTPException(400, { message: "Invalid cleanup action" });
+  }
+  switch (action) {
+    case "failed": {
+      const deleted = await deleteFailedGenerations(c.env, user.id);
+      return c.json({ action, deleted, built: 0, remaining: false });
+    }
+    case "thumbs": {
+      const result = await backfillMissingThumbnails(c.env, user.id);
+      return c.json({ action, deleted: 0, built: result.built, remaining: result.remaining });
+    }
+    default: {
+      const _never: never = action;
+      throw new HTTPException(400, { message: `Unhandled cleanup action: ${_never}` });
+    }
+  }
 });
 
 app.get("/api/oxen/queue", async (c) => {

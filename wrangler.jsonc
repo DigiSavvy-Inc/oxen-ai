@@ -42,6 +42,9 @@
       "bucket_name": "oxen-studio-media"
     }
   ],
+  "images": {
+    "binding": "IMAGES"
+  },
   // Committed vars = local/dev defaults.
   // Production vars shape (dashboard / `npx wrangler deploy --var`, not git):
   //   GITHUB_ORG=DigiSavvy-Inc

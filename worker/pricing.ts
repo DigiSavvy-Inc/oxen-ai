@@ -64,6 +64,57 @@ export function parseOxenPricing(raw: unknown): OxenPricing | null {
   return hasValue ? pricing : null;
 }
 
+const RESOLUTION_SORT = [
+  "1k",
+  "1.5k",
+  "2k",
+  "3k",
+  "4k",
+  "480p",
+  "720p",
+  "768p",
+  "1080p",
+];
+
+function sortResolutionLabels(values: string[]): string[] {
+  return [...values].sort((a, b) => {
+    const ia = RESOLUTION_SORT.indexOf(resolutionCanonical(a));
+    const ib = RESOLUTION_SORT.indexOf(resolutionCanonical(b));
+    const ra = ia === -1 ? 100 : ia;
+    const rb = ib === -1 ? 100 : ib;
+    if (ra !== rb) return ra - rb;
+    return a.localeCompare(b);
+  });
+}
+
+export function controlOptionsFromPricing(pricing: OxenPricing | null | undefined): {
+  quality: string[];
+  resolution: string[];
+} {
+  if (!pricing) return { quality: [], resolution: [] };
+  const quality: string[] = [];
+  const resolutionByCanon = new Map<string, string>();
+  if (pricing.cost_per_image_grid) {
+    for (const [qualityKey, row] of Object.entries(pricing.cost_per_image_grid)) {
+      quality.push(qualityKey);
+      for (const key of Object.keys(row)) {
+        const canon = resolutionCanonical(key);
+        if (!resolutionByCanon.has(canon)) resolutionByCanon.set(canon, key);
+      }
+    }
+  }
+  if (pricing.cost_per_second_by_resolution) {
+    for (const key of Object.keys(pricing.cost_per_second_by_resolution)) {
+      const canon = resolutionCanonical(key);
+      if (!resolutionByCanon.has(canon)) resolutionByCanon.set(canon, key);
+    }
+  }
+  return {
+    quality: [...new Set(quality)],
+    resolution: sortResolutionLabels([...resolutionByCanon.values()]),
+  };
+}
+
 function lookupInsensitive(map: Record<string, number>, key: string): number | null {
   if (key in map) return map[key] ?? null;
   const needle = key.toLowerCase();
@@ -77,7 +128,9 @@ function resolutionCanonical(raw: string): string {
   const trimmed = raw.trim().toLowerCase().replace(/\s+/g, "");
   const compact = trimmed.replace(/p$/i, "");
   if (compact === "1k" || compact === "1024") return "1k";
+  if (compact === "1.5k" || compact === "1536") return "1.5k";
   if (compact === "2k" || compact === "1440" || compact === "2048") return "2k";
+  if (compact === "3k" || compact === "3072") return "3k";
   if (compact === "4k" || compact === "2160" || compact === "3840" || compact === "uhd") return "4k";
   if (compact === "480" || compact === "sd") return "480p";
   if (compact === "720" || compact === "hd") return "720p";

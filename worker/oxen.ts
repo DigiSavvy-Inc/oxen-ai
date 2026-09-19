@@ -56,6 +56,8 @@ export type EnqueueBody = {
   num_generations?: number;
   quality?: string;
   resolution?: string;
+  size?: string;
+  image_size?: string;
   output_format?: string;
   background?: string;
   moderation?: string;
@@ -192,6 +194,8 @@ export function buildEnqueuePayload(
   assignIfPresent(payload, "input_images", body.input_images);
   assignIfPresent(payload, "quality", body.quality);
   assignIfPresent(payload, "resolution", body.resolution);
+  assignIfPresent(payload, "size", body.size);
+  assignIfPresent(payload, "image_size", body.image_size);
   assignIfPresent(payload, "output_format", body.output_format);
   assignIfPresent(payload, "background", body.background);
   assignIfPresent(payload, "moderation", body.moderation);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "./auth/AuthContext";
+import { AccountMenu } from "./components/AccountMenu";
 import { Canvas } from "./components/Canvas";
 import { Composer } from "./components/Composer";
 import { CreditMeter } from "./components/CreditMeter";
@@ -484,6 +485,20 @@ export default function App() {
     }
   }
 
+  async function onDeleteGenerations(ids: string[]) {
+    if (ids.length === 0) return;
+    const removing = new Set(ids);
+    setGenerations((prev) => prev.filter((row) => !removing.has(row.id)));
+    setSelectedId((prev) => (prev && removing.has(prev) ? null : prev));
+    setError(null);
+    try {
+      await Promise.all(ids.map((id) => api.cancelGeneration(id)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove media");
+      if (libraryOpen) void refreshLibrary();
+    }
+  }
+
   async function onSaveTags(id: string, tags: string[]) {
     setGenerations((prev) =>
       prev.map((row) => (row.id === id ? { ...row, tags } : row)),
@@ -582,12 +597,7 @@ export default function App() {
         }}
         onClose={() => setLibraryOpen(false)}
         onDownloadAll={() => void onDownloadAll()}
-        onOpenSettings={() => setShowSettings(true)}
-        onLogout={() => void logout()}
-        userLogin={user.login}
-        avatarUrl={user.avatarUrl}
-        isAdmin={user.isAdmin}
-        hasOxenKey={user.hasOxenKey}
+        onDelete={(ids) => void onDeleteGenerations(ids)}
       />
       {libraryOpen ? (
         <button
@@ -613,7 +623,17 @@ export default function App() {
               New
             </button>
           </div>
-          <CreditMeter credits={credits} />
+          <div className="main-top-right">
+            <CreditMeter credits={credits} />
+            <AccountMenu
+              userLogin={user.login}
+              avatarUrl={user.avatarUrl}
+              isAdmin={user.isAdmin}
+              hasOxenKey={user.hasOxenKey}
+              onOpenSettings={() => setShowSettings(true)}
+              onLogout={() => void logout()}
+            />
+          </div>
         </div>
         <Canvas
           generation={selected}

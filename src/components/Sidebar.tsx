@@ -11,12 +11,17 @@ function statusClass(status: string) {
   return "warn";
 }
 
+function tileSrc(item: Generation): string | null {
+  return item.thumbUrl || item.resultUrl;
+}
+
 function TileFace({ item }: { item: Generation }) {
-  if (item.resultUrl && item.mediaType === "image") {
-    return <img src={item.resultUrl} alt="" />;
+  const src = tileSrc(item);
+  if (src && item.mediaType === "image") {
+    return <img src={src} alt="" loading="lazy" />;
   }
-  if (item.resultUrl && item.mediaType === "video") {
-    return <video src={item.resultUrl} muted playsInline preload="metadata" />;
+  if (src && item.mediaType === "video") {
+    return <video src={item.resultUrl || src} muted playsInline preload="metadata" />;
   }
   return <span>{item.mediaType === "video" ? "VID" : "IMG"}</span>;
 }
@@ -29,12 +34,7 @@ export function Sidebar({
   onSelect,
   onClose,
   onDownloadAll,
-  onOpenSettings,
-  onLogout,
-  userLogin,
-  avatarUrl,
-  isAdmin,
-  hasOxenKey,
+  onDelete,
 }: {
   generations: Generation[];
   selectedId: string | null;
@@ -43,12 +43,7 @@ export function Sidebar({
   onSelect: (id: string) => void;
   onClose?: () => void;
   onDownloadAll?: () => void;
-  onOpenSettings: () => void;
-  onLogout: () => void;
-  userLogin: string;
-  avatarUrl: string | null;
-  isAdmin: boolean;
-  hasOxenKey: boolean;
+  onDelete: (ids: string[]) => void;
 }) {
   const [tagQuery, setTagQuery] = useState("");
   const allTags = useMemo(
@@ -71,8 +66,8 @@ export function Sidebar({
         <div className="brand">
           <img className="brand-mark-img" src="/favicon.svg" alt="" />
           <div className="brand-copy">
-            <strong>DS Studio</strong>
-            <span>Media library</span>
+            <strong>Library</strong>
+            <span>Past work</span>
           </div>
         </div>
         <div className="sidebar-header-actions">
@@ -181,31 +176,23 @@ export function Sidebar({
                     onDownload={() => void downloadAllMedia(ready)}
                   />
                 ) : null}
+                <button
+                  type="button"
+                  className="media-delete"
+                  aria-label="Remove from library"
+                  title="Remove from library"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onDelete(batch.items.map((item) => item.id));
+                  }}
+                >
+                  ×
+                </button>
               </div>
             );
           })
         )}
-      </div>
-
-      <div className="sidebar-footer">
-        <div className="user-row">
-          {avatarUrl ? <img src={avatarUrl} alt="" /> : <div className="brand-mark">?</div>}
-          <div style={{ minWidth: 0 }}>
-            <div className="name">@{userLogin}</div>
-            <div className="role">
-              {hasOxenKey ? "Oxen key ready" : "Add Oxen key in Settings"}
-              {isAdmin ? " · admin" : ""}
-            </div>
-          </div>
-        </div>
-        <div className="footer-actions">
-          <button className="ghost-btn" type="button" onClick={onOpenSettings}>
-            Settings
-          </button>
-          <button className="ghost-btn" type="button" onClick={onLogout}>
-            Log out
-          </button>
-        </div>
       </div>
     </aside>
   );

@@ -1,5 +1,5 @@
 import type { OxenModel, OxenPricing } from "./oxen";
-import { parseOxenPricing } from "./pricing";
+import { controlOptionsFromPricing, parseOxenPricing } from "./pricing";
 
 export type JsonSchema = {
   type?: string | string[];
@@ -39,6 +39,8 @@ export type DurationControl =
   | { kind: "int"; min: number; max: number; defaultValue?: number }
   | { kind: "enum"; values: string[]; defaultValue?: string };
 
+export type ResolutionField = "resolution" | "size" | "image_size";
+
 export type ModelControls = {
   modelId: string;
   aspectRatios: string[] | null;
@@ -47,6 +49,7 @@ export type ModelControls = {
   generateAudio: boolean;
   quality: string[] | null;
   resolution: string[] | null;
+  resolutionField: ResolutionField;
   outputFormat: string[] | null;
   background: string[] | null;
   slots: MediaSlot[];
@@ -145,6 +148,23 @@ function schemaMentionsMedia(schema: JsonSchema): boolean {
   return texts.some((text) => MENTION_TOKEN.test(text));
 }
 
+function presetSizeTokens(schema: JsonSchema | undefined): string[] {
+  if (!schema) return [];
+  const texts: string[] = [];
+  collectSchemaText(schema, texts);
+  const found: string[] = [];
+  const token = /\b(1\.5K|1K|2K|3K|4K|480p|720p|768p|1080p)\b/gi;
+  for (const text of texts) {
+    for (const match of text.matchAll(token)) {
+      const value = match[1];
+      if (value && !found.some((item) => item.toLowerCase() === value.toLowerCase())) {
+        found.push(value);
+      }
+    }
+  }
+  return found;
+}
+
 export function parseModelControls(model: OxenModel): ModelControls {
   const root = asObjectSchema(model.request_schema) ?? {};
   const slots: MediaSlot[] = [];
@@ -162,10 +182,44 @@ export function parseModelControls(model: OxenModel): ModelControls {
   }
 
   const aspect = enumStrings(property(root, "aspect_ratio"));
-  const quality = enumStrings(property(root, "quality"));
-  const resolution = enumStrings(property(root, "resolution"));
+  const qualityFromSchema = enumStrings(property(root, "quality"));
+  const resolutionFromSchema = enumStrings(property(root, "resolution"));
+  const sizeFromSchema = enumStrings(property(root, "size"));
+  const imageSizeFromSchema = enumStrings(property(root, "image_size"));
   const outputFormat = enumStrings(property(root, "output_format"));
   const background = enumStrings(property(root, "background"));
+  const pricing = parseOxenPricing(model.pricing);
+  const priced = controlOptionsFromPricing(pricing);
+
+  let resolutionField: ResolutionField = "resolution";
+  let resolution = resolutionFromSchema;
+  if (resolution.length === 0 && sizeFromSchema.length > 0) {
+    resolution = sizeFromSchema;
+    resolutionField = "size";
+  } else if (resolution.length === 0 && imageSizeFromSchema.length > 0) {
+    resolution = imageSizeFromSchema;
+    resolutionField = "image_size";
+  } else if (resolution.length === 0 && property(root, "size")) {
+    resolution = presetSizeTokens(property(root, "size"));
+    if (resolution.length === 0) resolution = ["2K"];
+    resolutionField = "size";
+  } else if (resolution.length === 0 && property(root, "image_size")) {
+    resolution = presetSizeTokens(property(root, "image_size"));
+    if (resolution.length === 0) resolution = ["2K"];
+    resolutionField = "image_size";
+  }
+  if (resolution.length === 0 && priced.resolution.length > 0) {
+    resolution = priced.resolution;
+    if (property(root, "size")) resolutionField = "size";
+    else if (property(root, "image_size")) resolutionField = "image_size";
+  }
+
+  const quality =
+    qualityFromSchema.length > 0
+      ? qualityFromSchema
+      : priced.quality.length > 0
+        ? priced.quality
+        : [];
 
   const durationProp = property(root, "duration");
   let duration: DurationControl | null = null;
@@ -201,12 +255,32 @@ export function parseModelControls(model: OxenModel): ModelControls {
     generateAudio: Boolean(property(root, "generate_audio")),
     quality: quality.length > 0 ? quality : null,
     resolution: resolution.length > 0 ? resolution : null,
+    resolutionField,
     outputFormat: outputFormat.length > 0 ? outputFormat : null,
     background: background.length > 0 ? background : null,
     slots,
     mentions,
-    pricing: parseOxenPricing(model.pricing),
+    pricing,
   };
+}
+
+export function resolutionPayloadFields(
+  field: ResolutionField,
+  value: string | undefined,
+): { resolution?: string; size?: string; image_size?: string } {
+  if (!value) return {};
+  switch (field) {
+    case "size":
+      return { size: value };
+    case "image_size":
+      return { image_size: value };
+    case "resolution":
+      return { resolution: value };
+    default: {
+      const _never: never = field;
+      return _never;
+    }
+  }
 }
 
 export function imageSlotRequired(controls: ModelControls): boolean {

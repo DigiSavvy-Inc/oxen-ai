@@ -353,6 +353,17 @@ describe("buildEnqueuePayload", () => {
     expect(payload.num_generations).toBe(2);
     expect("input_image" in payload).toBe(false);
   });
+
+  it("sends Seedream size instead of resolution when provided", () => {
+    const payload = buildEnqueuePayload("image", {
+      model: "bytedance-seedream-5-pro",
+      prompt: "a cat",
+      size: "2K",
+      aspect_ratio: "1:1",
+    });
+    expect(payload.size).toBe("2K");
+    expect("resolution" in payload).toBe(false);
+  });
 });
 
 describe("poll failure threshold", () => {

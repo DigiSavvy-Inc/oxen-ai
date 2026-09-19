@@ -4,6 +4,7 @@ import {
   mapMediaUrls,
   parseGenerationListScope,
   parseModelControls,
+  resolutionPayloadFields,
 } from "../worker/schema";
 import type { OxenModel } from "../worker/oxen";
 
@@ -135,6 +136,38 @@ describe("parseModelControls", () => {
       cost_per_second_with_audio: null,
       cost_per_second_high_res: null,
     });
+  });
+
+  it("reads Seedream size as the resolution control and maps it to size", () => {
+    const controls = parseModelControls({
+      id: "bytedance-seedream-5-pro",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          size: { type: "string", enum: ["2K", "3K"] },
+          aspect_ratio: { type: "string", enum: ["1:1", "16:9"] },
+        },
+      },
+    });
+    expect(controls.resolution).toEqual(["2K", "3K"]);
+    expect(controls.resolutionField).toBe("size");
+    expect(resolutionPayloadFields("size", "2K")).toEqual({ size: "2K" });
+  });
+
+  it("uses pricing grid resolutions when the schema omits resolution", () => {
+    const controls = parseModelControls({
+      id: "gpt-image-2-5-flare",
+      pricing: {
+        method: "per_image",
+        cost_per_image_grid: {
+          high: { "1K": 0.13, "2K": 0.29, "4K": 1.13 },
+        },
+      },
+    });
+    expect(controls.resolution).toEqual(["1K", "2K", "4K"]);
+    expect(controls.quality).toEqual(["high"]);
+    expect(controls.resolutionField).toBe("resolution");
   });
 });
 

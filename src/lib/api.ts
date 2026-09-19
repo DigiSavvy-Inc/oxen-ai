@@ -49,6 +49,7 @@ export type ModelControls = {
   generateAudio: boolean;
   quality: string[] | null;
   resolution: string[] | null;
+  resolutionField?: "resolution" | "size" | "image_size";
   outputFormat: string[] | null;
   background: string[] | null;
   slots: MediaSlot[];
@@ -82,6 +83,7 @@ export type Generation = {
   status: string;
   mediaType: string | null;
   resultUrl: string | null;
+  thumbUrl?: string | null;
   errorMessage: string | null;
   batchId: string | null;
   createdAt: number;
@@ -252,6 +254,14 @@ export const api = {
     }).then((r) => parseJson<{ generation: Generation }>(r)),
   cancelGeneration: (id: string) =>
     fetch(`/api/generations/${id}`, { method: "DELETE" }).then((r) => parseJson(r)),
+  cleanupLibrary: (action: "failed" | "thumbs") =>
+    fetch("/api/library/cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    }).then((r) =>
+      parseJson<{ action: string; deleted: number; built: number; remaining: boolean }>(r),
+    ),
   credits: () =>
     fetch("/api/billing/credits").then((r) => parseJson<CreditBalance>(r)),
   allowlist: () =>

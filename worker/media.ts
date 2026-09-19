@@ -85,6 +85,23 @@ export function arrayBufferToDataUri(buffer: ArrayBuffer, contentType: string): 
   return `data:${contentType};base64,${btoa(binary)}`;
 }
 
+export async function displayStoredMediaUrl(
+  env: { PUBLIC_BASE_URL?: string; ENCRYPTION_KEY: string; SESSION_SECRET: string; MEDIA: R2Bucket },
+  key: string | null | undefined,
+  fallback: string | null,
+): Promise<string | null> {
+  if (!key) return fallback;
+  const origin = resolvePublicBaseUrl(env.PUBLIC_BASE_URL);
+  if (origin) {
+    return createSignedMediaUrl(origin, key, env.ENCRYPTION_KEY || env.SESSION_SECRET);
+  }
+  const object = await env.MEDIA.get(key);
+  if (!object) return fallback;
+  const bytes = await object.arrayBuffer();
+  const contentType = object.httpMetadata?.contentType || "application/octet-stream";
+  return arrayBufferToDataUri(bytes, contentType);
+}
+
 export async function buildReferenceMediaUrl(options: {
   publicBaseUrl?: string | null;
   key: string;

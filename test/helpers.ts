@@ -61,6 +61,9 @@ export function createMockR2(): {
         },
       };
     },
+    async delete(key: string) {
+      store.delete(key);
+    },
   };
   return { store, bucket: bucket as unknown as R2Bucket };
 }

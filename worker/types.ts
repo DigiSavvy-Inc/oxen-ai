@@ -1,6 +1,7 @@
 export type Env = {
   DB: D1Database;
   MEDIA: R2Bucket;
+  IMAGES?: ImagesBinding;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
   GITHUB_ORG: string;

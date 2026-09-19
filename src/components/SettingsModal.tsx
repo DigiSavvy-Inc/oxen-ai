@@ -15,7 +15,7 @@ type AllowRow = {
   created_at: number;
 };
 
-type SettingsPane = "api-key" | "models" | "allowlist";
+type SettingsPane = "api-key" | "models" | "cleanup" | "allowlist";
 
 export function SettingsModal({
   onClose,
@@ -47,6 +47,9 @@ export function SettingsModal({
   const [modelHits, setModelHits] = useState<OxenModel[]>([]);
   const [modelBusy, setModelBusy] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
+  const [cleanupError, setCleanupError] = useState<string | null>(null);
 
   async function loadAllowlist() {
     const data = await api.allowlist();
@@ -164,6 +167,33 @@ export function SettingsModal({
       setModelError(err instanceof Error ? err.message : "Failed to update favorite");
     } finally {
       setModelBusy(false);
+    }
+  }
+
+  async function runCleanup(action: "failed" | "thumbs") {
+    setCleanupBusy(true);
+    setCleanupError(null);
+    setCleanupMessage(null);
+    try {
+      const result = await api.cleanupLibrary(action);
+      if (action === "failed") {
+        setCleanupMessage(
+          result.deleted === 0
+            ? "No failed or cancelled jobs to remove."
+            : `Removed ${result.deleted} job${result.deleted === 1 ? "" : "s"} from the library.`,
+        );
+      } else {
+        const more = result.remaining ? " Run again to continue." : "";
+        setCleanupMessage(
+          result.built === 0
+            ? "No missing thumbnails to build."
+            : `Built ${result.built} thumbnail${result.built === 1 ? "" : "s"}.${more}`,
+        );
+      }
+    } catch (err) {
+      setCleanupError(err instanceof Error ? err.message : "Cleanup failed");
+    } finally {
+      setCleanupBusy(false);
     }
   }
 
@@ -294,6 +324,37 @@ export function SettingsModal({
             )}
           </>
         );
+      case "cleanup":
+        return (
+          <>
+            <h3>Library cleanup</h3>
+            <p>
+              Removes jobs from DS Studio and their files in R2. Oxen billing is unchanged.
+              Thumbnails are 320px JPEGs for the library grid; full results stay for the canvas
+              and downloads.
+            </p>
+            <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+              <button
+                type="button"
+                className="ghost-btn"
+                disabled={cleanupBusy}
+                onClick={() => void runCleanup("failed")}
+              >
+                Delete failed jobs
+              </button>
+              <button
+                type="button"
+                className="ghost-btn"
+                disabled={cleanupBusy}
+                onClick={() => void runCleanup("thumbs")}
+              >
+                Build missing thumbnails
+              </button>
+            </div>
+            {cleanupMessage ? <p className="settings-ok">{cleanupMessage}</p> : null}
+            {cleanupError ? <p className="settings-bad">{cleanupError}</p> : null}
+          </>
+        );
       case "allowlist":
         return (
           <>
@@ -386,6 +447,13 @@ export function SettingsModal({
               onClick={() => setPane("models")}
             >
               Models
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-btn${pane === "cleanup" ? " active" : ""}`}
+              onClick={() => setPane("cleanup")}
+            >
+              Cleanup
             </button>
             {user?.isAdmin ? (
               <button
