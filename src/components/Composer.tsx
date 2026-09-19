@@ -119,7 +119,43 @@ export function Composer(props: Props) {
     duration: props.duration,
     generateAudio: props.generateAudio,
     resolution: props.resolution,
+    quality: props.quality,
   });
+
+  function controlPrice(kind: "resolution" | "quality", value: string) {
+    switch (kind) {
+      case "resolution":
+        return estimateGenerationCost({
+          pricing: props.controls?.pricing ?? selectedModel?.pricing,
+          numGenerations: props.numGenerations,
+          duration: props.duration,
+          generateAudio: props.generateAudio,
+          resolution: value,
+          quality: props.quality,
+        });
+      case "quality":
+        return estimateGenerationCost({
+          pricing: props.controls?.pricing ?? selectedModel?.pricing,
+          numGenerations: props.numGenerations,
+          duration: props.duration,
+          generateAudio: props.generateAudio,
+          resolution: props.resolution,
+          quality: value,
+        });
+      default: {
+        const _exhaustive: never = kind;
+        return _exhaustive;
+      }
+    }
+  }
+
+  function pricedOptionLabel(kind: "resolution" | "quality", values: string[], value: string) {
+    const prices = values.map((item) => controlPrice(kind, item).amount);
+    const distinct = new Set(prices.filter((amount) => amount != null));
+    if (distinct.size < 2) return value;
+    const option = controlPrice(kind, value);
+    return option.amount != null ? `${value} · ${option.label}` : value;
+  }
   const mention = mentionAtCaret(props.prompt, caret);
   const mentionItems = useMemo(() => {
     if (!mention || props.attachments.length === 0) return [];
@@ -406,7 +442,7 @@ export function Composer(props: Props) {
               >
                 {props.controls.quality.map((value) => (
                   <option key={value} value={value}>
-                    {value}
+                    {pricedOptionLabel("quality", props.controls?.quality ?? [], value)}
                   </option>
                 ))}
               </select>
@@ -422,7 +458,7 @@ export function Composer(props: Props) {
               >
                 {props.controls.resolution.map((value) => (
                   <option key={value} value={value}>
-                    {value}
+                    {pricedOptionLabel("resolution", props.controls?.resolution ?? [], value)}
                   </option>
                 ))}
               </select>
@@ -537,7 +573,8 @@ export function Composer(props: Props) {
                 Generate
                 {cost.amount != null ? <span className="primary-btn-cost">{cost.label}</span> : null}
                 <span className="primary-btn-shortcut" aria-hidden>
-                  ⌘↵
+                  <kbd>⌘</kbd>
+                  <kbd>↵</kbd>
                 </span>
               </>
             )}

@@ -34,6 +34,7 @@ import {
   downloadOxenResult,
   enqueueGeneration,
   extractOxenErrorMessage,
+  extractOxenTiming,
   extractResultUrl,
   favoriteModel,
   filterModelsForMode,
@@ -62,6 +63,7 @@ import {
   pickCompatible,
   videoSlotRequired,
 } from "./schema";
+import { parseTagList } from "./tags";
 import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
 import { getStudioSettings, saveStudioSettings } from "./user-settings";
 
@@ -376,7 +378,17 @@ async function displayResultUrl(
 function toGenerationJson(
   row: GenerationRow,
   resultUrl: string | null,
-  extras?: { status?: string; errorMessage?: string | null; updatedAt?: number },
+  extras?: {
+    status?: string;
+    errorMessage?: string | null;
+    updatedAt?: number;
+    enqueuedAt?: number | null;
+    startedAt?: number | null;
+    etaSeconds?: number | null;
+    progress?: number | null;
+    typicalSeconds?: number | null;
+    tags?: string[];
+  },
 ) {
   return {
     id: row.id,
@@ -391,6 +403,12 @@ function toGenerationJson(
     batchId: row.batch_id ?? null,
     createdAt: row.created_at,
     updatedAt: extras?.updatedAt ?? row.updated_at,
+    enqueuedAt: extras?.enqueuedAt ?? null,
+    startedAt: extras?.startedAt ?? null,
+    etaSeconds: extras?.etaSeconds ?? null,
+    progress: extras?.progress ?? null,
+    typicalSeconds: extras?.typicalSeconds ?? null,
+    tags: extras?.tags ?? [],
   };
 }
 
@@ -403,6 +421,94 @@ function shouldPollOxen(
   if (status === "failed" || status === "cancelled") return false;
   if (status === "succeeded") return !resultUrl && !resultKey;
   return pollActive;
+}
+
+async function tagsByGeneration(
+  env: Env,
+  userId: string,
+  generationIds?: string[],
+): Promise<Map<string, string[]>> {
+  if (generationIds && generationIds.length === 0) return new Map();
+  try {
+    const rows =
+      generationIds && generationIds.length > 0
+        ? await env.DB.prepare(
+            `SELECT generation_id as generationId, tag
+             FROM generation_tags
+             WHERE user_id = ? AND generation_id IN (${generationIds.map(() => "?").join(",")})
+             ORDER BY created_at ASC`,
+          )
+            .bind(userId, ...generationIds)
+            .all<{ generationId: string; tag: string }>()
+        : await env.DB.prepare(
+            `SELECT generation_id as generationId, tag
+             FROM generation_tags
+             WHERE user_id = ?
+             ORDER BY created_at ASC`,
+          )
+            .bind(userId)
+            .all<{ generationId: string; tag: string }>();
+    const map = new Map<string, string[]>();
+    for (const row of rows.results ?? []) {
+      const list = map.get(row.generationId) ?? [];
+      list.push(row.tag);
+      map.set(row.generationId, list);
+    }
+    return map;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("generation_tags") || message.includes("SQLITE_ERROR")) {
+      console.error("generation_tags missing; apply migrations/0004_generation_tags.sql");
+      return new Map();
+    }
+    throw err;
+  }
+}
+
+async function replaceGenerationTags(
+  env: Env,
+  userId: string,
+  generationId: string,
+  tags: string[],
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  const statements = [
+    env.DB.prepare(`DELETE FROM generation_tags WHERE generation_id = ? AND user_id = ?`).bind(
+      generationId,
+      userId,
+    ),
+    ...tags.map((tag) =>
+      env.DB.prepare(
+        `INSERT INTO generation_tags (generation_id, user_id, tag, created_at) VALUES (?, ?, ?, ?)`,
+      ).bind(generationId, userId, tag, now),
+    ),
+  ];
+  await env.DB.batch(statements);
+}
+
+async function typicalWaitByMedia(
+  env: Env,
+  userId: string,
+): Promise<Record<string, number>> {
+  const rows = await env.DB.prepare(
+    `SELECT media_type as mediaType, AVG(updated_at - created_at) as avgSecs
+     FROM generations
+     WHERE user_id = ? AND status = 'succeeded' AND media_type IN ('image', 'video')
+       AND updated_at > created_at
+     GROUP BY media_type`,
+  )
+    .bind(userId)
+    .all<{ mediaType: string; avgSecs: number }>();
+  const out: Record<string, number> = {};
+  for (const row of rows.results ?? []) {
+    if (!row.mediaType || !Number.isFinite(row.avgSecs)) continue;
+    const clamped =
+      row.mediaType === "video"
+        ? Math.min(900, Math.max(30, row.avgSecs))
+        : Math.min(120, Math.max(5, row.avgSecs));
+    out[row.mediaType] = Math.round(clamped);
+  }
+  return out;
 }
 
 async function persistOxenResult(
@@ -421,7 +527,12 @@ async function syncGenerationRow(
   userId: string,
   apiKey: string | null,
   row: GenerationRow,
-  options: { persistMissing: boolean; pollActive: boolean },
+  options: {
+    persistMissing: boolean;
+    pollActive: boolean;
+    typicalSeconds?: number | null;
+    tags?: string[];
+  },
 ) {
   let status = row.status;
   let resultUrl = row.result_url;
@@ -429,6 +540,10 @@ async function syncGenerationRow(
   let errorMessage = row.error_message;
   let updatedAt = row.updated_at;
   let dirty = false;
+  let enqueuedAt: number | null = null;
+  let startedAt: number | null = null;
+  let etaSeconds: number | null = null;
+  let progress: number | null = null;
 
   if (apiKey && shouldPollOxen(status, resultUrl, resultKey, options.pollActive)) {
     try {
@@ -436,6 +551,11 @@ async function syncGenerationRow(
       resetPollFailures(row.id);
       status = String(remote.status ?? status);
       resultUrl = extractResultUrl(remote) ?? resultUrl;
+      const timing = extractOxenTiming(remote);
+      enqueuedAt = timing.enqueuedAt;
+      startedAt = timing.startedAt;
+      etaSeconds = timing.etaSeconds;
+      progress = timing.progress;
       const remoteError = extractOxenErrorMessage(remote);
       if (status === "failed") {
         errorMessage = remoteError ?? errorMessage ?? "Oxen generation failed";
@@ -477,6 +597,12 @@ async function syncGenerationRow(
     status,
     errorMessage,
     updatedAt,
+    enqueuedAt,
+    startedAt,
+    etaSeconds,
+    progress,
+    typicalSeconds: options.typicalSeconds ?? null,
+    tags: options.tags ?? [],
   });
 }
 
@@ -952,6 +1078,12 @@ app.post("/api/generate", async (c) => {
       batchId,
       createdAt: now,
       updatedAt: now,
+      enqueuedAt: now,
+      startedAt: null as number | null,
+      etaSeconds: null as number | null,
+      progress: null as number | null,
+      typicalSeconds: null as number | null,
+      tags: [] as string[],
     });
   }
 
@@ -985,11 +1117,19 @@ app.get("/api/generations", async (c) => {
     .bind(user.id)
     .all<GenerationRow>();
 
+  const typicals = await typicalWaitByMedia(c.env, user.id);
+  const tagMap = await tagsByGeneration(
+    c.env,
+    user.id,
+    (rows.results ?? []).map((row) => row.id),
+  );
   const generations = await Promise.all(
     (rows.results ?? []).map((row) =>
       syncGenerationRow(c.env, user.id, apiKey, row, {
         persistMissing: true,
         pollActive: false,
+        typicalSeconds: row.media_type ? typicals[row.media_type] ?? null : null,
+        tags: tagMap.get(row.id) ?? [],
       }),
     ),
   );
@@ -1012,10 +1152,42 @@ app.get("/api/generations/:id", async (c) => {
     throw new HTTPException(404, { message: "Generation not found" });
   }
 
+  const typicals = await typicalWaitByMedia(c.env, user.id);
+  const tagMap = await tagsByGeneration(c.env, user.id, [row.id]);
   const generation = await syncGenerationRow(c.env, user.id, apiKey, row, {
     persistMissing: true,
     pollActive: true,
+    typicalSeconds: row.media_type ? typicals[row.media_type] ?? null : null,
+    tags: tagMap.get(row.id) ?? [],
   });
+  return c.json({ generation });
+});
+
+app.put("/api/generations/:id/tags", async (c) => {
+  const user = await requireUser(c);
+  const id = c.req.param("id");
+  const body = await c.req.json<{ tags?: unknown }>().catch(() => ({ tags: [] as unknown }));
+  const tags = parseTagList(body.tags);
+  const row = await c.env.DB.prepare(`SELECT * FROM generations WHERE id = ? AND user_id = ?`)
+    .bind(id, user.id)
+    .first<GenerationRow>();
+  if (!row) {
+    throw new HTTPException(404, { message: "Generation not found" });
+  }
+  await replaceGenerationTags(c.env, user.id, id, tags);
+  const typicals = await typicalWaitByMedia(c.env, user.id);
+  const generation = await syncGenerationRow(
+    c.env,
+    user.id,
+    await getOxenKey(user, c.env.ENCRYPTION_KEY),
+    row,
+    {
+      persistMissing: false,
+      pollActive: false,
+      typicalSeconds: row.media_type ? typicals[row.media_type] ?? null : null,
+      tags,
+    },
+  );
   return c.json({ generation });
 });
 

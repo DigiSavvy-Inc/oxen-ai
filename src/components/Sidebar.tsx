@@ -1,5 +1,9 @@
+import { useMemo, useState } from "react";
 import { coverGeneration, groupGenerationBatches } from "../lib/batches";
 import type { Generation } from "../lib/api";
+import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "../lib/download";
+import { collectUniqueTags, suggestTags, tagsMatchQuery } from "../lib/tags";
+import { DownloadButton } from "./DownloadButton";
 
 function statusClass(status: string) {
   if (status === "succeeded") return "ok";
@@ -7,10 +11,21 @@ function statusClass(status: string) {
   return "warn";
 }
 
+function TileFace({ item }: { item: Generation }) {
+  if (item.resultUrl && item.mediaType === "image") {
+    return <img src={item.resultUrl} alt="" />;
+  }
+  if (item.resultUrl && item.mediaType === "video") {
+    return <video src={item.resultUrl} muted playsInline preload="metadata" />;
+  }
+  return <span>{item.mediaType === "video" ? "VID" : "IMG"}</span>;
+}
+
 export function Sidebar({
   generations,
   selectedId,
   onSelect,
+  onClose,
   onOpenSettings,
   onLogout,
   userLogin,
@@ -21,6 +36,7 @@ export function Sidebar({
   generations: Generation[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onClose?: () => void;
   onOpenSettings: () => void;
   onLogout: () => void;
   userLogin: string;
@@ -28,10 +44,22 @@ export function Sidebar({
   isAdmin: boolean;
   hasOxenKey: boolean;
 }) {
-  const batches = groupGenerationBatches(generations);
+  const [tagQuery, setTagQuery] = useState("");
+  const allTags = useMemo(
+    () => collectUniqueTags(generations.map((item) => item.tags)),
+    [generations],
+  );
+  const previews = useMemo(() => suggestTags(allTags, tagQuery), [allTags, tagQuery]);
+  const batches = useMemo(() => {
+    const grouped = groupGenerationBatches(generations);
+    if (!tagQuery.trim()) return grouped;
+    return grouped.filter((batch) =>
+      batch.items.some((item) => tagsMatchQuery(item.tags, tagQuery)),
+    );
+  }, [generations, tagQuery]);
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" id="media-library">
       <div className="sidebar-header">
         <div className="brand">
           <img className="brand-mark-img" src="/favicon.svg" alt="" />
@@ -40,41 +68,99 @@ export function Sidebar({
             <span>Media library</span>
           </div>
         </div>
+        {onClose ? (
+          <button type="button" className="icon-btn sidebar-close" aria-label="Close library" onClick={onClose}>
+            ×
+          </button>
+        ) : null}
+      </div>
+
+      <div className="tag-filter">
+        <input
+          className="tag-filter-input"
+          value={tagQuery}
+          placeholder="Filter by tag"
+          aria-label="Filter by tag"
+          onChange={(event) => setTagQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setTagQuery("");
+            if (event.key === "Enter" && previews[0]) {
+              event.preventDefault();
+              setTagQuery(previews[0]);
+            }
+          }}
+        />
+        {previews.length > 0 ? (
+          <div className="tag-preview" role="listbox" aria-label="Matching tags">
+            {previews.map((tag) => (
+              <button
+                key={tag.toLowerCase()}
+                type="button"
+                className={`tag-chip preview${tagQuery.trim().toLowerCase() === tag.toLowerCase() ? " active" : ""}`}
+                onClick={() => setTagQuery(tag)}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        ) : tagQuery.trim() && allTags.length > 0 ? (
+          <div className="tag-preview-empty">No tags match “{tagQuery.trim()}”</div>
+        ) : null}
       </div>
 
       <div className="history history-grid">
         {batches.length === 0 ? (
           <div className="history-empty">
-            No generations yet. Write a prompt below and hit Generate — jobs run through Oxen&apos;s
-            async queue.
+            {tagQuery.trim()
+              ? "No media with that tag."
+              : "No generations yet. Write a prompt below and hit Generate — jobs run through Oxen's async queue."}
           </div>
         ) : (
           batches.map((batch) => {
             const cover = coverGeneration(batch.items);
             const selected = batch.items.some((item) => item.id === selectedId);
             const status = cover?.status ?? "queued";
+            const ready = completedMedia(batch.items);
             return (
-              <button
+              <div
                 key={batch.id}
-                type="button"
                 className={`history-tile${selected ? " active" : ""}`}
-                onClick={() => onSelect(cover?.id ?? batch.items[0]?.id ?? batch.id)}
-                title={cover?.prompt || "Generation"}
               >
-                <div className="history-tile-media">
-                  {cover?.resultUrl && cover.mediaType === "image" ? (
-                    <img src={cover.resultUrl} alt="" />
-                  ) : cover?.resultUrl && cover.mediaType === "video" ? (
-                    <video src={cover.resultUrl} muted />
-                  ) : (
-                    <span>{cover?.mediaType === "video" ? "VID" : "IMG"}</span>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  className="history-tile-hit"
+                  onClick={() => onSelect(cover?.id ?? batch.items[0]?.id ?? batch.id)}
+                  title={cover?.prompt || "Generation"}
+                >
+                  <div
+                    className={`history-tile-media${
+                      batch.items.length > 1 ? ` mosaic mosaic-${Math.min(batch.items.length, 4)}` : ""
+                    }`}
+                  >
+                    {(batch.items.length > 1 ? batch.items.slice(0, 4) : [cover ?? batch.items[0]]).map(
+                      (item) => (item ? <TileFace key={item.id} item={item} /> : null),
+                    )}
+                  </div>
+                </button>
                 {batch.items.length > 1 ? (
                   <span className="history-count">{batch.items.length}</span>
                 ) : null}
                 <span className={`history-status pill ${statusClass(status)}`}>{status}</span>
-              </button>
+                {ready.length === 1 && ready[0]?.resultUrl ? (
+                  <DownloadButton
+                    label="Download"
+                    onDownload={() =>
+                      void downloadMedia(ready[0]?.resultUrl ?? "", downloadFilename(ready[0]!))
+                    }
+                  />
+                ) : ready.length > 1 ? (
+                  <DownloadButton
+                    caption={String(ready.length)}
+                    label={`Download ${ready.length} completed`}
+                    onDownload={() => void downloadAllMedia(ready)}
+                  />
+                ) : null}
+              </div>
             );
           })
         )}

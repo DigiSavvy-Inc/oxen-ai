@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { coverGeneration, groupGenerationBatches } from "../src/lib/batches";
 import { estimateGenerationCost, mentionToken } from "../src/lib/api";
 import type { Generation } from "../src/lib/api";
+import { downloadFilename } from "../src/lib/download";
 import { insertMentionToken, mentionAtCaret } from "../src/lib/mentions";
 
 function gen(partial: Partial<Generation> & Pick<Generation, "id">): Generation {
@@ -69,5 +70,42 @@ describe("mentions and cost", () => {
       duration: "5",
     });
     expect(cost.amount).toBeCloseTo(1.1);
+  });
+
+  it("updates image price when resolution or quality changes", () => {
+    const pricing = {
+      method: "per_image",
+      cost_per_image_grid: {
+        high: { "1K": 0.13, "2K": 0.29, "4K": 1.13 },
+        low: { "1K": 0.004, "2K": 0.009, "4K": 0.035 },
+      },
+    };
+    expect(
+      estimateGenerationCost({
+        pricing,
+        numGenerations: 1,
+        quality: "high",
+        resolution: "1K",
+      }).amount,
+    ).toBe(0.13);
+    expect(
+      estimateGenerationCost({
+        pricing,
+        numGenerations: 1,
+        quality: "high",
+        resolution: "4K",
+      }).amount,
+    ).toBe(1.13);
+  });
+
+  it("builds download filenames from prompt and media type", () => {
+    expect(
+      downloadFilename(
+        gen({ id: "abc12345xxxx", prompt: "A red ox on a hill!", mediaType: "image" }),
+      ),
+    ).toBe("ds-studio-a-red-ox-on-a-hill.png");
+    expect(
+      downloadFilename(gen({ id: "v", prompt: "clip", mediaType: "video" }), 2),
+    ).toBe("ds-studio-clip-3.mp4");
   });
 });

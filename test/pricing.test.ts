@@ -19,9 +19,31 @@ describe("parseOxenPricing", () => {
     ).toEqual({
       method: "per_video_output_second",
       cost_per_image: null,
+      cost_per_image_grid: null,
       cost_per_second: 0.08,
+      cost_per_second_by_resolution: null,
       cost_per_second_with_audio: 0.1,
       cost_per_second_high_res: 0.12,
+    });
+  });
+
+  it("keeps Oxen image grids and per-resolution video rates", () => {
+    expect(
+      parseOxenPricing({
+        method: "per_image",
+        cost_per_image: null,
+        cost_per_image_grid: {
+          high: { "1K": 0.13, "2K": 0.29, "4K": 1.13 },
+          low: { "1K": 0.004, "2K": 0.009, "4K": 0.035 },
+        },
+      }),
+    ).toMatchObject({
+      method: "per_image",
+      cost_per_image: null,
+      cost_per_image_grid: {
+        high: { "1K": 0.13, "2K": 0.29, "4K": 1.13 },
+        low: { "1K": 0.004, "2K": 0.009, "4K": 0.035 },
+      },
     });
   });
 });
@@ -63,6 +85,69 @@ describe("estimateGenerationCost", () => {
         resolution: "1080p",
       }),
     ).toEqual({ amount: 0.96, label: "≈$0.96" });
+  });
+
+  it("uses Oxen cost_per_image_grid for quality and resolution", () => {
+    const pricing = {
+      method: "per_image" as const,
+      cost_per_image: null,
+      cost_per_image_grid: {
+        high: { "1K": 0.13, "2K": 0.29, "4K": 1.13 },
+        low: { "1K": 0.004, "2K": 0.009, "4K": 0.035 },
+        medium: { "1K": 0.031, "2K": 0.071, "4K": 0.281 },
+      },
+    };
+    expect(
+      estimateGenerationCost({
+        pricing,
+        numGenerations: 1,
+        quality: "high",
+        resolution: "2K",
+      }),
+    ).toEqual({ amount: 0.29, label: "≈$0.290" });
+    expect(
+      estimateGenerationCost({
+        pricing,
+        numGenerations: 2,
+        quality: "low",
+        resolution: "4k",
+      }).amount,
+    ).toBeCloseTo(0.07);
+    expect(
+      estimateGenerationCost({
+        pricing,
+        numGenerations: 1,
+        quality: "medium",
+        resolution: "1K",
+      }),
+    ).toEqual({ amount: 0.031, label: "≈$0.031" });
+  });
+
+  it("uses cost_per_second_by_resolution for live video rates", () => {
+    expect(
+      estimateGenerationCost({
+        pricing: {
+          method: "per_video_output_second",
+          cost_per_second: 0.231,
+          cost_per_second_by_resolution: { "1080p": 0.569, "480p": 0.103, "720p": 0.231 },
+        },
+        numGenerations: 1,
+        duration: 5,
+        resolution: "480p",
+      }),
+    ).toEqual({ amount: 0.515, label: "≈$0.52" });
+    expect(
+      estimateGenerationCost({
+        pricing: {
+          method: "per_video_output_second",
+          cost_per_second: 0.231,
+          cost_per_second_by_resolution: { "1080p": 0.569, "480p": 0.103, "720p": 0.231 },
+        },
+        numGenerations: 1,
+        duration: 5,
+        resolution: "1080P",
+      }).amount,
+    ).toBeCloseTo(2.845);
   });
 
   it("returns unavailable when pricing is missing", () => {

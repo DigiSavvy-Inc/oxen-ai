@@ -124,7 +124,9 @@ describe("parseModelControls", () => {
     expect(controls.pricing).toEqual({
       method: "per_image",
       cost_per_image: 0.02,
+      cost_per_image_grid: null,
       cost_per_second: 0.15,
+      cost_per_second_by_resolution: null,
       cost_per_second_with_audio: null,
       cost_per_second_high_res: null,
     });

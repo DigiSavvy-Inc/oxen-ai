@@ -19,6 +19,7 @@ import {
   type StudioSettings,
 } from "./lib/api";
 import { groupGenerationBatches } from "./lib/batches";
+import { completedMedia, downloadAllMedia } from "./lib/download";
 import { filesFromList, kindFromFile } from "./lib/files";
 
 type StagedFile = {
@@ -41,6 +42,18 @@ function pickModel(
   const favoriteInMode = favorites.find((model) => ids.has(model.id));
   if (favoriteInMode) return favoriteInMode.id;
   return previous && ids.has(previous) ? previous : "";
+}
+
+function initialLibraryOpen(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const stored = window.localStorage.getItem("ds-studio-library-open");
+    if (stored === "1") return true;
+    if (stored === "0") return false;
+  } catch {
+    /* ignore */
+  }
+  return window.matchMedia("(min-width: 861px)").matches;
 }
 
 export default function App() {
@@ -70,6 +83,8 @@ export default function App() {
   const [staged, setStaged] = useState<StagedFile[]>([]);
   const [credits, setCredits] = useState<CreditBalance | null>(null);
   const [keepCanvasClear, setKeepCanvasClear] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(initialLibraryOpen);
+  const [downloadingAll, setDownloadingAll] = useState(false);
 
   const selected = useMemo(
     () => generations.find((g) => g.id === selectedId) ?? null,
@@ -157,6 +172,23 @@ export default function App() {
     }, 20000);
     return () => window.clearInterval(timer);
   }, [user?.hasOxenKey, refreshCredits]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("ds-studio-library-open", libraryOpen ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [libraryOpen]);
+
+  useEffect(() => {
+    if (!libraryOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setLibraryOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [libraryOpen]);
 
   useEffect(() => {
     if (!user) return;
@@ -318,7 +350,7 @@ export default function App() {
           }
         }
       })();
-    }, 4000);
+    }, 3000);
 
     return () => window.clearInterval(timer);
   }, [generations, refreshCredits]);
@@ -400,6 +432,7 @@ export default function App() {
 
   const imageCount = staged.filter((item) => item.kind === "image").length;
   const videoCount = staged.filter((item) => item.kind === "video").length;
+  const readyMedia = useMemo(() => completedMedia(generations), [generations]);
 
   const canGenerate = Boolean(
     user?.hasOxenKey &&
@@ -417,6 +450,34 @@ export default function App() {
       await refreshFavorites();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update favorite");
+    }
+  }
+
+  async function onDownloadAll() {
+    if (readyMedia.length === 0 || downloadingAll) return;
+    setDownloadingAll(true);
+    setError(null);
+    try {
+      await downloadAllMedia(readyMedia);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to download media");
+    } finally {
+      setDownloadingAll(false);
+    }
+  }
+
+  async function onSaveTags(id: string, tags: string[]) {
+    setGenerations((prev) =>
+      prev.map((row) => (row.id === id ? { ...row, tags } : row)),
+    );
+    try {
+      const { generation } = await api.updateGenerationTags(id, tags);
+      setGenerations((prev) =>
+        prev.map((row) => (row.id === generation.id ? generation : row)),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save tags");
+      void refreshHistory();
     }
   }
 
@@ -485,14 +546,16 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${libraryOpen ? " library-open" : ""}`}>
       <Sidebar
         generations={generations}
         selectedId={selectedId}
         onSelect={(id) => {
           setKeepCanvasClear(false);
           setSelectedId(id);
+          if (window.matchMedia("(max-width: 860px)").matches) setLibraryOpen(false);
         }}
+        onClose={() => setLibraryOpen(false)}
         onOpenSettings={() => setShowSettings(true)}
         onLogout={() => void logout()}
         userLogin={user.login}
@@ -500,14 +563,48 @@ export default function App() {
         isAdmin={user.isAdmin}
         hasOxenKey={user.hasOxenKey}
       />
+      {libraryOpen ? (
+        <button
+          type="button"
+          className="library-backdrop"
+          aria-label="Close library"
+          onClick={() => setLibraryOpen(false)}
+        />
+      ) : null}
       <main className="main">
         <div className="main-top">
-          <button type="button" className="ghost-btn" onClick={startNew}>
-            New
-          </button>
+          <div className="main-top-left">
+            <button
+              type="button"
+              className={`ghost-btn${libraryOpen ? " active" : ""}`}
+              aria-expanded={libraryOpen}
+              aria-controls="media-library"
+              onClick={() => setLibraryOpen((open) => !open)}
+            >
+              Library
+            </button>
+            <button type="button" className="ghost-btn" onClick={startNew}>
+              New
+            </button>
+            {readyMedia.length > 0 ? (
+              <button
+                type="button"
+                className="ghost-btn"
+                disabled={downloadingAll}
+                onClick={() => void onDownloadAll()}
+              >
+                {downloadingAll ? "Downloading…" : "Download all"}
+              </button>
+            ) : null}
+          </div>
           <CreditMeter credits={credits} />
         </div>
-        <Canvas generation={selected} variants={selectedVariants} onSelect={setSelectedId} />
+        <Canvas
+          generation={selected}
+          variants={selectedVariants}
+          onSelect={setSelectedId}
+          onTagsChange={(id, tags) => void onSaveTags(id, tags)}
+        />
         <Composer
           mode={mode}
           onModeChange={setMode}

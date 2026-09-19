@@ -29,22 +29,15 @@ describe("parseCreditsRemaining", () => {
 });
 
 describe("fetchOxenCredits", () => {
-  it("uses the first candidate that returns a parseable remaining balance", async () => {
-    const seen: string[] = [];
+  it("reads remaining from Oxen /api/users/me when present", async () => {
     globalThis.fetch = async (input) => {
-      const url = String(input);
-      seen.push(url);
-      if (url.endsWith("/api/account")) {
-        return new Response(JSON.stringify({ remaining: 42.1 }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      return new Response("Not Found", { status: 404 });
+      expect(String(input)).toBe("https://hub.oxen.ai/api/users/me");
+      return new Response(JSON.stringify({ remaining: 42.1 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     };
-
     await expect(fetchOxenCredits("test-key")).resolves.toBe(42.1);
-    expect(seen).toContain("https://hub.oxen.ai/api/account");
   });
 
   it("returns null when no candidate exposes a balance", async () => {

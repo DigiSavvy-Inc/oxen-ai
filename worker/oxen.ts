@@ -1,16 +1,11 @@
 import type { GenerationMode } from "./types";
+import type { OxenPricing } from "./pricing";
+
+export type { OxenPricing };
 
 const OXEN_BASE = "https://hub.oxen.ai/api/ai";
 
 export const POLL_FAILURE_THRESHOLD = 3;
-
-export type OxenPricing = {
-  method?: string | null;
-  cost_per_image?: number | null;
-  cost_per_second?: number | null;
-  cost_per_second_with_audio?: number | null;
-  cost_per_second_high_res?: number | null;
-};
 
 export type OxenModel = {
   id: string;
@@ -110,6 +105,47 @@ export function extractOxenErrorMessage(
   if (fromBody) return fromBody;
   if (String(remote.status) === "failed") return "Oxen generation failed";
   return null;
+}
+
+function asUnixSeconds(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 1e12 ? Math.floor(value / 1000) : Math.floor(value);
+  }
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
+    return asUnixSeconds(Number(value));
+  }
+  return null;
+}
+
+function asProgress(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value < 0) return 0;
+  if (value <= 1) return value;
+  if (value <= 100) return value / 100;
+  return null;
+}
+
+export type OxenTiming = {
+  enqueuedAt: number | null;
+  startedAt: number | null;
+  etaSeconds: number | null;
+  progress: number | null;
+};
+
+export function extractOxenTiming(remote: Record<string, unknown>): OxenTiming {
+  const inner =
+    remote.generation && typeof remote.generation === "object" && !Array.isArray(remote.generation)
+      ? (remote.generation as Record<string, unknown>)
+      : remote;
+  return {
+    enqueuedAt: asUnixSeconds(inner.enqueued_at),
+    startedAt: asUnixSeconds(inner.started_at),
+    etaSeconds:
+      asUnixSeconds(inner.eta_seconds) ??
+      asUnixSeconds(inner.estimated_seconds) ??
+      asUnixSeconds(inner.eta),
+    progress: asProgress(inner.progress) ?? asProgress(inner.percent),
+  };
 }
 
 export function notePollFailure(generationId: string): number {

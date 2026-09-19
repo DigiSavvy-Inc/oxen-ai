@@ -1,3 +1,7 @@
+import { estimateGenerationCost, type OxenPricing } from "../../worker/pricing";
+
+export { estimateGenerationCost, type OxenPricing };
+
 export type GenerationMode =
   | "text-to-image"
   | "image-to-image"
@@ -12,14 +16,6 @@ export type SessionUser = {
   avatarUrl: string | null;
   isAdmin: boolean;
   hasOxenKey: boolean;
-};
-
-export type OxenPricing = {
-  method?: string | null;
-  cost_per_image?: number | null;
-  cost_per_second?: number | null;
-  cost_per_second_with_audio?: number | null;
-  cost_per_second_high_res?: number | null;
 };
 
 export type OxenModel = {
@@ -90,6 +86,12 @@ export type Generation = {
   batchId: string | null;
   createdAt: number;
   updatedAt: number;
+  enqueuedAt?: number | null;
+  startedAt?: number | null;
+  etaSeconds?: number | null;
+  progress?: number | null;
+  typicalSeconds?: number | null;
+  tags?: string[];
 };
 
 export type CreditBalance = {
@@ -147,46 +149,6 @@ export function mentionToken(kind: MediaSlot["kind"], index: number): string {
       return _exhaustive;
     }
   }
-}
-
-export function estimateGenerationCost(opts: {
-  pricing: OxenPricing | null | undefined;
-  numGenerations: number;
-  duration?: number | string;
-  generateAudio?: boolean;
-  resolution?: string;
-}): { amount: number | null; label: string } {
-  const count = Math.min(4, Math.max(1, Math.round(opts.numGenerations || 1)));
-  const pricing = opts.pricing;
-  if (!pricing) return { amount: null, label: "Price unavailable" };
-
-  const durationRaw = opts.duration;
-  const seconds =
-    typeof durationRaw === "number"
-      ? durationRaw
-      : durationRaw && durationRaw !== "auto" && Number.isFinite(Number(durationRaw))
-        ? Number(durationRaw)
-        : 5;
-
-  const res = (opts.resolution || "").toLowerCase();
-  const highRes = res.includes("1080") || res.includes("4k") || res === "2k";
-  const perSecond =
-    (highRes ? pricing.cost_per_second_high_res : null) ??
-    (opts.generateAudio ? pricing.cost_per_second_with_audio : null) ??
-    pricing.cost_per_second ??
-    null;
-
-  if (pricing.method === "per_image" || pricing.cost_per_image != null) {
-    const unit = pricing.cost_per_image ?? 0;
-    const amount = unit * count;
-    return { amount, label: `≈$${amount.toFixed(3)}` };
-  }
-  if (pricing.method === "per_video_output_second" || perSecond != null) {
-    const unit = perSecond ?? 0;
-    const amount = unit * seconds * count;
-    return { amount, label: `≈$${amount.toFixed(2)}` };
-  }
-  return { amount: null, label: "Price varies" };
 }
 
 export function slotRequired(
@@ -280,6 +242,12 @@ export const api = {
     fetch(`/api/generations/${id}`).then((r) =>
       parseJson<{ generation: Generation }>(r),
     ),
+  updateGenerationTags: (id: string, tags: string[]) =>
+    fetch(`/api/generations/${id}/tags`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tags }),
+    }).then((r) => parseJson<{ generation: Generation }>(r)),
   cancelGeneration: (id: string) =>
     fetch(`/api/generations/${id}`, { method: "DELETE" }).then((r) => parseJson(r)),
   credits: () =>

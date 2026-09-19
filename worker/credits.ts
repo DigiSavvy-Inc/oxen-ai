@@ -1,5 +1,4 @@
 export const OXEN_BILLING_URL = "https://www.oxen.ai/digisavvy/settings/billing";
-export const OXEN_BILLING_NAMESPACE = "digisavvy";
 
 const OXEN_HUB = "https://hub.oxen.ai";
 
@@ -58,36 +57,6 @@ const WRAPPER_KEYS = [
   "subscription",
 ] as const;
 
-export function creditProbePaths(namespace: string): string[] {
-  const org = encodeURIComponent(namespace);
-  return [
-    "/api/users/me",
-    "/api/account",
-    "/api/billing",
-    "/api/credits",
-    "/api/wallet",
-    "/api/billing",
-    "/api/credits",
-    "/api/wallet",
-    "/api/subscription",
-    "/api/subscriptions",
-    "/api/ai/user",
-    "/api/ai/billing",
-    "/api/ai/credits",
-    "/api/ai/wallet",
-    "/api/billing/credits",
-    "/api/settings/billing",
-    `/api/orgs/${org}`,
-    `/api/orgs/${org}/billing`,
-    `/api/orgs/${org}/credits`,
-    `/api/organizations/${org}`,
-    `/api/organizations/${org}/billing`,
-    `/api/namespaces/${org}`,
-    `/api/namespaces/${org}/billing`,
-    `/api/namespaces/${org}/credits`,
-  ];
-}
-
 function asFiniteNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
@@ -129,26 +98,19 @@ export function parseCreditsRemaining(data: unknown, depth = 0): number | null {
   return null;
 }
 
-export async function fetchOxenCredits(
-  apiKey: string,
-  namespace = OXEN_BILLING_NAMESPACE,
-): Promise<number | null> {
-  const headers = {
-    Authorization: `Bearer ${apiKey}`,
-    Accept: "application/json",
-  };
-  for (const path of creditProbePaths(namespace)) {
-    try {
-      const res = await fetch(`${OXEN_HUB}${path}`, { headers });
-      if (!res.ok) continue;
-      const data: unknown = await res.json();
-      const remaining = parseCreditsRemaining(data);
-      if (remaining != null) return remaining;
-    } catch {
-      // Try the next candidate. Never log the API key.
-    }
+export async function fetchOxenCredits(apiKey: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${OXEN_HUB}/api/users/me`, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: "application/json",
+      },
+    });
+    if (!res.ok) return null;
+    return parseCreditsRemaining(await res.json());
+  } catch {
+    return null;
   }
-  return null;
 }
 
 export type CreditBalance = {
