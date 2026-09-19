@@ -1223,7 +1223,7 @@ app.post("/api/generate", async (c) => {
   return c.json({ generations: saved });
 });
 
-function runInBackground(c: Context<{ Bindings: Env }>, work: Promise<unknown>) {
+function runInBackground(c: Context<{ Bindings: Env; Variables: Variables }>, work: Promise<unknown>) {
   const task = work.catch((err) => {
     console.error("background task error", err);
   });
