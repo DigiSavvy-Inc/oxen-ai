@@ -8,6 +8,8 @@ export function LibraryPeek({
   onClose,
   onAttach,
   onSelectVariant,
+  onDownload,
+  onRemove,
 }: {
   generation: Generation;
   variants: Generation[];
@@ -15,6 +17,8 @@ export function LibraryPeek({
   onClose: () => void;
   onAttach: (item: Generation) => void;
   onSelectVariant: (id: string) => void;
+  onDownload?: () => void;
+  onRemove?: () => void;
 }) {
   const label = MODE_LABELS[generation.mode as GenerationMode] || generation.mode;
   const canAttach = Boolean(libraryRefFromGeneration(generation));
@@ -72,6 +76,20 @@ export function LibraryPeek({
             </button>
           ) : null}
         </div>
+        {onDownload || onRemove ? (
+          <div className="library-peek-tools">
+            {onDownload && generation.resultUrl ? (
+              <button type="button" className="ghost-btn" onClick={onDownload}>
+                Download
+              </button>
+            ) : null}
+            {onRemove ? (
+              <button type="button" className="ghost-btn library-peek-remove" onClick={onRemove}>
+                Remove
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {generation.prompt ? <p className="library-peek-prompt">{generation.prompt}</p> : null}
         {showStrip ? (
           <div className="library-peek-thumbs" role="list" aria-label="Variations">

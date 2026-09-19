@@ -75,6 +75,8 @@ a {
   background: var(--bg-panel);
   border-right: 1px solid var(--border);
   min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
   transform: translateX(-110%);
   transition: transform 0.22s ease;
   padding-bottom: env(safe-area-inset-bottom);
@@ -198,6 +200,19 @@ a {
 
 .library-peek-media.is-attached .library-peek-action {
   color: var(--text-muted);
+}
+
+.library-peek-tools {
+  display: flex;
+  gap: 8px;
+}
+
+.library-peek-tools .ghost-btn {
+  min-height: 36px;
+}
+
+.library-peek-remove {
+  color: var(--danger);
 }
 
 .library-peek-prompt {
@@ -329,6 +344,7 @@ a {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .history-empty {
@@ -1038,6 +1054,84 @@ a {
 }
 
 @media (max-width: 860px) {
+  .app-shell.library-open {
+    overflow: hidden;
+  }
+
+  .sidebar {
+    width: 100%;
+    border-right: 0;
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .library-backdrop {
+    display: none;
+  }
+
+  .sidebar-header {
+    padding: 10px 12px;
+  }
+
+  .sidebar-close {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+  }
+
+  .tag-filter-input {
+    font-size: 16px;
+    min-height: 42px;
+  }
+
+  .history-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2px;
+    padding: 2px;
+  }
+
+  .history-tile {
+    border-radius: 0;
+    border: 0;
+  }
+
+  .history-tile .media-download,
+  .history-tile .media-delete,
+  .history-tile .history-status {
+    display: none;
+  }
+
+  .library-peek {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    width: 100%;
+    border: 0;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .workspace.has-peek {
+    z-index: 50;
+  }
+
+  .library-peek-head .icon-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+  }
+
+  .library-peek-media img,
+  .library-peek-media video,
+  .library-peek-hit img {
+    max-height: min(52dvh, 480px);
+  }
+
+  .library-peek-tools .ghost-btn {
+    flex: 1;
+    min-height: 42px;
+  }
+
   .result-stage.has-strip {
     grid-template-columns: 1fr;
   }

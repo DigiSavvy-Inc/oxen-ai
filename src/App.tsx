@@ -23,7 +23,7 @@ import {
   type StudioSettings,
 } from "./lib/api";
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations } from "./lib/batches";
-import { completedMedia, downloadAllMedia } from "./lib/download";
+import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
 import { filesFromList, kindFromFile } from "./lib/files";
 import { libraryRefFromGeneration, mergeLibraryRefs, releasePreview } from "./lib/library-refs";
 import { moveItem } from "./lib/mentions";
@@ -107,6 +107,11 @@ export default function App() {
     () => new Set(staged.map((item) => item.generationId).filter((id): id is string => Boolean(id))),
     [staged],
   );
+
+  const closeLibrary = useCallback(() => {
+    setLibraryOpen(false);
+    if (window.matchMedia("(max-width: 860px)").matches) setPeekId(null);
+  }, []);
 
   const favoriteIds = useMemo(
     () => new Set(favorites.map((item) => item.id)),
@@ -204,11 +209,14 @@ export default function App() {
         setPeekId(null);
         return;
       }
-      if (libraryOpen) setLibraryOpen(false);
+      if (libraryOpen) {
+        event.preventDefault();
+        closeLibrary();
+      }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [peekId, libraryOpen]);
+  }, [peekId, libraryOpen, closeLibrary]);
 
   useEffect(() => {
     if (!user || !libraryOpen) return;
@@ -675,11 +683,8 @@ export default function App() {
         selectedId={peekId}
         loading={libraryLoading}
         downloadingAll={downloadingAll}
-        onSelect={(id) => {
-          setPeekId(id);
-          if (window.matchMedia("(max-width: 860px)").matches) setLibraryOpen(false);
-        }}
-        onClose={() => setLibraryOpen(false)}
+        onSelect={setPeekId}
+        onClose={closeLibrary}
         onDownloadAll={() => void onDownloadAll()}
         onDelete={(ids) => void onDeleteGenerations(ids)}
       />
@@ -688,7 +693,7 @@ export default function App() {
           type="button"
           className="library-backdrop"
           aria-label="Close library"
-          onClick={() => setLibraryOpen(false)}
+          onClick={closeLibrary}
         />
       ) : null}
       <main className="main">
@@ -699,7 +704,10 @@ export default function App() {
               className={`ghost-btn${libraryOpen ? " active" : ""}`}
               aria-expanded={libraryOpen}
               aria-controls="media-library"
-              onClick={() => setLibraryOpen((open) => !open)}
+              onClick={() => {
+                if (libraryOpen) closeLibrary();
+                else setLibraryOpen(true);
+              }}
             >
               Library
             </button>
@@ -719,7 +727,7 @@ export default function App() {
             />
           </div>
         </div>
-        <div className="workspace">
+        <div className={`workspace${peek ? " has-peek" : ""}`}>
           <Canvas
             generation={selected}
             variants={selectedVariants}
@@ -734,6 +742,13 @@ export default function App() {
               onClose={() => setPeekId(null)}
               onAttach={addLibraryItem}
               onSelectVariant={setPeekId}
+              onDownload={() => {
+                if (!peek.resultUrl) return;
+                void downloadMedia(peek.resultUrl, downloadFilename(peek));
+              }}
+              onRemove={() => {
+                void onDeleteGenerations(peekVariants.map((item) => item.id));
+              }}
             />
           ) : null}
         </div>
