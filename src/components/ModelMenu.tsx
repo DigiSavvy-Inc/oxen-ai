@@ -114,7 +114,7 @@ export function ModelMenu(props: Props) {
   const headingRest = grouped.preferred.length > 0 ? "All" : "Models";
   const emptyLabel = query.trim()
     ? `No models match “${query.trim()}”`
-    : "No models for this mode";
+    : "No models";
 
   return (
     <div className="model-menu" ref={rootRef}>

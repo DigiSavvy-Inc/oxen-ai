@@ -6,7 +6,7 @@
 - When a DS Studio slice is done, commit to `main`, push, and `wrangler deploy` to studio.digisavvy.dev with the required `--var` flags. Do not wait for a separate ship prompt. Never force-push, skip hooks, or print secrets.
 - Continue existing work; do not restart the project or revert finished work.
 - Local placeholder GitHub OAuth must not send users to `/login/oauth/authorize`.
-- Do not set global model defaults; let each user pick preferred models and persist their settings. Use Oxen’s live catalog and keep controls consistent across models; image models that support resolution (including Seedream 5.x) must expose those options. Ghost unsupported mode pills for the selected model; choosing a ghosted mode resets the model.
+- Do not set global model defaults; let each user pick preferred models and persist their settings. Do not pre-select a mode chip (including Text → Image) until the user chooses a mode or a model. Use Oxen’s live catalog and keep controls consistent across models; image models that support resolution (including Seedream 5.x) must expose those options. Ghost unsupported mode pills for the selected model; choosing a ghosted mode resets the model.
 - Brand the product as DS Studio with the DigiSavvy favicon from digisavvy.com, not “Oxen Studio”.
 - Credits control is labeled “Buy Credits”, shows a live dollar balance, and links to https://www.oxen.ai/digisavvy/settings/billing; the generate button shows live estimated cost (including resolution, count, and duration) and keeps bold keyboard-hint icons.
 - Support multiple generations per prompt and `@Image`/`@Video`/`@Audio` mentions for models that accept references.

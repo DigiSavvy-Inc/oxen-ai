@@ -39,6 +39,7 @@ import {
   filterModelsForMode,
   getGeneration,
   getModel,
+  isMediaGenerationModel,
   listFavoriteModels,
   listModels,
   listQueue,
@@ -73,6 +74,7 @@ import {
   deleteGenerationRecord,
   parseCleanupAction,
 } from "./library";
+import { GENERATION_MODES } from "./model-modes";
 import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
 import { getStudioSettings, saveStudioSettings } from "./user-settings";
 
@@ -374,6 +376,19 @@ function featuredVideoFallbacks(mode: GenerationMode): OxenModel[] {
     "wan-3-0-prime",
   ]);
   return fallbackModels(mode).filter((model) => featured.has(model.id));
+}
+
+function fallbackModelsFor(mode: GenerationMode | null): OxenModel[] {
+  if (mode) return fallbackModels(mode);
+  return GENERATION_MODES.reduce(
+    (models, item) => unionModelsById(models, fallbackModels(item)),
+    [] as OxenModel[],
+  );
+}
+
+function catalogForMode(all: OxenModel[], mode: GenerationMode | null): OxenModel[] {
+  if (!mode) return all.filter(isMediaGenerationModel);
+  return unionModelsById(filterModelsForMode(all, mode), featuredVideoFallbacks(mode));
 }
 
 type GenerationRow = {
@@ -919,10 +934,7 @@ app.get("/api/models/search", async (c) => {
   const found = await searchModels(apiKey, query);
   return c.json({
     mode: mode ?? null,
-    models: mode ? filterModelsForMode(found, mode) : found.filter((model) => {
-      const endpoint = (model.endpoint || "").toLowerCase();
-      return endpoint.includes("image") || endpoint.includes("video");
-    }),
+    models: mode ? filterModelsForMode(found, mode) : found.filter(isMediaGenerationModel),
   });
 });
 
@@ -935,24 +947,25 @@ app.get("/api/models/:id", async (c) => {
 
 app.get("/api/models", async (c) => {
   const user = await requireUser(c);
-  const mode = (c.req.query("mode") || "text-to-image") as GenerationMode;
-  if (!(mode in MODE_META)) {
+  const modeQuery = c.req.query("mode");
+  if (modeQuery && !(modeQuery in MODE_META)) {
     throw new HTTPException(400, { message: "Invalid mode" });
   }
+  const mode = modeQuery && modeQuery in MODE_META ? (modeQuery as GenerationMode) : null;
 
   let models: OxenModel[] = [];
   try {
     const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
     if (apiKey) {
       const all = await mergeMissingFeaturedModels(apiKey, await listModels(apiKey));
-      models = unionModelsById(filterModelsForMode(all, mode), featuredVideoFallbacks(mode));
+      models = catalogForMode(all, mode);
     }
   } catch (err) {
     console.error("model list error", err);
   }
 
   if (models.length === 0) {
-    models = fallbackModels(mode);
+    models = fallbackModelsFor(mode);
   }
 
   return c.json({ mode, models });

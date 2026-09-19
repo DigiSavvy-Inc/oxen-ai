@@ -1162,6 +1162,11 @@ a {
   color: var(--text);
 }
 
+.mode-chip.is-ghost {
+  opacity: 0.4;
+  border-style: dashed;
+}
+
 .composer textarea {
   width: 100%;
   border: 0;

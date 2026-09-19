@@ -4,6 +4,8 @@ import {
   MODE_LABELS,
   estimateGenerationCost,
   mentionToken,
+  modeIsVideo,
+  modelSupportsMode,
   slotMax,
   slotRequired,
   type GenerationMode,
@@ -45,7 +47,7 @@ function isFileDrag(event: DragEvent) {
 }
 
 type Props = {
-  mode: GenerationMode;
+  mode: GenerationMode | null;
   onModeChange: (mode: GenerationMode) => void;
   models: OxenModel[];
   preferred: OxenModel[];
@@ -122,7 +124,7 @@ export function Composer(props: Props) {
   const aspectOptions =
     props.controls?.aspectRatios && props.controls.aspectRatios.length > 0
       ? props.controls.aspectRatios
-      : props.mode.includes("video")
+      : props.mode && modeIsVideo(props.mode)
         ? ["16:9", "9:16", "1:1"]
         : ["1:1", "16:9", "9:16", "4:3", "3:4"];
   const selectedModel = props.models.find((item) => item.id === props.model);
@@ -273,16 +275,25 @@ export function Composer(props: Props) {
     <div className="composer">
       <div className="composer-inner">
         <div className="mode-row">
-          {ALL_MODES.map((m) => (
-            <button
-              key={m}
-              type="button"
-              className={`mode-chip${props.mode === m ? " active" : ""}`}
-              onClick={() => props.onModeChange(m)}
-            >
-              {MODE_LABELS[m]}
-            </button>
-          ))}
+          {ALL_MODES.map((m) => {
+            const unsupported = Boolean(selectedModel && !modelSupportsMode(selectedModel, m));
+            return (
+              <button
+                key={m}
+                type="button"
+                className={`mode-chip${props.mode === m ? " active" : ""}${unsupported ? " is-ghost" : ""}`}
+                aria-pressed={props.mode === m}
+                title={
+                  unsupported
+                    ? `${MODE_LABELS[m]} isn’t available for this model — choosing it clears the model`
+                    : MODE_LABELS[m]
+                }
+                onClick={() => props.onModeChange(m)}
+              >
+                {MODE_LABELS[m]}
+              </button>
+            );
+          })}
         </div>
 
         <div
@@ -608,7 +619,7 @@ export function Composer(props: Props) {
                 />
               </ToolbarField>
             )
-          ) : props.mode.includes("video") ? (
+          ) : props.mode && modeIsVideo(props.mode) ? (
             <ToolbarField label="Duration">
               <input
                 className="field"

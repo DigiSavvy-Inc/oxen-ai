@@ -154,6 +154,11 @@ export function indexAfterInsertBefore(from: number, insertBefore: number): numb
   return from < insertBefore ? insertBefore - 1 : insertBefore;
 }
 
+function mentionNumberStart(mention: PromptMention): number {
+  const digits = mention.token.match(/\d+$/);
+  return digits ? mention.end - digits[0].length : mention.end;
+}
+
 export function deleteMentionToken(
   text: string,
   caret: number,
@@ -168,6 +173,10 @@ export function deleteMentionToken(
           : undefined))
       : mentions.find((item) => caret >= item.start && caret < item.end);
   if (!mention) return null;
+  const deletingIndex = direction === "backward" ? caret - 1 : caret;
+  if (deletingIndex >= mentionNumberStart(mention) && deletingIndex < mention.end) {
+    return null;
+  }
   let end = mention.end;
   if (text[end] === " ") end += 1;
   return {

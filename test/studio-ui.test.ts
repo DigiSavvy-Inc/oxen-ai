@@ -25,7 +25,7 @@ import {
   moveItem,
   promptHighlightParts,
 } from "../src/lib/mentions";
-import { filterModels, generationCountForModelChange, groupPreferredModels, modelLabel } from "../src/lib/model-menu";
+import { filterModels, generationCountForModelChange, groupPreferredModels, modelLabel, pickModel } from "../src/lib/model-menu";
 
 function gen(partial: Partial<Generation> & Pick<Generation, "id">): Generation {
   return {
@@ -157,12 +157,18 @@ describe("mentions and cost", () => {
     expect(indexAfterInsertBefore(1, 2)).toBe(1);
   });
 
-  it("deletes a completed @ImageN token in one step", () => {
-    expect(deleteMentionToken("look @Image1 now", 12, "backward")).toEqual({
+  it("lets you edit the mention number without deleting the token", () => {
+    expect(deleteMentionToken("look @Image1 now", 12, "backward")).toBeNull();
+    expect(deleteMentionToken("look @Image12", 13, "backward")).toBeNull();
+    expect(deleteMentionToken("look @Image1 now", 11, "forward")).toBeNull();
+  });
+
+  it("still removes a completed @ImageN token when deleting the prefix", () => {
+    expect(deleteMentionToken("look @Image1 now", 8, "forward")).toEqual({
       next: "look now",
       caret: 5,
     });
-    expect(deleteMentionToken("look @Image1 now", 8, "forward")).toEqual({
+    expect(deleteMentionToken("look @Image1 now", 13, "backward")).toEqual({
       next: "look now",
       caret: 5,
     });
@@ -274,5 +280,13 @@ describe("model menu filter", () => {
     expect(generationCountForModelChange("flux", "kling", 4)).toBe(1);
     expect(generationCountForModelChange("flux", "flux", 3)).toBe(3);
     expect(generationCountForModelChange("", "flux", 4)).toBe(4);
+  });
+
+  it("does not auto-select a model until a mode is chosen", () => {
+    const models = [{ id: "flux" }, { id: "kling" }];
+    const favorites = [{ id: "flux" }];
+    expect(pickModel(models, favorites, "flux", "", false)).toBe("");
+    expect(pickModel(models, favorites, "flux", "kling", false)).toBe("kling");
+    expect(pickModel(models, favorites, "flux", "", true)).toBe("flux");
   });
 });

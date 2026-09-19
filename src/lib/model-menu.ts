@@ -38,3 +38,19 @@ export function generationCountForModelChange(
   if (!previousModel || previousModel === nextModel) return currentCount;
   return 1;
 }
+
+export function pickModel(
+  models: { id: string }[],
+  favorites: { id: string }[],
+  preferredId: string | undefined,
+  previous: string,
+  modeSelected: boolean,
+): string {
+  const ids = new Set(models.map((model) => model.id));
+  if (!modeSelected) {
+    return previous && ids.has(previous) ? previous : "";
+  }
+  if (preferredId && ids.has(preferredId)) return preferredId;
+  if (previous && ids.has(previous)) return previous;
+  return favorites.find((model) => ids.has(model.id))?.id ?? "";
+}

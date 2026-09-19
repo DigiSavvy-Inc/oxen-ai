@@ -5,6 +5,7 @@ import {
   enqueueGeneration,
   extractResultUrl,
   filterModelsForMode,
+  isMediaGenerationModel,
   notePollFailure,
   resetPollFailures,
   shouldPersistPollFailure,
@@ -296,6 +297,15 @@ describe("filterModelsForMode", () => {
     ] as const) {
       expect(filterModelsForMode(catalog, mode).some((m) => m.id === "claude-chat")).toBe(false);
     }
+  });
+
+  it("keeps image and video models when listing without a mode", () => {
+    expect(catalog.filter(isMediaGenerationModel).some((model) => model.id === "claude-chat")).toBe(
+      false,
+    );
+    expect(ids(catalog.filter(isMediaGenerationModel)).sort()).toEqual(
+      ids(catalog.filter((model) => model.id !== "claude-chat")).sort(),
+    );
   });
 
   it("leaves an empty live list empty so callers can keep fallback models", () => {

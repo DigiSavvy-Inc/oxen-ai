@@ -1,5 +1,7 @@
+import { firstSupportedMode, modelSupportsMode } from "../../worker/model-modes";
 import { estimateGenerationCost, type OxenPricing } from "../../worker/pricing";
 
+export { firstSupportedMode, modelSupportsMode };
 export { estimateGenerationCost, type OxenPricing };
 
 export type GenerationMode =
@@ -156,11 +158,12 @@ export function mentionToken(kind: MediaSlot["kind"], index: number): string {
 export function slotRequired(
   controls: Pick<ModelControls, "slots"> | null,
   kind: MediaSlot["kind"],
-  mode: GenerationMode,
+  mode: GenerationMode | null,
 ): boolean {
   if (controls) {
     return controls.slots.some((slot) => slot.kind === kind && slot.required);
   }
+  if (!mode) return false;
   if (kind === "image") return mode === "image-to-image" || mode === "reference-to-video";
   if (kind === "video") return mode === "video-to-video";
   return false;
@@ -195,11 +198,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).then((r) => parseJson<StudioSettings>(r)),
-  models: (mode: GenerationMode) =>
-    fetch(`/api/models?mode=${encodeURIComponent(mode)}`).then((r) =>
-      parseJson<{ mode: string; models: OxenModel[] }>(r),
-    ),
-  searchModels: (mode: GenerationMode | "", q: string) => {
+  models: (mode?: GenerationMode | null) => {
+    const params = mode ? `?mode=${encodeURIComponent(mode)}` : "";
+    return fetch(`/api/models${params}`).then((r) =>
+      parseJson<{ mode: string | null; models: OxenModel[] }>(r),
+    );
+  },
+  searchModels: (mode: GenerationMode | "" | null, q: string) => {
     const params = new URLSearchParams({ q });
     if (mode) params.set("mode", mode);
     return fetch(`/api/models/search?${params.toString()}`).then((r) =>

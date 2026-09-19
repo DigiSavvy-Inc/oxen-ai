@@ -9,7 +9,9 @@ import { SettingsModal } from "./components/SettingsModal";
 import { Sidebar } from "./components/Sidebar";
 import {
   api,
+  firstSupportedMode,
   mentionToken,
+  modelSupportsMode,
   slotMax,
   slotRequired,
   type CreditBalance,
@@ -23,29 +25,13 @@ import { groupGenerationBatches, isActiveGeneration, mergeGenerations } from "./
 import { completedMedia, downloadAllMedia } from "./lib/download";
 import { filesFromList, kindFromFile } from "./lib/files";
 import { moveItem } from "./lib/mentions";
-import { generationCountForModelChange } from "./lib/model-menu";
+import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 
 type StagedFile = {
   file: File;
   preview: string;
   kind: "image" | "video" | "audio";
 };
-
-function pickModel(
-  models: OxenModel[],
-  favorites: OxenModel[],
-  settings: StudioSettings | null,
-  mode: GenerationMode,
-  previous: string,
-): string {
-  const ids = new Set(models.map((model) => model.id));
-  const preferred = settings?.defaultModelByMode[mode];
-  if (preferred && ids.has(preferred)) return preferred;
-  if (previous && ids.has(previous)) return previous;
-  const favoriteInMode = favorites.find((model) => ids.has(model.id));
-  if (favoriteInMode) return favoriteInMode.id;
-  return previous && ids.has(previous) ? previous : "";
-}
 
 function initialLibraryOpen(): boolean {
   if (typeof window === "undefined") return false;
@@ -59,7 +45,7 @@ function initialLibraryOpen(): boolean {
 export default function App() {
   const { user, loading, logout } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
-  const [mode, setMode] = useState<GenerationMode>("text-to-image");
+  const [mode, setMode] = useState<GenerationMode | null>(null);
   const [models, setModels] = useState<OxenModel[]>([]);
   const [favorites, setFavorites] = useState<OxenModel[]>([]);
   const [settings, setSettings] = useState<StudioSettings | null>(null);
@@ -224,7 +210,13 @@ export default function App() {
         if (cancelled) return;
         setModels(data.models);
         setModel((prev) => {
-          const next = pickModel(data.models, favorites, settings, mode, prev);
+          const next = pickModel(
+            data.models,
+            favorites,
+            mode ? settings?.defaultModelByMode[mode] : undefined,
+            prev,
+            Boolean(mode),
+          );
           setNumGenerations((count) => generationCountForModelChange(prev, next, count));
           return next;
         });
@@ -468,6 +460,7 @@ export default function App() {
   const canGenerate = Boolean(
     user?.hasOxenKey &&
       prompt.trim() &&
+      mode &&
       model &&
       (!slotRequired(controls, "image", mode) || imageCount > 0) &&
       (!slotRequired(controls, "video", mode) || videoCount > 0),
@@ -484,9 +477,22 @@ export default function App() {
     }
   }
 
+  function handleModeChange(next: GenerationMode) {
+    setMode(next);
+    const selected = models.find((item) => item.id === model);
+    if (selected && !modelSupportsMode(selected, next)) {
+      setModel("");
+    }
+  }
+
   function handleModelChange(next: string) {
     setNumGenerations((count) => generationCountForModelChange(model, next, count));
     setModel(next);
+    const selected = models.find((item) => item.id === next);
+    if (!selected) return;
+    if (mode && modelSupportsMode(selected, mode)) return;
+    const inferred = firstSupportedMode(selected, mode ?? "text-to-image");
+    if (inferred) setMode(inferred);
   }
 
   async function onDownloadAll() {
@@ -537,7 +543,7 @@ export default function App() {
   }
 
   async function onGenerate() {
-    if (!canGenerate) {
+    if (!canGenerate || !mode) {
       if (!user?.hasOxenKey) {
         setShowSettings(true);
         setError("Add your Oxen API key in Settings first.");
@@ -660,7 +666,7 @@ export default function App() {
         />
         <Composer
           mode={mode}
-          onModeChange={setMode}
+          onModeChange={handleModeChange}
           models={models}
           preferred={favorites}
           model={model}

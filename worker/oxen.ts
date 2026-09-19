@@ -3,6 +3,7 @@ import type { OxenPricing } from "./pricing";
 export type { OxenPricing };
 export {
   filterModelsForMode,
+  firstSupportedMode,
   isMediaGenerationModel,
   isUnifiedImageModel,
   modelSupportsMode,
