@@ -1,4 +1,5 @@
-import { MODE_LABELS, type Generation, type GenerationMode } from "../lib/api";
+import { coverGeneration, groupGenerationBatches } from "../lib/batches";
+import type { Generation } from "../lib/api";
 
 function statusClass(status: string) {
   if (status === "succeeded") return "ok";
@@ -27,52 +28,55 @@ export function Sidebar({
   isAdmin: boolean;
   hasOxenKey: boolean;
 }) {
+  const batches = groupGenerationBatches(generations);
+
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
         <div className="brand">
-          <div className="brand-mark">Ox</div>
+          <img className="brand-mark-img" src="/favicon.svg" alt="" />
           <div className="brand-copy">
-            <strong>Oxen Studio</strong>
-            <span>Media composer</span>
+            <strong>DS Studio</strong>
+            <span>Media library</span>
           </div>
         </div>
       </div>
 
-      <div className="history">
-        {generations.length === 0 ? (
+      <div className="history history-grid">
+        {batches.length === 0 ? (
           <div className="history-empty">
-            No generations yet. Write a prompt below and hit Generate — jobs run
-            through Oxen&apos;s async queue.
+            No generations yet. Write a prompt below and hit Generate — jobs run through Oxen&apos;s
+            async queue.
           </div>
         ) : (
-          generations.map((g) => (
-            <button
-              key={g.id}
-              type="button"
-              className={`history-item${selectedId === g.id ? " active" : ""}`}
-              onClick={() => onSelect(g.id)}
-            >
-              <div className="thumb">
-                {g.resultUrl && g.mediaType === "image" ? (
-                  <img src={g.resultUrl} alt="" />
-                ) : g.resultUrl && g.mediaType === "video" ? (
-                  <video src={g.resultUrl} muted />
-                ) : (
-                  <span>{g.mediaType === "video" ? "VID" : "IMG"}</span>
-                )}
-              </div>
-              <div className="history-meta">
-                <div className="prompt">{g.prompt || "(no prompt)"}</div>
-                <div className="sub">
-                  <span className={`pill ${statusClass(g.status)}`}>{g.status}</span>
-                  <span className="pill">
-                    {MODE_LABELS[g.mode as GenerationMode] || g.mode}
-                  </span>
+          batches.map((batch) => {
+            const cover = coverGeneration(batch.items);
+            const selected = batch.items.some((item) => item.id === selectedId);
+            const status = cover?.status ?? "queued";
+            return (
+              <button
+                key={batch.id}
+                type="button"
+                className={`history-tile${selected ? " active" : ""}`}
+                onClick={() => onSelect(cover?.id ?? batch.items[0]?.id ?? batch.id)}
+                title={cover?.prompt || "Generation"}
+              >
+                <div className="history-tile-media">
+                  {cover?.resultUrl && cover.mediaType === "image" ? (
+                    <img src={cover.resultUrl} alt="" />
+                  ) : cover?.resultUrl && cover.mediaType === "video" ? (
+                    <video src={cover.resultUrl} muted />
+                  ) : (
+                    <span>{cover?.mediaType === "video" ? "VID" : "IMG"}</span>
+                  )}
                 </div>
-              </div>
-            </button>
-          ))
+                {batch.items.length > 1 ? (
+                  <span className="history-count">{batch.items.length}</span>
+                ) : null}
+                <span className={`history-status pill ${statusClass(status)}`}>{status}</span>
+              </button>
+            );
+          })
         )}
       </div>
 

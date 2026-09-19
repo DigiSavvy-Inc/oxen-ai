@@ -2,19 +2,24 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "./auth/AuthContext";
 import { Canvas } from "./components/Canvas";
 import { Composer } from "./components/Composer";
+import { CreditMeter } from "./components/CreditMeter";
 import { LoginPage } from "./components/LoginPage";
 import { SettingsModal } from "./components/SettingsModal";
 import { Sidebar } from "./components/Sidebar";
 import {
   api,
+  mentionToken,
   slotMax,
   slotRequired,
+  type CreditBalance,
   type Generation,
   type GenerationMode,
   type ModelControls,
   type OxenModel,
   type StudioSettings,
 } from "./lib/api";
+import { groupGenerationBatches } from "./lib/batches";
+import { filesFromList, kindFromFile } from "./lib/files";
 
 type StagedFile = {
   file: File;
@@ -63,11 +68,20 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [staged, setStaged] = useState<StagedFile[]>([]);
+  const [credits, setCredits] = useState<CreditBalance | null>(null);
+  const [keepCanvasClear, setKeepCanvasClear] = useState(false);
 
   const selected = useMemo(
     () => generations.find((g) => g.id === selectedId) ?? null,
     [generations, selectedId],
   );
+
+  const selectedVariants = useMemo(() => {
+    if (!selected) return [];
+    const batches = groupGenerationBatches(generations);
+    const batch = batches.find((entry) => entry.items.some((item) => item.id === selected.id));
+    return batch?.items ?? [selected];
+  }, [generations, selected]);
 
   const favoriteIds = useMemo(
     () => new Set(favorites.map((item) => item.id)),
@@ -77,8 +91,23 @@ export default function App() {
   const refreshHistory = useCallback(async () => {
     const data = await api.listGenerations();
     setGenerations(data.generations);
-    setSelectedId((prev) => prev ?? data.generations[0]?.id ?? null);
-  }, []);
+    setSelectedId((prev) => {
+      if (keepCanvasClear) return null;
+      return prev ?? data.generations[0]?.id ?? null;
+    });
+  }, [keepCanvasClear]);
+
+  const refreshCredits = useCallback(async () => {
+    if (!user?.hasOxenKey) {
+      setCredits(null);
+      return;
+    }
+    try {
+      setCredits(await api.credits());
+    } catch {
+      setCredits(null);
+    }
+  }, [user?.hasOxenKey]);
 
   const refreshFavorites = useCallback(async () => {
     if (!user?.hasOxenKey) {
@@ -118,7 +147,16 @@ export default function App() {
         setSettings({ defaultModelByMode: {}, lastParams: {} });
       });
     void refreshFavorites();
-  }, [user, refreshHistory, refreshFavorites]);
+    void refreshCredits();
+  }, [user, refreshHistory, refreshFavorites, refreshCredits]);
+
+  useEffect(() => {
+    if (!user?.hasOxenKey) return;
+    const timer = window.setInterval(() => {
+      void refreshCredits();
+    }, 20000);
+    return () => window.clearInterval(timer);
+  }, [user?.hasOxenKey, refreshCredits]);
 
   useEffect(() => {
     if (!user) return;
@@ -272,6 +310,9 @@ export default function App() {
             setGenerations((prev) =>
               prev.map((row) => (row.id === generation.id ? generation : row)),
             );
+            if (generation.status === "succeeded" || generation.status === "failed") {
+              void refreshCredits();
+            }
           } catch {
             // ignore transient poll errors
           }
@@ -280,31 +321,66 @@ export default function App() {
     }, 4000);
 
     return () => window.clearInterval(timer);
-  }, [generations]);
+  }, [generations, refreshCredits]);
 
-  function onPickFiles(kind: "image" | "video" | "audio", files: FileList | null) {
-    if (!files || files.length === 0) return;
+  function addFilesOfKind(kind: "image" | "video" | "audio", incoming: File[]) {
+    if (incoming.length === 0) return;
     const max = Math.max(
       slotMax(controls, kind),
       kind === "image" && (mode === "image-to-image" || mode === "reference-to-video") ? 1 : 0,
       kind === "video" && mode === "video-to-video" ? 1 : 0,
     );
-      const incoming = Array.from(files);
-      const cap = Math.max(max, 1);
-      setStaged((prev) => {
-        const others = prev.filter((item) => item.kind !== kind);
-        const existing = prev.filter((item) => item.kind === kind);
-        const added = incoming.map((file) => ({
-          file,
-          kind,
-          preview: kind === "audio" ? "" : URL.createObjectURL(file),
-        }));
-        const merged = [...existing, ...added].slice(0, cap);
+    const cap = Math.max(max, 1);
+    const existingCount = staged.filter((item) => item.kind === kind).length;
+    setStaged((prev) => {
+      const others = prev.filter((item) => item.kind !== kind);
+      const existing = prev.filter((item) => item.kind === kind);
+      const added = incoming.map((file) => ({
+        file,
+        kind,
+        preview: kind === "audio" ? "" : URL.createObjectURL(file),
+      }));
+      const merged = [...existing, ...added].slice(0, cap);
       for (const item of existing) {
         if (!merged.includes(item) && item.preview) URL.revokeObjectURL(item.preview);
       }
       return [...others, ...merged];
     });
+    const mentionsOn = Boolean(controls?.mentions || controls?.slots.some((slot) => slot.kind === kind));
+    if (mentionsOn) {
+      setPrompt((current) => {
+        let next = current;
+        const addedCount = Math.min(incoming.length, Math.max(0, cap - existingCount));
+        for (let offset = 0; offset < addedCount; offset += 1) {
+          const token = mentionToken(kind, existingCount + offset);
+          if (!next.includes(token)) next = next.trim() ? `${next.trim()} ${token}` : token;
+        }
+        return next;
+      });
+    }
+  }
+
+  function onAddFiles(list: FileList | File[] | null) {
+    const incoming = filesFromList(list);
+    if (incoming.length === 0) return;
+    const images = incoming.filter((file) => kindFromFile(file) === "image");
+    const videos = incoming.filter((file) => kindFromFile(file) === "video");
+    const audios = incoming.filter((file) => kindFromFile(file) === "audio");
+    addFilesOfKind("image", images);
+    addFilesOfKind("video", videos);
+    addFilesOfKind("audio", audios);
+  }
+
+  function startNew() {
+    setStaged((prev) => {
+      for (const item of prev) {
+        if (item.preview) URL.revokeObjectURL(item.preview);
+      }
+      return [];
+    });
+    setKeepCanvasClear(true);
+    setSelectedId(null);
+    setError(null);
   }
 
   function onClearAttachment(kind: "image" | "video" | "audio", index: number) {
@@ -389,8 +465,10 @@ export default function App() {
       if (audios.length) payload.audios = audios;
 
       const { generations: created } = await api.generate(payload);
+      setKeepCanvasClear(false);
       setGenerations((prev) => [...created, ...prev]);
       setSelectedId(created[0]?.id ?? null);
+      void refreshCredits();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Generation failed");
     } finally {
@@ -399,7 +477,7 @@ export default function App() {
   }
 
   if (loading) {
-    return <div className="loading-screen">Loading Oxen Studio…</div>;
+    return <div className="loading-screen">Loading DS Studio…</div>;
   }
 
   if (!user) {
@@ -411,7 +489,10 @@ export default function App() {
       <Sidebar
         generations={generations}
         selectedId={selectedId}
-        onSelect={setSelectedId}
+        onSelect={(id) => {
+          setKeepCanvasClear(false);
+          setSelectedId(id);
+        }}
         onOpenSettings={() => setShowSettings(true)}
         onLogout={() => void logout()}
         userLogin={user.login}
@@ -420,7 +501,13 @@ export default function App() {
         hasOxenKey={user.hasOxenKey}
       />
       <main className="main">
-        <Canvas generation={selected} />
+        <div className="main-top">
+          <button type="button" className="ghost-btn" onClick={startNew}>
+            New
+          </button>
+          <CreditMeter credits={credits} />
+        </div>
+        <Canvas generation={selected} variants={selectedVariants} onSelect={setSelectedId} />
         <Composer
           mode={mode}
           onModeChange={setMode}
@@ -458,7 +545,7 @@ export default function App() {
             preview: item.preview,
             kind: item.kind,
           }))}
-          onPickFiles={onPickFiles}
+          onAddFiles={onAddFiles}
           onClearAttachment={onClearAttachment}
           busy={busy}
           error={error}

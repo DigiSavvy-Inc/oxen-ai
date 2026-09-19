@@ -1,18 +1,40 @@
+import { useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import {
   ALL_MODES,
   MODE_LABELS,
+  estimateGenerationCost,
+  mentionToken,
   slotMax,
   slotRequired,
   type GenerationMode,
   type ModelControls,
   type OxenModel,
 } from "../lib/api";
+import {
+  filterMentionItems,
+  insertMentionToken,
+  mentionAtCaret,
+  tokenForItem,
+} from "../lib/mentions";
 
 type AttachItem = {
   name: string;
   preview: string;
   kind: "image" | "video" | "audio";
 };
+
+function ToolbarField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="toolbar-field">
+      <span className="toolbar-field-label">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function isFileDrag(event: DragEvent) {
+  return Array.from(event.dataTransfer.types).includes("Files");
+}
 
 type Props = {
   mode: GenerationMode;
@@ -47,7 +69,7 @@ type Props = {
   background: string;
   onBackgroundChange: (value: string) => void;
   attachments: AttachItem[];
-  onPickFiles: (kind: "image" | "video" | "audio", files: FileList | null) => void;
+  onAddFiles: (files: FileList | File[] | null) => void;
   onClearAttachment: (kind: "image" | "video" | "audio", index: number) => void;
   busy: boolean;
   error: string | null;
@@ -60,6 +82,14 @@ function modelLabel(model: OxenModel): string {
 }
 
 export function Composer(props: Props) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const dragDepth = useRef(0);
+  const [dragging, setDragging] = useState(false);
+  const [caret, setCaret] = useState(0);
+  const [mentionOpen, setMentionOpen] = useState(true);
+  const [hotMention, setHotMention] = useState<number | null>(null);
+
   const preferredIds = new Set(props.preferred.map((model) => model.id));
   const preferredInMode = props.models.filter((model) => preferredIds.has(model.id));
   const rest = props.models.filter((model) => !preferredIds.has(model.id));
@@ -69,18 +99,53 @@ export function Composer(props: Props) {
     props.mode === "video-to-video" ? 1 : 0,
   );
   const audioMax = slotMax(props.controls, "audio");
-  const showImage =
+  const showDropzone =
     imageMax > 0 ||
+    videoMax > 0 ||
+    audioMax > 0 ||
     props.mode === "image-to-image" ||
     props.mode === "reference-to-video" ||
     props.mode === "video-to-video";
-  const showVideo = videoMax > 0 || props.mode === "video-to-video";
   const aspectOptions =
     props.controls?.aspectRatios && props.controls.aspectRatios.length > 0
       ? props.controls.aspectRatios
       : props.mode.includes("video")
         ? ["16:9", "9:16", "1:1"]
         : ["1:1", "16:9", "9:16", "4:3", "3:4"];
+  const selectedModel = props.models.find((item) => item.id === props.model);
+  const cost = estimateGenerationCost({
+    pricing: props.controls?.pricing ?? selectedModel?.pricing,
+    numGenerations: props.numGenerations,
+    duration: props.duration,
+    generateAudio: props.generateAudio,
+    resolution: props.resolution,
+  });
+  const mention = mentionAtCaret(props.prompt, caret);
+  const mentionItems = useMemo(() => {
+    if (!mention || props.attachments.length === 0) return [];
+    return filterMentionItems(mention.query, props.attachments);
+  }, [mention, props.attachments]);
+  const showMentions = Boolean(
+    mentionOpen && props.controls?.mentions && mention && mentionItems.length > 0,
+  );
+
+  function placeCaret(nextCaret: number) {
+    setCaret(nextCaret);
+    const el = promptRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(nextCaret, nextCaret);
+  }
+
+  function insertMention(item: AttachItem, index: number) {
+    const token = tokenForItem(props.attachments, item, index);
+    const result = insertMentionToken(props.prompt, caret, token);
+    if (!result) return;
+    setMentionOpen(false);
+    setHotMention(null);
+    props.onPromptChange(result.next);
+    placeCaret(result.caret);
+  }
 
   return (
     <div className="composer">
@@ -98,47 +163,122 @@ export function Composer(props: Props) {
           ))}
         </div>
 
-        <textarea
-          value={props.prompt}
-          onChange={(e) => props.onPromptChange(e.target.value)}
-          placeholder={
-            props.mode === "image-to-image"
-              ? "Describe the edit… use @Image1 for references"
-              : props.mode === "video-to-video"
-                ? "Describe how to edit the video…"
-                : props.mode === "reference-to-video"
-                  ? "Describe the shot… use @Image1 / @Video1 if you attach refs"
-                  : "Describe what to generate…"
-          }
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && props.canGenerate) {
-              e.preventDefault();
-              props.onGenerate();
+        <div
+          className={`prompt-drop${dragging ? " dragging" : ""}`}
+          onDragEnter={(event) => {
+            if (!isFileDrag(event)) return;
+            event.preventDefault();
+            dragDepth.current += 1;
+            setDragging(true);
+          }}
+          onDragOver={(event) => {
+            if (!isFileDrag(event)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+            setDragging(true);
+          }}
+          onDragLeave={(event) => {
+            if (!isFileDrag(event)) return;
+            dragDepth.current -= 1;
+            if (dragDepth.current <= 0) {
+              dragDepth.current = 0;
+              setDragging(false);
             }
           }}
-        />
+          onDrop={(event) => {
+            if (!isFileDrag(event)) return;
+            event.preventDefault();
+            dragDepth.current = 0;
+            setDragging(false);
+            props.onAddFiles(event.dataTransfer.files);
+          }}
+        >
+          <textarea
+            ref={promptRef}
+            value={props.prompt}
+            onChange={(e) => {
+              setMentionOpen(true);
+              props.onPromptChange(e.target.value);
+              setCaret(e.target.selectionStart);
+            }}
+            onClick={(e) => setCaret(e.currentTarget.selectionStart)}
+            onKeyUp={(e) => setCaret(e.currentTarget.selectionStart)}
+            placeholder={
+              showDropzone
+                ? "Describe the shot… drop refs here, then @Image1 / @Video1 / @Audio1"
+                : "Describe what to generate…"
+            }
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && showMentions) {
+                e.preventDefault();
+                setMentionOpen(false);
+                setHotMention(null);
+                return;
+              }
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && props.canGenerate) {
+                e.preventDefault();
+                props.onGenerate();
+              }
+            }}
+          />
+          {dragging ? (
+            <div className="prompt-drop-overlay" aria-hidden>
+              Drop media to attach
+            </div>
+          ) : null}
+          {showMentions ? (
+            <div className="mention-menu" role="listbox">
+              {mentionItems.map((item, index) => (
+                <button
+                  key={`${item.kind}-${item.name}-${index}`}
+                  type="button"
+                  className={`mention-option${hotMention === index ? " is-hot" : ""}`}
+                  onPointerEnter={() => setHotMention(index)}
+                  onPointerLeave={() => setHotMention((current) => (current === index ? null : current))}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    insertMention(item, index);
+                  }}
+                >
+                  {item.kind === "image" && item.preview ? (
+                    <img src={item.preview} alt="" />
+                  ) : (
+                    <span className="pill">{item.kind.slice(0, 3).toUpperCase()}</span>
+                  )}
+                  <span>
+                    {tokenForItem(props.attachments, item, index)} · {item.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
 
         {props.attachments.length > 0 ? (
           <div className="attach-preview">
-            {props.attachments.map((item, index) => (
-              <div className="attach-chip" key={`${item.kind}-${item.name}-${index}`}>
-                {item.kind === "image" ? (
-                  <img src={item.preview} alt="" />
-                ) : item.kind === "video" ? (
-                  <video src={item.preview} muted />
-                ) : (
-                  <span className="pill">AUD</span>
-                )}
-                <span>{item.name}</span>
-                <button
-                  className="ghost-btn"
-                  type="button"
-                  onClick={() => props.onClearAttachment(item.kind, index)}
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
+            {props.attachments.map((item, index) => {
+              const ofKind = props.attachments.filter((entry) => entry.kind === item.kind);
+              const kindIndex = ofKind.indexOf(item);
+              return (
+                <div className="attach-chip" key={`${item.kind}-${item.name}-${index}`}>
+                  {item.kind === "image" ? (
+                    <img src={item.preview} alt="" />
+                  ) : item.kind === "video" ? (
+                    <video src={item.preview} muted />
+                  ) : (
+                    <span className="pill">AUD</span>
+                  )}
+                  <span>{mentionToken(item.kind, kindIndex)}</span>
+                  <button
+                    className="ghost-btn"
+                    type="button"
+                    onClick={() => props.onClearAttachment(item.kind, kindIndex)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              );
+            })}
           </div>
         ) : null}
 
@@ -155,6 +295,7 @@ export function Composer(props: Props) {
           <select
             className="select select-model"
             value={props.model}
+            aria-label="Model"
             onChange={(e) => props.onModelChange(e.target.value)}
           >
             <option value="">Select a model</option>
@@ -186,150 +327,166 @@ export function Composer(props: Props) {
               <option value={props.model}>{props.model}</option>
             ) : null}
           </select>
-          <button
-            type="button"
-            className={`ghost-btn star-btn${props.isFavorite ? " active" : ""}`}
-            onClick={props.onToggleFavorite}
-            disabled={!props.model}
-            title={props.isFavorite ? "Remove from Oxen favorites" : "Add to Oxen favorites"}
-          >
-            {props.isFavorite ? "★" : "☆"}
-          </button>
+          <ToolbarField label="Favorite">
+            <button
+              type="button"
+              className={`ghost-btn star-btn${props.isFavorite ? " active" : ""}`}
+              onClick={props.onToggleFavorite}
+              disabled={!props.model}
+              aria-pressed={props.isFavorite}
+              aria-label={props.isFavorite ? "Remove from Oxen favorites" : "Add to Oxen favorites"}
+              title={props.isFavorite ? "Remove from Oxen favorites" : "Add to Oxen favorites"}
+            >
+              {props.isFavorite ? "★" : "☆"}
+            </button>
+          </ToolbarField>
 
-          <select
-            className="select"
-            value={aspectOptions.includes(props.aspectRatio) ? props.aspectRatio : aspectOptions[0]}
-            onChange={(e) => props.onAspectRatioChange(e.target.value)}
-          >
-            {aspectOptions.map((ratio) => (
-              <option key={ratio} value={ratio}>
-                {ratio}
-              </option>
-            ))}
-          </select>
+          <ToolbarField label="Aspect">
+            <select
+              className="select"
+              value={aspectOptions.includes(props.aspectRatio) ? props.aspectRatio : aspectOptions[0]}
+              onChange={(e) => props.onAspectRatioChange(e.target.value)}
+            >
+              {aspectOptions.map((ratio) => (
+                <option key={ratio} value={ratio}>
+                  {ratio}
+                </option>
+              ))}
+            </select>
+          </ToolbarField>
 
           {props.controls?.duration ? (
             props.controls.duration.kind === "enum" ? (
-              <select
-                className="select"
+              <ToolbarField label="Duration">
+                <select
+                  className="select"
+                  value={props.duration}
+                  onChange={(e) => props.onDurationChange(e.target.value)}
+                >
+                  {props.controls.duration.values.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </ToolbarField>
+            ) : (
+              <ToolbarField label="Duration">
+                <input
+                  className="field"
+                  type="number"
+                  min={props.controls.duration.min}
+                  max={props.controls.duration.max}
+                  value={props.duration}
+                  onChange={(e) => props.onDurationChange(e.target.value)}
+                  style={{ width: 72 }}
+                />
+              </ToolbarField>
+            )
+          ) : props.mode.includes("video") ? (
+            <ToolbarField label="Duration">
+              <input
+                className="field"
+                type="number"
+                min={1}
+                max={20}
                 value={props.duration}
                 onChange={(e) => props.onDurationChange(e.target.value)}
-                title="Duration"
+                style={{ width: 72 }}
+              />
+            </ToolbarField>
+          ) : null}
+
+          {props.controls?.quality ? (
+            <ToolbarField label="Quality">
+              <select
+                className="select"
+                value={props.quality}
+                onChange={(e) => props.onQualityChange(e.target.value)}
               >
-                {props.controls.duration.values.map((value) => (
+                {props.controls.quality.map((value) => (
                   <option key={value} value={value}>
                     {value}
                   </option>
                 ))}
               </select>
-            ) : (
-              <input
-                className="field"
-                type="number"
-                min={props.controls.duration.min}
-                max={props.controls.duration.max}
-                value={props.duration}
-                onChange={(e) => props.onDurationChange(e.target.value)}
-                title="Duration (seconds)"
-                style={{ width: 72 }}
-              />
-            )
-          ) : props.mode.includes("video") ? (
-            <input
-              className="field"
-              type="number"
-              min={1}
-              max={20}
-              value={props.duration}
-              onChange={(e) => props.onDurationChange(e.target.value)}
-              title="Duration (seconds)"
-              style={{ width: 72 }}
-            />
-          ) : null}
-
-          {props.controls?.quality ? (
-            <select
-              className="select"
-              value={props.quality}
-              onChange={(e) => props.onQualityChange(e.target.value)}
-              title="Quality"
-            >
-              {props.controls.quality.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
+            </ToolbarField>
           ) : null}
 
           {props.controls?.resolution ? (
-            <select
-              className="select"
-              value={props.resolution}
-              onChange={(e) => props.onResolutionChange(e.target.value)}
-              title="Resolution"
-            >
-              {props.controls.resolution.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
+            <ToolbarField label="Resolution">
+              <select
+                className="select"
+                value={props.resolution}
+                onChange={(e) => props.onResolutionChange(e.target.value)}
+              >
+                {props.controls.resolution.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </ToolbarField>
           ) : null}
 
           {props.controls?.outputFormat ? (
-            <select
-              className="select"
-              value={props.outputFormat}
-              onChange={(e) => props.onOutputFormatChange(e.target.value)}
-              title="Output format"
-            >
-              {props.controls.outputFormat.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
+            <ToolbarField label="Format">
+              <select
+                className="select"
+                value={props.outputFormat}
+                onChange={(e) => props.onOutputFormatChange(e.target.value)}
+              >
+                {props.controls.outputFormat.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </ToolbarField>
           ) : null}
 
           {props.controls?.background ? (
+            <ToolbarField label="Background">
+              <select
+                className="select"
+                value={props.background}
+                onChange={(e) => props.onBackgroundChange(e.target.value)}
+              >
+                {props.controls.background.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </ToolbarField>
+          ) : null}
+
+          <ToolbarField label="Count">
             <select
               className="select"
-              value={props.background}
-              onChange={(e) => props.onBackgroundChange(e.target.value)}
-              title="Background"
+              value={String(props.numGenerations)}
+              onChange={(e) => props.onNumGenerationsChange(Number(e.target.value) || 1)}
             >
-              {props.controls.background.map((value) => (
-                <option key={value} value={value}>
-                  {value}
+              {[1, 2, 3, 4].map((n) => (
+                <option key={n} value={n}>
+                  {n}×
                 </option>
               ))}
             </select>
-          ) : null}
-
-          <select
-            className="select"
-            value={String(props.numGenerations)}
-            onChange={(e) => props.onNumGenerationsChange(Number(e.target.value) || 1)}
-            title="Oxen num_generations"
-          >
-            {[1, 2, 3, 4].map((n) => (
-              <option key={n} value={n}>
-                {n}×
-              </option>
-            ))}
-          </select>
+          </ToolbarField>
 
           {props.controls?.seed !== false ? (
-            <input
-              className="field"
-              type="text"
-              inputMode="numeric"
-              placeholder="seed"
-              value={props.seed}
-              onChange={(e) => props.onSeedChange(e.target.value)}
-              style={{ width: 88 }}
-            />
+            <ToolbarField label="Seed">
+              <input
+                className="field"
+                type="text"
+                inputMode="numeric"
+                placeholder="optional"
+                value={props.seed}
+                onChange={(e) => props.onSeedChange(e.target.value)}
+                style={{ width: 88 }}
+              />
+            </ToolbarField>
           ) : null}
 
           {props.controls?.generateAudio ? (
@@ -343,38 +500,18 @@ export function Composer(props: Props) {
             </label>
           ) : null}
 
-          {showImage ? (
+          {showDropzone ? (
             <label className="ghost-btn attach">
-              Image{imageMax > 1 ? `s (${imageMax})` : ""}
+              Add media
               <input
+                ref={fileRef}
                 type="file"
-                accept="image/*"
-                multiple={imageMax > 1}
-                onChange={(e) => props.onPickFiles("image", e.target.files)}
-              />
-            </label>
-          ) : null}
-
-          {showVideo ? (
-            <label className="ghost-btn attach">
-              Video{videoMax > 1 ? `s (${videoMax})` : ""}
-              <input
-                type="file"
-                accept="video/*"
-                multiple={videoMax > 1}
-                onChange={(e) => props.onPickFiles("video", e.target.files)}
-              />
-            </label>
-          ) : null}
-
-          {audioMax > 0 ? (
-            <label className="ghost-btn attach">
-              Audio
-              <input
-                type="file"
-                accept="audio/*"
-                multiple={audioMax > 1}
-                onChange={(e) => props.onPickFiles("audio", e.target.files)}
+                accept="image/*,video/*,audio/*"
+                multiple
+                onChange={(e) => {
+                  props.onAddFiles(e.target.files);
+                  e.target.value = "";
+                }}
               />
             </label>
           ) : null}
@@ -384,8 +521,26 @@ export function Composer(props: Props) {
             className="primary-btn"
             disabled={!props.canGenerate || props.busy}
             onClick={props.onGenerate}
+            title="⌘↵"
+            aria-label={
+              props.busy
+                ? "Queuing generation"
+                : cost.amount != null
+                  ? `Generate, estimated ${cost.label}, Command Enter`
+                  : "Generate, Command Enter"
+            }
           >
-            {props.busy ? "Queuing…" : "Generate ⌘↵"}
+            {props.busy ? (
+              "Queuing…"
+            ) : (
+              <>
+                Generate
+                {cost.amount != null ? <span className="primary-btn-cost">{cost.label}</span> : null}
+                <span className="primary-btn-shortcut" aria-hidden>
+                  ⌘↵
+                </span>
+              </>
+            )}
           </button>
         </div>
         {slotRequired(props.controls, "image", props.mode) ? (

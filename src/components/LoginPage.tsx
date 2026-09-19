@@ -20,9 +20,9 @@ export function LoginPage() {
     <div className="login-page">
       <div className="login-card">
         <div className="brand" style={{ marginBottom: 18 }}>
-          <div className="brand-mark">Ox</div>
+          <img className="brand-mark-img" src="/favicon.svg" alt="" />
           <div className="brand-copy">
-            <strong>Oxen Studio</strong>
+            <strong>DS Studio</strong>
             <span>Image &amp; video generation</span>
           </div>
         </div>

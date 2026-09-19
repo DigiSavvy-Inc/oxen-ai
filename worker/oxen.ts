@@ -4,6 +4,14 @@ const OXEN_BASE = "https://hub.oxen.ai/api/ai";
 
 export const POLL_FAILURE_THRESHOLD = 3;
 
+export type OxenPricing = {
+  method?: string | null;
+  cost_per_image?: number | null;
+  cost_per_second?: number | null;
+  cost_per_second_with_audio?: number | null;
+  cost_per_second_high_res?: number | null;
+};
+
 export type OxenModel = {
   id: string;
   display_name?: string;
@@ -13,10 +21,16 @@ export type OxenModel = {
     input?: string[];
     output?: string[];
   };
-  pricing?: Record<string, unknown>;
+  pricing?: OxenPricing | Record<string, unknown> | null;
   request_schema?: Record<string, unknown> | null;
   developer?: { name?: string; logo?: string } | null;
 };
+
+export const FEATURED_VIDEO_SEARCHES = [
+  { query: "seedance 2.5", present: /seedance-2-5/i },
+  { query: "kling 3", present: /kling-video-v3|kling-3/i },
+  { query: "wan 3", present: /wan-3-0/i },
+] as const;
 
 const modelDetailCache = new Map<string, { at: number; model: OxenModel }>();
 const MODEL_DETAIL_TTL_MS = 5 * 60 * 1000;
@@ -66,19 +80,27 @@ export function oxenErrorText(data: OxenErrorBody, fallback: string): string {
   return fallback;
 }
 
-export function extractResultUrl(remote: Record<string, unknown>): string | null {
-  if (typeof remote.result_url === "string" && remote.result_url.trim()) {
-    return remote.result_url;
-  }
-  const images = remote.images as { url?: string }[] | undefined;
-  if (typeof images?.[0]?.url === "string" && images[0].url.trim()) {
-    return images[0].url;
-  }
-  const videos = remote.videos as { url?: string }[] | undefined;
-  if (typeof videos?.[0]?.url === "string" && videos[0].url.trim()) {
-    return videos[0].url;
+function firstTrimmedUrl(...candidates: unknown[]): string | null {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
   }
   return null;
+}
+
+export function extractResultUrl(remote: Record<string, unknown>): string | null {
+  const images = remote.images as { url?: string }[] | undefined;
+  const videos = remote.videos as { url?: string }[] | undefined;
+  const video = remote.video as { url?: string } | undefined;
+  const image = remote.image as { url?: string } | undefined;
+  const result = remote.result as { url?: string } | undefined;
+  return firstTrimmedUrl(
+    remote.result_url,
+    images?.[0]?.url,
+    videos?.[0]?.url,
+    video?.url,
+    image?.url,
+    result?.url,
+  );
 }
 
 export function extractOxenErrorMessage(
@@ -213,6 +235,79 @@ export function isUnifiedImageModel(model: OxenModel): boolean {
   return id.startsWith("gpt-image") && !id.includes("edit");
 }
 
+function modelIdName(model: OxenModel): string {
+  return `${model.id} ${model.display_name ?? ""}`;
+}
+
+function isSeedance25TextToVideo(model: OxenModel): boolean {
+  return /seedance-2-5-text-to-video/i.test(modelIdName(model));
+}
+
+function isWan30TextToVideo(model: OxenModel): boolean {
+  const text = modelIdName(model);
+  return /wan-3-0/i.test(text) && /text-to-video/i.test(text);
+}
+
+function isReferenceToVideoId(model: OxenModel): boolean {
+  const text = modelIdName(model);
+  return (
+    /seedance-2-5-image-to-video/i.test(text) ||
+    /seedance-2-5-reference-to-video/i.test(text) ||
+    /wan-3-0/i.test(text) ||
+    /kling-video-v3-pro-motion-control/i.test(text)
+  );
+}
+
+function isVideoToVideoId(model: OxenModel): boolean {
+  const text = modelIdName(model);
+  return (
+    /video-to-video/i.test(text) ||
+    /motion-control/i.test(text) ||
+    /wan-3-0-prime.*edit/i.test(text) ||
+    /seedance-2-5-reference-to-video/i.test(text)
+  );
+}
+
+function isVideoCapable(
+  caps: ReturnType<typeof modalities>,
+  videoGen: boolean,
+): boolean {
+  return videoGen || (!caps.noCaps && caps.outputs.includes("video"));
+}
+
+export function unionModelsById(base: OxenModel[], extra: OxenModel[]): OxenModel[] {
+  const ids = new Set(base.map((model) => model.id.toLowerCase()));
+  const merged = [...base];
+  for (const model of extra) {
+    const id = model.id.toLowerCase();
+    if (ids.has(id)) continue;
+    ids.add(id);
+    merged.push(model);
+  }
+  return merged;
+}
+
+export async function mergeMissingFeaturedModels(
+  apiKey: string,
+  models: OxenModel[],
+): Promise<OxenModel[]> {
+  const missing = FEATURED_VIDEO_SEARCHES.filter(
+    ({ present }) =>
+      !models.some((model) => present.test(model.id) || present.test(model.display_name ?? "")),
+  );
+  if (missing.length === 0) return models;
+  const found = await Promise.all(
+    missing.map(async ({ query }) => {
+      try {
+        return await searchModels(apiKey, query);
+      } catch {
+        return [] as OxenModel[];
+      }
+    }),
+  );
+  return unionModelsById(models, found.flat());
+}
+
 export function filterModelsForMode(
   models: OxenModel[],
   mode: GenerationMode,
@@ -223,6 +318,7 @@ export function filterModelsForMode(
     const imageGen = isImageGeneratePath(endpoint);
     const imageEdit = isImageEditPath(endpoint);
     const videoGen = isVideoGeneratePath(endpoint);
+    const videoCapable = isVideoCapable(caps, videoGen);
 
     switch (mode) {
       case "text-to-image":
@@ -242,26 +338,20 @@ export function filterModelsForMode(
           (imageEdit || caps.hasImageIn || (caps.noCaps && imageGen))
         );
       case "text-to-video":
+        if (isSeedance25TextToVideo(model) || isWan30TextToVideo(model)) return true;
         return (
           caps.videoOut &&
           caps.hasText &&
           !caps.hasImageIn &&
           !caps.hasVideoIn &&
-          (videoGen || (!caps.noCaps && caps.outputs.includes("video")))
+          videoCapable
         );
       case "reference-to-video":
-        return (
-          caps.videoOut &&
-          caps.hasImageIn &&
-          !caps.hasVideoIn &&
-          (videoGen || (!caps.noCaps && caps.outputs.includes("video")))
-        );
+        if (isReferenceToVideoId(model) && caps.videoOut) return true;
+        return caps.videoOut && caps.hasImageIn && videoCapable;
       case "video-to-video":
-        return (
-          caps.videoOut &&
-          caps.hasVideoIn &&
-          (videoGen || (!caps.noCaps && caps.outputs.includes("video")))
-        );
+        if (isVideoToVideoId(model) && caps.videoOut) return true;
+        return caps.videoOut && caps.hasVideoIn && videoCapable;
       default: {
         const _exhaustive: never = mode;
         throw new Error(`Unhandled generation mode: ${_exhaustive}`);
@@ -421,4 +511,21 @@ export async function cancelGeneration(
     const data = await readOxenJson<OxenErrorBody>(res);
     throw new Error(oxenErrorText(data, `Oxen cancel failed (${res.status})`));
   }
+}
+
+export async function downloadOxenResult(
+  apiKey: string,
+  resultUrl: string,
+): Promise<{ bytes: ArrayBuffer; contentType: string }> {
+  const res = await fetch(resultUrl, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    redirect: "follow",
+  });
+  if (!res.ok) {
+    throw new Error(`Oxen result download failed (${res.status})`);
+  }
+  return {
+    bytes: await res.arrayBuffer(),
+    contentType: res.headers.get("content-type") || "application/octet-stream",
+  };
 }

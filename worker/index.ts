@@ -20,14 +20,18 @@ import {
   upsertUser,
   userHasAccess,
 } from "./auth";
+import { creditBalanceResponse, fetchOxenCredits } from "./credits";
 import {
   buildReferenceMediaUrl,
+  createSignedMediaUrl,
   putMediaObject,
+  resolvePublicBaseUrl,
   verifyMediaSignature,
 } from "./media";
 import {
   buildEnqueuePayload,
   cancelGeneration,
+  downloadOxenResult,
   enqueueGeneration,
   extractOxenErrorMessage,
   extractResultUrl,
@@ -38,12 +42,14 @@ import {
   listFavoriteModels,
   listModels,
   listQueue,
+  mergeMissingFeaturedModels,
   notePollFailure,
   pollErrorMessage,
   resetPollFailures,
   searchModels,
   shouldPersistPollFailure,
   unfavoriteModel,
+  unionModelsById,
   type OxenModel,
 } from "./oxen";
 import {
@@ -236,6 +242,18 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         endpoint: "/videos/generate",
         capabilities: { input: ["text"], output: ["video"] },
       },
+      {
+        id: "bytedance-seedance-2-5-text-to-video",
+        display_name: "Seedance 2.5 Text-to-Video",
+        endpoint: "/videos/generate",
+        capabilities: { input: ["text"], output: ["video"] },
+      },
+      {
+        id: "wan-3-0",
+        display_name: "Wan 3.0",
+        endpoint: "/videos/generate",
+        capabilities: { input: ["text"], output: ["video"] },
+      },
     ],
     "reference-to-video": [
       {
@@ -256,6 +274,36 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         endpoint: "/videos/generate",
         capabilities: { input: ["text", "image"], output: ["video"] },
       },
+      {
+        id: "bytedance-seedance-2-5-image-to-video",
+        display_name: "Seedance 2.5 Image-to-Video",
+        endpoint: "/videos/generate",
+        capabilities: { input: ["text", "image"], output: ["video"] },
+      },
+      {
+        id: "bytedance-seedance-2-5-reference-to-video",
+        display_name: "Seedance 2.5 Reference-to-Video",
+        endpoint: "/videos/generate",
+        capabilities: { input: ["text", "image", "video", "audio"], output: ["video"] },
+      },
+      {
+        id: "kling-video-v3-pro-motion-control",
+        display_name: "Kling 3.0 Pro Motion Control",
+        endpoint: "/videos/generate",
+        capabilities: { input: ["text", "image", "video"], output: ["video"] },
+      },
+      {
+        id: "wan-3-0",
+        display_name: "Wan 3.0",
+        endpoint: "/videos/generate",
+        capabilities: { input: ["text"], output: ["video"] },
+      },
+      {
+        id: "wan-3-0-prime",
+        display_name: "Wan 3.0 Prime",
+        endpoint: "/videos/generate",
+        capabilities: { input: ["text", "image"], output: ["video"] },
+      },
     ],
     "video-to-video": [
       {
@@ -264,9 +312,172 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         endpoint: "/videos/generate",
         capabilities: { input: ["text", "video", "image"], output: ["video"] },
       },
+      {
+        id: "bytedance-seedance-2-5-reference-to-video",
+        display_name: "Seedance 2.5 Reference-to-Video",
+        endpoint: "/videos/generate",
+        capabilities: { input: ["text", "image", "video", "audio"], output: ["video"] },
+      },
+      {
+        id: "kling-video-v3-pro-motion-control",
+        display_name: "Kling 3.0 Pro Motion Control",
+        endpoint: "/videos/generate",
+        capabilities: { input: ["text", "image", "video"], output: ["video"] },
+      },
     ],
   };
   return catalog[mode];
+}
+
+function featuredVideoFallbacks(mode: GenerationMode): OxenModel[] {
+  const featured = new Set([
+    "bytedance-seedance-2-5-text-to-video",
+    "bytedance-seedance-2-5-image-to-video",
+    "bytedance-seedance-2-5-reference-to-video",
+    "kling-video-v3-pro-motion-control",
+    "wan-3-0",
+    "wan-3-0-prime",
+  ]);
+  return fallbackModels(mode).filter((model) => featured.has(model.id));
+}
+
+type GenerationRow = {
+  id: string;
+  oxen_generation_id: string;
+  mode: string;
+  model: string;
+  prompt: string | null;
+  status: string;
+  media_type: string | null;
+  result_url: string | null;
+  result_key?: string | null;
+  error_message: string | null;
+  batch_id?: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+function generationSecret(env: Env): string {
+  return env.ENCRYPTION_KEY || env.SESSION_SECRET;
+}
+
+async function displayResultUrl(
+  env: Env,
+  resultKey: string | null | undefined,
+  resultUrl: string | null,
+): Promise<string | null> {
+  const origin = resolvePublicBaseUrl(env.PUBLIC_BASE_URL);
+  if (resultKey && origin) {
+    return createSignedMediaUrl(origin, resultKey, generationSecret(env));
+  }
+  return resultUrl;
+}
+
+function toGenerationJson(
+  row: GenerationRow,
+  resultUrl: string | null,
+  extras?: { status?: string; errorMessage?: string | null; updatedAt?: number },
+) {
+  return {
+    id: row.id,
+    oxenGenerationId: row.oxen_generation_id,
+    mode: row.mode,
+    model: row.model,
+    prompt: row.prompt,
+    status: extras?.status ?? row.status,
+    mediaType: row.media_type,
+    resultUrl,
+    errorMessage: extras?.errorMessage === undefined ? row.error_message : extras.errorMessage,
+    batchId: row.batch_id ?? null,
+    createdAt: row.created_at,
+    updatedAt: extras?.updatedAt ?? row.updated_at,
+  };
+}
+
+function shouldPollOxen(
+  status: string,
+  resultUrl: string | null,
+  resultKey: string | null | undefined,
+  pollActive: boolean,
+): boolean {
+  if (status === "failed" || status === "cancelled") return false;
+  if (status === "succeeded") return !resultUrl && !resultKey;
+  return pollActive;
+}
+
+async function persistOxenResult(
+  env: Env,
+  userId: string,
+  apiKey: string,
+  resultUrl: string,
+): Promise<{ resultKey: string; oxenUrl: string }> {
+  const { bytes, contentType } = await downloadOxenResult(apiKey, resultUrl);
+  const { key } = await putMediaObject(env.MEDIA, bytes, contentType, `u/${userId}/results`);
+  return { resultKey: key, oxenUrl: resultUrl };
+}
+
+async function syncGenerationRow(
+  env: Env,
+  userId: string,
+  apiKey: string | null,
+  row: GenerationRow,
+  options: { persistMissing: boolean; pollActive: boolean },
+) {
+  let status = row.status;
+  let resultUrl = row.result_url;
+  let resultKey = row.result_key ?? null;
+  let errorMessage = row.error_message;
+  let updatedAt = row.updated_at;
+  let dirty = false;
+
+  if (apiKey && shouldPollOxen(status, resultUrl, resultKey, options.pollActive)) {
+    try {
+      const remote = await getGeneration(apiKey, row.oxen_generation_id);
+      resetPollFailures(row.id);
+      status = String(remote.status ?? status);
+      resultUrl = extractResultUrl(remote) ?? resultUrl;
+      const remoteError = extractOxenErrorMessage(remote);
+      if (status === "failed") {
+        errorMessage = remoteError ?? errorMessage ?? "Oxen generation failed";
+      } else {
+        errorMessage = remoteError;
+      }
+      dirty = true;
+    } catch (err) {
+      console.error("poll error", err);
+      const failures = notePollFailure(row.id);
+      if (shouldPersistPollFailure(failures)) {
+        errorMessage = pollErrorMessage(err);
+        dirty = true;
+      }
+    }
+  }
+
+  if (apiKey && options.persistMissing && status === "succeeded" && resultUrl && !resultKey) {
+    try {
+      const persisted = await persistOxenResult(env, userId, apiKey, resultUrl);
+      resultKey = persisted.resultKey;
+      resultUrl = persisted.oxenUrl;
+      dirty = true;
+    } catch (err) {
+      console.error("result persist error", err);
+    }
+  }
+
+  if (dirty) {
+    updatedAt = Math.floor(Date.now() / 1000);
+    await env.DB.prepare(
+      `UPDATE generations SET status = ?, result_url = ?, result_key = ?, error_message = ?, updated_at = ? WHERE id = ?`,
+    )
+      .bind(status, resultUrl, resultKey, errorMessage, updatedAt, row.id)
+      .run();
+  }
+
+  return toGenerationJson(row, await displayResultUrl(env, resultKey, resultUrl), {
+    status,
+    errorMessage,
+    updatedAt,
+  });
 }
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "oxen-studio" }));
@@ -498,8 +709,8 @@ app.get("/api/models", async (c) => {
   try {
     const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
     if (apiKey) {
-      const all = await listModels(apiKey);
-      models = filterModelsForMode(all, mode);
+      const all = await mergeMissingFeaturedModels(apiKey, await listModels(apiKey));
+      models = unionModelsById(filterModelsForMode(all, mode), featuredVideoFallbacks(mode));
     }
   } catch (err) {
     console.error("model list error", err);
@@ -510,6 +721,13 @@ app.get("/api/models", async (c) => {
   }
 
   return c.json({ mode, models });
+});
+
+app.get("/api/billing/credits", async (c) => {
+  const user = await requireUser(c);
+  const apiKey = await requireOxenKey(user, c.env);
+  const remaining = await fetchOxenCredits(apiKey);
+  return c.json(creditBalanceResponse(remaining));
 });
 
 app.post("/api/upload", async (c) => {
@@ -696,14 +914,15 @@ app.post("/api/generate", async (c) => {
 
   const generations = await enqueueGeneration(apiKey, payload);
   const now = Math.floor(Date.now() / 1000);
+  const batchId = crypto.randomUUID();
   const saved = [];
 
   for (const gen of generations) {
     const id = crypto.randomUUID();
     await c.env.DB.prepare(
       `INSERT INTO generations
-        (id, user_id, oxen_generation_id, mode, model, prompt, status, media_type, params_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, user_id, oxen_generation_id, mode, model, prompt, status, media_type, params_json, batch_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         id,
@@ -715,6 +934,7 @@ app.post("/api/generate", async (c) => {
         gen.status || "queued",
         meta.mediaType,
         JSON.stringify(payload),
+        batchId,
         now,
         now,
       )
@@ -729,6 +949,7 @@ app.post("/api/generate", async (c) => {
       mediaType: meta.mediaType,
       resultUrl: null as string | null,
       errorMessage: null as string | null,
+      batchId,
       createdAt: now,
       updatedAt: now,
     });
@@ -757,39 +978,23 @@ app.post("/api/generate", async (c) => {
 
 app.get("/api/generations", async (c) => {
   const user = await requireUser(c);
+  const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
   const rows = await c.env.DB.prepare(
     `SELECT * FROM generations WHERE user_id = ? ORDER BY created_at DESC LIMIT 100`,
   )
     .bind(user.id)
-    .all<{
-      id: string;
-      oxen_generation_id: string;
-      mode: string;
-      model: string;
-      prompt: string | null;
-      status: string;
-      media_type: string | null;
-      result_url: string | null;
-      error_message: string | null;
-      created_at: number;
-      updated_at: number;
-    }>();
+    .all<GenerationRow>();
 
-  return c.json({
-    generations: (rows.results ?? []).map((r) => ({
-      id: r.id,
-      oxenGenerationId: r.oxen_generation_id,
-      mode: r.mode,
-      model: r.model,
-      prompt: r.prompt,
-      status: r.status,
-      mediaType: r.media_type,
-      resultUrl: r.result_url,
-      errorMessage: r.error_message,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-    })),
-  });
+  const generations = await Promise.all(
+    (rows.results ?? []).map((row) =>
+      syncGenerationRow(c.env, user.id, apiKey, row, {
+        persistMissing: true,
+        pollActive: false,
+      }),
+    ),
+  );
+
+  return c.json({ generations });
 });
 
 app.get("/api/generations/:id", async (c) => {
@@ -801,76 +1006,17 @@ app.get("/api/generations/:id", async (c) => {
     `SELECT * FROM generations WHERE id = ? AND user_id = ?`,
   )
     .bind(id, user.id)
-    .first<{
-      id: string;
-      oxen_generation_id: string;
-      mode: string;
-      model: string;
-      prompt: string | null;
-      status: string;
-      media_type: string | null;
-      result_url: string | null;
-      error_message: string | null;
-      created_at: number;
-      updated_at: number;
-    }>();
+    .first<GenerationRow>();
 
   if (!row) {
     throw new HTTPException(404, { message: "Generation not found" });
   }
 
-  let status = row.status;
-  let resultUrl = row.result_url;
-  let errorMessage = row.error_message;
-
-  if (!["succeeded", "failed", "cancelled"].includes(status)) {
-    try {
-      const remote = await getGeneration(apiKey, row.oxen_generation_id);
-      resetPollFailures(row.id);
-      status = String(remote.status ?? status);
-      resultUrl = extractResultUrl(remote) ?? resultUrl;
-      const remoteError = extractOxenErrorMessage(remote);
-      if (status === "failed") {
-        errorMessage = remoteError ?? errorMessage ?? "Oxen generation failed";
-      } else {
-        errorMessage = remoteError;
-      }
-      const now = Math.floor(Date.now() / 1000);
-      await c.env.DB.prepare(
-        `UPDATE generations SET status = ?, result_url = ?, error_message = ?, updated_at = ? WHERE id = ?`,
-      )
-        .bind(status, resultUrl, errorMessage, now, row.id)
-        .run();
-    } catch (err) {
-      console.error("poll error", err);
-      const failures = notePollFailure(row.id);
-      if (shouldPersistPollFailure(failures)) {
-        errorMessage = pollErrorMessage(err);
-        const now = Math.floor(Date.now() / 1000);
-        await c.env.DB.prepare(
-          `UPDATE generations SET error_message = ?, updated_at = ? WHERE id = ?`,
-        )
-          .bind(errorMessage, now, row.id)
-          .run();
-      }
-    }
-  }
-
-  return c.json({
-    generation: {
-      id: row.id,
-      oxenGenerationId: row.oxen_generation_id,
-      mode: row.mode,
-      model: row.model,
-      prompt: row.prompt,
-      status,
-      mediaType: row.media_type,
-      resultUrl,
-      errorMessage,
-      createdAt: row.created_at,
-      updatedAt: Math.floor(Date.now() / 1000),
-    },
+  const generation = await syncGenerationRow(c.env, user.id, apiKey, row, {
+    persistMissing: true,
+    pollActive: true,
   });
+  return c.json({ generation });
 });
 
 app.delete("/api/generations/:id", async (c) => {

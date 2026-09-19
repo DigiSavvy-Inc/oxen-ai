@@ -1,4 +1,4 @@
-# Oxen Studio
+# DS Studio
 
 Cursor-inspired media studio for [Oxen AI](https://docs.oxen.ai/inference-api/overview) image and video generation. Runs on Cloudflare Workers (Hono API + React SPA) with GitHub org/allowlist access and per-user Oxen API keys.
 

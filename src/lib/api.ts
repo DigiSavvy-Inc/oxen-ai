@@ -14,13 +14,24 @@ export type SessionUser = {
   hasOxenKey: boolean;
 };
 
+export type OxenPricing = {
+  method?: string | null;
+  cost_per_image?: number | null;
+  cost_per_second?: number | null;
+  cost_per_second_with_audio?: number | null;
+  cost_per_second_high_res?: number | null;
+};
+
 export type OxenModel = {
   id: string;
   display_name?: string;
   description?: string | null;
   endpoint?: string;
   capabilities?: { input?: string[]; output?: string[] };
+  pricing?: OxenPricing | null;
 };
+
+export const OXEN_BILLING_URL = "https://www.oxen.ai/digisavvy/settings/billing";
 
 export type MediaSlot = {
   field: string;
@@ -45,6 +56,8 @@ export type ModelControls = {
   outputFormat: string[] | null;
   background: string[] | null;
   slots: MediaSlot[];
+  mentions: boolean;
+  pricing: OxenPricing | null;
 };
 
 export type SharedOxenParams = {
@@ -74,8 +87,15 @@ export type Generation = {
   mediaType: string | null;
   resultUrl: string | null;
   errorMessage: string | null;
+  batchId: string | null;
   createdAt: number;
   updatedAt: number;
+};
+
+export type CreditBalance = {
+  remaining: number | null;
+  currency: string;
+  billingUrl: string;
 };
 
 export const MODE_LABELS: Record<GenerationMode, string> = {
@@ -111,6 +131,62 @@ export function slotMax(controls: ModelControls | null, kind: MediaSlot["kind"])
   const slots = controls.slots.filter((slot) => slot.kind === kind);
   if (slots.length === 0) return 0;
   return Math.max(...slots.map((slot) => slot.maxItems));
+}
+
+export function mentionToken(kind: MediaSlot["kind"], index: number): string {
+  const n = index + 1;
+  switch (kind) {
+    case "image":
+      return `@Image${n}`;
+    case "video":
+      return `@Video${n}`;
+    case "audio":
+      return `@Audio${n}`;
+    default: {
+      const _exhaustive: never = kind;
+      return _exhaustive;
+    }
+  }
+}
+
+export function estimateGenerationCost(opts: {
+  pricing: OxenPricing | null | undefined;
+  numGenerations: number;
+  duration?: number | string;
+  generateAudio?: boolean;
+  resolution?: string;
+}): { amount: number | null; label: string } {
+  const count = Math.min(4, Math.max(1, Math.round(opts.numGenerations || 1)));
+  const pricing = opts.pricing;
+  if (!pricing) return { amount: null, label: "Price unavailable" };
+
+  const durationRaw = opts.duration;
+  const seconds =
+    typeof durationRaw === "number"
+      ? durationRaw
+      : durationRaw && durationRaw !== "auto" && Number.isFinite(Number(durationRaw))
+        ? Number(durationRaw)
+        : 5;
+
+  const res = (opts.resolution || "").toLowerCase();
+  const highRes = res.includes("1080") || res.includes("4k") || res === "2k";
+  const perSecond =
+    (highRes ? pricing.cost_per_second_high_res : null) ??
+    (opts.generateAudio ? pricing.cost_per_second_with_audio : null) ??
+    pricing.cost_per_second ??
+    null;
+
+  if (pricing.method === "per_image" || pricing.cost_per_image != null) {
+    const unit = pricing.cost_per_image ?? 0;
+    const amount = unit * count;
+    return { amount, label: `≈$${amount.toFixed(3)}` };
+  }
+  if (pricing.method === "per_video_output_second" || perSecond != null) {
+    const unit = perSecond ?? 0;
+    const amount = unit * seconds * count;
+    return { amount, label: `≈$${amount.toFixed(2)}` };
+  }
+  return { amount: null, label: "Price varies" };
 }
 
 export function slotRequired(
@@ -206,6 +282,8 @@ export const api = {
     ),
   cancelGeneration: (id: string) =>
     fetch(`/api/generations/${id}`, { method: "DELETE" }).then((r) => parseJson(r)),
+  credits: () =>
+    fetch("/api/billing/credits").then((r) => parseJson<CreditBalance>(r)),
   allowlist: () =>
     fetch("/api/admin/allowlist").then((r) =>
       parseJson<{

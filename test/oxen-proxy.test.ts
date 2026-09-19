@@ -187,6 +187,24 @@ describe("extractResultUrl", () => {
     ).toBe("https://hub.oxen.ai/api/repos/clip.mp4");
   });
 
+  it("falls back to video.url, image.url, then nested result.url", () => {
+    expect(
+      extractResultUrl({
+        video: { url: "https://hub.oxen.ai/api/repos/single.mp4" },
+      }),
+    ).toBe("https://hub.oxen.ai/api/repos/single.mp4");
+    expect(
+      extractResultUrl({
+        image: { url: "https://hub.oxen.ai/api/repos/single.png" },
+      }),
+    ).toBe("https://hub.oxen.ai/api/repos/single.png");
+    expect(
+      extractResultUrl({
+        result: { url: "https://hub.oxen.ai/api/repos/nested.webp" },
+      }),
+    ).toBe("https://hub.oxen.ai/api/repos/nested.webp");
+  });
+
   it("returns null when no result URL is present", () => {
     expect(extractResultUrl({ status: "processing", result_url: null })).toBeNull();
   });
@@ -216,8 +234,56 @@ describe("filterModelsForMode", () => {
 
   it("matches video modes from prefixed and bare endpoints", () => {
     expect(ids(filterModelsForMode(catalog, "text-to-video"))).toEqual(["kling-t2v"]);
-    expect(ids(filterModelsForMode(catalog, "reference-to-video"))).toEqual(["kling-ref"]);
+    expect(ids(filterModelsForMode(catalog, "reference-to-video"))).toEqual([
+      "kling-ref",
+      "kling-v2v",
+    ]);
     expect(ids(filterModelsForMode(catalog, "video-to-video"))).toEqual(["kling-v2v"]);
+  });
+
+  it("keeps Seedance 2.5 reference models in Ref → Video even when they also accept video", () => {
+    const seedanceRef: OxenModel = {
+      id: "bytedance-seedance-2-5-reference-to-video",
+      display_name: "Seedance 2.5 Reference-to-Video",
+      endpoint: "/videos/generate",
+      capabilities: { input: ["text", "image", "video", "audio"], output: ["video"] },
+    };
+    const seedanceT2v: OxenModel = {
+      id: "bytedance-seedance-2-5-text-to-video",
+      endpoint: "/videos/generate",
+      capabilities: { input: ["text"], output: ["video"] },
+    };
+    const seedanceI2v: OxenModel = {
+      id: "bytedance-seedance-2-5-image-to-video",
+      endpoint: "/videos/generate",
+      capabilities: { input: ["text", "image"], output: ["video"] },
+    };
+    const klingMotion: OxenModel = {
+      id: "kling-video-v3-pro-motion-control",
+      endpoint: "/videos/generate",
+      capabilities: { input: ["text", "image", "video"], output: ["video"] },
+    };
+    const wan: OxenModel = {
+      id: "wan-3-0",
+      endpoint: "/videos/generate",
+      capabilities: { input: ["text"], output: ["video"] },
+    };
+    const models = [seedanceRef, seedanceT2v, seedanceI2v, klingMotion, wan];
+
+    expect(ids(filterModelsForMode(models, "text-to-video")).sort()).toEqual([
+      "bytedance-seedance-2-5-text-to-video",
+      "wan-3-0",
+    ]);
+    expect(ids(filterModelsForMode(models, "reference-to-video")).sort()).toEqual([
+      "bytedance-seedance-2-5-image-to-video",
+      "bytedance-seedance-2-5-reference-to-video",
+      "kling-video-v3-pro-motion-control",
+      "wan-3-0",
+    ]);
+    expect(ids(filterModelsForMode(models, "video-to-video")).sort()).toEqual([
+      "bytedance-seedance-2-5-reference-to-video",
+      "kling-video-v3-pro-motion-control",
+    ]);
   });
 
   it("does not classify chat models as media models", () => {

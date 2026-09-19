@@ -1,7 +1,9 @@
-import type { OxenModel } from "./oxen";
+import type { OxenModel, OxenPricing } from "./oxen";
+import { parseOxenPricing } from "./pricing";
 
 export type JsonSchema = {
   type?: string | string[];
+  description?: string;
   properties?: Record<string, JsonSchema>;
   required?: string[];
   enum?: unknown[];
@@ -48,6 +50,8 @@ export type ModelControls = {
   outputFormat: string[] | null;
   background: string[] | null;
   slots: MediaSlot[];
+  mentions: boolean;
+  pricing: OxenPricing | null;
 };
 
 const FIELD_KIND: Record<MediaField, MediaKind> = {
@@ -115,6 +119,32 @@ function slotFromProperty(
   };
 }
 
+const MENTION_TOKEN = /@(Image|Video|Audio)\d*/i;
+
+function collectSchemaText(schema: JsonSchema, out: string[]): void {
+  if (typeof schema.description === "string") out.push(schema.description);
+  if (schema.properties) {
+    for (const [name, prop] of Object.entries(schema.properties)) {
+      out.push(name);
+      collectSchemaText(prop, out);
+    }
+  }
+  if (schema.items) collectSchemaText(schema.items, out);
+  for (const option of [...(schema.anyOf ?? []), ...(schema.oneOf ?? [])]) {
+    collectSchemaText(option, out);
+  }
+}
+
+function schemaMentionsMedia(schema: JsonSchema): boolean {
+  const texts: string[] = [];
+  const prompt = property(schema, "prompt");
+  if (prompt) {
+    collectSchemaText(prompt, texts);
+  }
+  collectSchemaText(schema, texts);
+  return texts.some((text) => MENTION_TOKEN.test(text));
+}
+
 export function parseModelControls(model: OxenModel): ModelControls {
   const root = asObjectSchema(model.request_schema) ?? {};
   const slots: MediaSlot[] = [];
@@ -159,6 +189,10 @@ export function parseModelControls(model: OxenModel): ModelControls {
     }
   }
 
+  const mentions =
+    schemaMentionsMedia(root) ||
+    slots.some((slot) => slot.kind === "image" || slot.kind === "video" || slot.kind === "audio");
+
   return {
     modelId: model.id,
     aspectRatios: aspect.length > 0 ? aspect : null,
@@ -170,6 +204,8 @@ export function parseModelControls(model: OxenModel): ModelControls {
     outputFormat: outputFormat.length > 0 ? outputFormat : null,
     background: background.length > 0 ? background : null,
     slots,
+    mentions,
+    pricing: parseOxenPricing(model.pricing),
   };
 }
 

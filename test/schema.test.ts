@@ -33,6 +33,8 @@ describe("parseModelControls", () => {
     expect(controls.resolution).toEqual(["1K", "2K", "4K"]);
     expect(controls.quality).toContain("xhigh");
     expect(controls.seed).toBe(true);
+    expect(controls.mentions).toBe(true);
+    expect(controls.pricing).toBeNull();
     expect(
       mapMediaUrls(controls.slots, {
         image: ["https://a", "https://b"],
@@ -67,6 +69,7 @@ describe("parseModelControls", () => {
       defaultValue: "auto",
     });
     expect(controls.generateAudio).toBe(true);
+    expect(controls.mentions).toBe(true);
     expect(
       mapMediaUrls(controls.slots, {
         image: ["https://a", "https://b"],
@@ -76,6 +79,54 @@ describe("parseModelControls", () => {
     ).toEqual({
       input_images: ["https://a", "https://b"],
       input_videos: ["https://v"],
+    });
+  });
+
+  it("sets mentions from @Image/@Video/@Audio in the prompt description", () => {
+    const controls = parseModelControls({
+      id: "mention-model",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: {
+            type: "string",
+            description: "Reference stills with @Image1 and clips with @Video1",
+          },
+        },
+      },
+    });
+    expect(controls.slots).toEqual([]);
+    expect(controls.mentions).toBe(true);
+  });
+
+  it("leaves mentions false when there are no slots or mention tokens", () => {
+    const controls = parseModelControls({
+      id: "text-only",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string", description: "A plain text prompt" },
+        },
+      },
+    });
+    expect(controls.mentions).toBe(false);
+  });
+
+  it("copies model.pricing onto controls", () => {
+    const controls = parseModelControls({
+      id: "priced",
+      pricing: {
+        method: "per_image",
+        cost_per_image: 0.02,
+        cost_per_second: 0.15,
+      },
+    });
+    expect(controls.pricing).toEqual({
+      method: "per_image",
+      cost_per_image: 0.02,
+      cost_per_second: 0.15,
+      cost_per_second_with_audio: null,
+      cost_per_second_high_res: null,
     });
   });
 });
