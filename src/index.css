@@ -102,17 +102,19 @@ a {
 }
 
 .library-peek {
-  position: absolute;
-  inset: 8px 8px 8px auto;
-  z-index: 8;
-  width: min(420px, calc(100% - 16px));
+  position: fixed;
+  z-index: 40;
+  inset: 0 0 0 auto;
+  width: min(360px, 100vw);
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border-strong);
-  border-radius: 16px;
-  background: #fff;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg-panel);
   box-shadow: var(--shadow);
   overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .library-peek-head {
@@ -120,7 +122,7 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 10px 10px 14px;
+  padding: 14px 14px 10px;
   border-bottom: 1px solid var(--border);
 }
 
