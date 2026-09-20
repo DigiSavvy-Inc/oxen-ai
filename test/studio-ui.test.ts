@@ -15,7 +15,13 @@ import {
 } from "../src/lib/api";
 import { downloadFilename, tilePreviewUrl } from "../src/lib/download";
 import { formatAudioClock, shortenFileName } from "../src/lib/files";
-import { kindFromMediaType, libraryRefFromGeneration, mediaKindCap, mergeLibraryRefs } from "../src/lib/library-refs";
+import {
+  appendAttachMention,
+  kindFromMediaType,
+  libraryRefFromGeneration,
+  mediaKindCap,
+  mergeLibraryRefs,
+} from "../src/lib/library-refs";
 import {
   attachmentForMention,
   cycleHotIndex,
@@ -366,6 +372,14 @@ describe("library refs", () => {
     expect(mediaKindCap(videoOnly, "text-to-video", "image")).toBe(0);
     expect(mediaKindCap(videoOnly, "text-to-video", "video")).toBe(3);
     expect(mediaKindCap(imageSlots, "text-to-image", "audio")).toBe(0);
+  });
+
+  it("always writes mention tokens when a library item is newly staged", () => {
+    expect(appendAttachMention("", "image", 0, 1)).toBe("@Image1");
+    expect(appendAttachMention("a red ox", "image", 0, 1)).toBe("a red ox @Image1");
+    expect(appendAttachMention("@Image1", "image", 0, 1)).toBe("@Image1");
+    expect(appendAttachMention("clip", "audio", 1, 1)).toBe("clip @Audio2");
+    expect(appendAttachMention("clip", "audio", 1, 0)).toBe("clip");
   });
 });
 

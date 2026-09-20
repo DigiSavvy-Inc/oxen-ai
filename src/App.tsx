@@ -11,7 +11,6 @@ import { Sidebar } from "./components/Sidebar";
 import {
   api,
   firstSupportedMode,
-  mentionToken,
   modelSupportsMode,
   slotRequired,
   type CreditBalance,
@@ -25,6 +24,7 @@ import { groupGenerationBatches, isActiveGeneration, mergeGenerations } from "./
 import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
 import { filesFromList, kindFromFile } from "./lib/files";
 import {
+  appendAttachMention,
   kindFromMediaType,
   libraryRefFromGeneration,
   mediaKindCap,
@@ -411,14 +411,7 @@ export default function App() {
 
   function appendMentionTokens(kind: "image" | "video" | "audio", existingCount: number, addedCount: number) {
     if (addedCount <= 0) return;
-    setPrompt((current) => {
-      let next = current;
-      for (let offset = 0; offset < addedCount; offset += 1) {
-        const token = mentionToken(kind, existingCount + offset);
-        if (!next.includes(token)) next = next.trim() ? `${next.trim()} ${token}` : token;
-      }
-      return next;
-    });
+    setPrompt((current) => appendAttachMention(current, kind, existingCount, addedCount));
   }
 
   function addFilesOfKind(kind: "image" | "video" | "audio", incoming: File[]) {

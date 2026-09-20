@@ -1,4 +1,4 @@
-import { slotMax, type Generation, type GenerationMode, type ModelControls } from "./api";
+import { mentionToken, slotMax, type Generation, type GenerationMode, type ModelControls } from "./api";
 import { downloadFilename } from "./download";
 import type { MediaKind } from "./files";
 
@@ -73,6 +73,21 @@ export function mergeLibraryRefs<T extends { kind: MediaKind; generationId?: str
     const existing = next.filter((entry) => entry.kind === item.kind);
     const others = next.filter((entry) => entry.kind !== item.kind);
     next = [...others, ...[...existing, item].slice(-cap)];
+  }
+  return next;
+}
+
+export function appendAttachMention(
+  prompt: string,
+  kind: MediaKind,
+  existingCount: number,
+  addedCount: number,
+): string {
+  if (addedCount <= 0) return prompt;
+  let next = prompt;
+  for (let offset = 0; offset < addedCount; offset += 1) {
+    const token = mentionToken(kind, existingCount + offset);
+    if (!next.includes(token)) next = next.trim() ? `${next.trim()} ${token}` : token;
   }
   return next;
 }
