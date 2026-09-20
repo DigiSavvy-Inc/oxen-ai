@@ -52,6 +52,72 @@ describe("parseModelControls", () => {
     });
   });
 
+  it("keeps an explicit audio max from the schema for any model", () => {
+    const controls = parseModelControls({
+      id: "any-audio-model",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          input_audios: { type: "array", maxItems: 4, items: { type: "string" } },
+        },
+      },
+    });
+    expect(controls.slots).toEqual([
+      {
+        field: "input_audios",
+        kind: "audio",
+        required: false,
+        maxItems: 4,
+        asArray: true,
+      },
+    ]);
+  });
+
+  it("adds audio refs when capabilities list audio but the schema omits the field", () => {
+    const controls = parseModelControls({
+      id: "capable-audio-model",
+      capabilities: { input: ["text", "image", "audio"], output: ["video"] },
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          input_images: { type: "array", maxItems: 2, items: { type: "string" } },
+        },
+      },
+    });
+    expect(controls.slots.some((slot) => slot.kind === "image")).toBe(true);
+    expect(controls.slots.find((slot) => slot.kind === "audio")).toEqual({
+      field: "input_audios",
+      kind: "audio",
+      required: false,
+      maxItems: 16,
+      asArray: true,
+    });
+    expect(controls.mentions).toBe(true);
+  });
+
+  it("reads an audio cap from the model description", () => {
+    const controls = parseModelControls({
+      id: "described-audio-model",
+      description: "Reference up to 10 audio clips with @Audio1",
+      request_schema: { type: "object", properties: { prompt: { type: "string" } } },
+    });
+    expect(controls.slots.find((slot) => slot.kind === "audio")?.maxItems).toBe(10);
+  });
+
+  it("does not invent audio refs for models that do not accept them", () => {
+    const controls = parseModelControls({
+      id: "text-only-image",
+      capabilities: { input: ["text", "image"], output: ["image"] },
+      request_schema: {
+        type: "object",
+        properties: { prompt: { type: "string" }, input_image: { type: "string" } },
+      },
+    });
+    expect(controls.slots.some((slot) => slot.kind === "audio")).toBe(false);
+  });
+
   it("maps Seedance plural media fields", () => {
     const model: OxenModel = {
       id: "bytedance-seedance-2-0-reference-to-video",

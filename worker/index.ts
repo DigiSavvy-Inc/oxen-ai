@@ -317,7 +317,7 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         id: "bytedance-seedance-2-5-image-to-video",
         display_name: "Seedance 2.5 Image-to-Video",
         endpoint: "/videos/generate",
-        capabilities: { input: ["text", "image"], output: ["video"] },
+        capabilities: { input: ["text", "image", "audio"], output: ["video"] },
       },
       {
         id: "bytedance-seedance-2-5-reference-to-video",
@@ -1164,7 +1164,9 @@ app.post("/api/generate", async (c) => {
       asStringList(mapped.input_videos) ??
       (useFallback && videoUrls.length > 1 ? videoUrls : undefined),
     input_audios:
-      asStringList(mapped.input_audios) ?? (useFallback && audioUrls.length > 0 ? audioUrls : undefined),
+      asStringList(mapped.input_audios) ??
+      asStringList(mapped.input_audio) ??
+      (useFallback && audioUrls.length > 0 ? audioUrls : undefined),
   });
 
   const generations = await enqueueGeneration(apiKey, payload);

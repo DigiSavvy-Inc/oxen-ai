@@ -24,7 +24,8 @@ import {
   tokenForItem,
   type PromptMention,
 } from "../lib/mentions";
-import { ExpandMediaButton } from "./MediaLightbox";
+import { shortenFileName } from "../lib/files";
+import { AudioAttachControl, ExpandMediaButton } from "./MediaLightbox";
 import { ModelMenu } from "./ModelMenu";
 
 type AttachItem = {
@@ -113,6 +114,7 @@ export function Composer(props: Props) {
     props.mode === "video-to-video" ? 1 : 0,
   );
   const audioMax = slotMax(props.controls, "audio");
+  const audioCount = props.attachments.filter((item) => item.kind === "audio").length;
   const showDropzone =
     imageMax > 0 ||
     videoMax > 0 ||
@@ -234,7 +236,7 @@ export function Composer(props: Props) {
 
   function openMentionHover(mention: PromptMention, el: HTMLElement) {
     const item = attachmentForMention(props.attachments, mention);
-    if (!item?.preview) {
+    if (!item || (item.kind !== "audio" && !item.preview)) {
       setHoveredMention(null);
       return;
     }
@@ -539,9 +541,9 @@ export function Composer(props: Props) {
                       ) : item.kind === "video" ? (
                         <video src={item.preview} muted draggable={false} />
                       ) : (
-                        <span className="pill">AUD</span>
+                        <AudioAttachControl src={item.preview} name={item.name} token={token} />
                       )}
-                      {item.preview ? (
+                      {item.kind !== "audio" && item.preview ? (
                         <ExpandMediaButton
                           label={`Preview ${token}`}
                           preview={item.preview}
@@ -549,7 +551,13 @@ export function Composer(props: Props) {
                         />
                       ) : null}
                     </div>
-                    <span>{token}</span>
+                    <span className="attach-chip-copy">
+                      <span className="attach-chip-token">{token}</span>
+                      <span className="attach-chip-name">{shortenFileName(item.name)}</span>
+                      <span className="attach-name-tip" role="tooltip">
+                        {item.name}
+                      </span>
+                    </span>
                     <button
                       className="ghost-btn"
                       type="button"
@@ -567,6 +575,11 @@ export function Composer(props: Props) {
               <div className="attach-drop-slot" aria-hidden>
                 Drop
               </div>
+            ) : null}
+            {audioMax > 1 ? (
+              <span className="attach-count">
+                Audio {audioCount}/{audioMax}
+              </span>
             ) : null}
           </div>
         ) : null}
@@ -817,11 +830,14 @@ export function Composer(props: Props) {
           style={{ left: hoveredMention.left, top: hoveredMention.top }}
           role="tooltip"
         >
-          {hoveredMention.item.kind === "video" ? (
+          {hoveredMention.item.kind === "audio" ? (
+            <span className="pill">AUD</span>
+          ) : hoveredMention.item.kind === "video" ? (
             <video src={hoveredMention.item.preview} muted playsInline />
           ) : (
             <img src={hoveredMention.item.preview} alt="" />
           )}
+          <span>{hoveredMention.item.name}</span>
           <span>{hoveredMention.mention.token}</span>
         </div>
       ) : null}

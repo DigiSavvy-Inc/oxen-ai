@@ -412,7 +412,6 @@ export default function App() {
       slotMax(controls, kind),
       kind === "image" && (mode === "image-to-image" || mode === "reference-to-video") ? 1 : 0,
       kind === "video" && mode === "video-to-video" ? 1 : 0,
-      1,
     );
   }
 
@@ -440,7 +439,7 @@ export default function App() {
         file,
         kind,
         name: file.name,
-        preview: kind === "audio" ? "" : URL.createObjectURL(file),
+        preview: URL.createObjectURL(file),
       }));
       const merged = [...existing, ...added].slice(0, cap);
       for (const item of existing) {

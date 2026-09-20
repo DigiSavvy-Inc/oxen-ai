@@ -25,7 +25,10 @@ export type MediaField =
   | "input_images"
   | "input_video"
   | "input_videos"
+  | "input_audio"
   | "input_audios";
+
+export const DEFAULT_AUDIO_ARRAY_MAX = 16;
 
 export type MediaSlot = {
   field: MediaField;
@@ -62,8 +65,57 @@ const FIELD_KIND: Record<MediaField, MediaKind> = {
   input_images: "image",
   input_video: "video",
   input_videos: "video",
+  input_audio: "audio",
   input_audios: "audio",
 };
+
+function modelListsAudioInput(model: OxenModel): boolean {
+  return (model.capabilities?.input ?? []).some((item) => item.toLowerCase() === "audio");
+}
+
+function inferAudioMaxFromText(texts: string[]): number | null {
+  const joined = texts.join("\n");
+  const patterns = [
+    /(?:up to|max(?:imum)?(?: of)?|at most|1\s*[–-]\s*)\s*(\d+)\s+(?:reference\s+)?audio/i,
+    /(\d+)\s+(?:reference\s+)?audio(?:s| clips?| files?)?/i,
+  ];
+  for (const pattern of patterns) {
+    const match = joined.match(pattern);
+    const value = Number(match?.[1]);
+    if (Number.isInteger(value) && value >= 1 && value <= 32) return value;
+  }
+  return null;
+}
+
+function enrichAudioSlots(model: OxenModel, schema: JsonSchema, slots: MediaSlot[]): MediaSlot[] {
+  const next = slots.map((slot) => ({ ...slot }));
+  const audioSlots = next.filter((slot) => slot.kind === "audio");
+  const texts: string[] = [];
+  collectSchemaText(schema, texts);
+  if (model.description) texts.push(model.description);
+  if (model.display_name) texts.push(model.display_name);
+  const acceptsAudio =
+    audioSlots.length > 0 || modelListsAudioInput(model) || texts.some((text) => /@Audio\d*/i.test(text));
+  if (!acceptsAudio) return next;
+
+  const inferredMax = inferAudioMaxFromText(texts) ?? DEFAULT_AUDIO_ARRAY_MAX;
+  if (audioSlots.length === 0) {
+    next.push({
+      field: inferredMax > 1 ? "input_audios" : "input_audio",
+      kind: "audio",
+      required: false,
+      maxItems: inferredMax,
+      asArray: inferredMax > 1,
+    });
+    return next;
+  }
+  for (const slot of audioSlots) {
+    if (slot.asArray) {
+      slot.field = "input_audios";
+    }
+  }
+  return next;
+}
 
 function asObjectSchema(schema: unknown): JsonSchema | null {
   if (!schema || typeof schema !== "object") return null;
@@ -173,6 +225,7 @@ export function parseModelControls(model: OxenModel): ModelControls {
     "input_images",
     "input_video",
     "input_videos",
+    "input_audio",
     "input_audios",
   ];
   for (const field of fields) {
@@ -243,9 +296,10 @@ export function parseModelControls(model: OxenModel): ModelControls {
     }
   }
 
+  const nextSlots = enrichAudioSlots(model, root, slots);
   const mentions =
     schemaMentionsMedia(root) ||
-    slots.some((slot) => slot.kind === "image" || slot.kind === "video" || slot.kind === "audio");
+    nextSlots.some((slot) => slot.kind === "image" || slot.kind === "video" || slot.kind === "audio");
 
   return {
     modelId: model.id,
@@ -258,7 +312,7 @@ export function parseModelControls(model: OxenModel): ModelControls {
     resolutionField,
     outputFormat: outputFormat.length > 0 ? outputFormat : null,
     background: background.length > 0 ? background : null,
-    slots,
+    slots: nextSlots,
     mentions,
     pricing,
   };

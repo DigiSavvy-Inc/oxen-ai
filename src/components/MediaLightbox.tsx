@@ -1,3 +1,71 @@
+import { useEffect, useRef, useState } from "react";
+import { formatAudioClock } from "../lib/files";
+
+export function AudioAttachControl({
+  src,
+  name,
+  token,
+}: {
+  src?: string;
+  name: string;
+  token: string;
+}) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState<number | null>(null);
+
+  useEffect(() => {
+    const node = audioRef.current;
+    return () => {
+      node?.pause();
+    };
+  }, [src]);
+
+  function toggle() {
+    const node = audioRef.current;
+    if (!node || !src) return;
+    if (playing) {
+      node.pause();
+      setPlaying(false);
+      return;
+    }
+    void node
+      .play()
+      .then(() => setPlaying(true))
+      .catch(() => setPlaying(false));
+  }
+
+  const clock = formatAudioClock(duration);
+  const tip = clock ? `${clock} · ${name}` : name;
+
+  return (
+    <div className="attach-audio">
+      {src ? (
+        <audio
+          ref={audioRef}
+          src={src}
+          preload="metadata"
+          onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
+          onEnded={() => setPlaying(false)}
+        />
+      ) : null}
+      <button
+        type="button"
+        className="attach-audio-play"
+        disabled={!src}
+        onClick={toggle}
+        aria-label={playing ? `Pause ${name}` : `Play ${name}`}
+      >
+        {playing ? "❚❚" : "▶"}
+      </button>
+      <span className="attach-audio-tip" role="tooltip">
+        {tip}
+        <span>{token}</span>
+      </span>
+    </div>
+  );
+}
+
 export function ExpandMediaButton({
   label,
   preview,

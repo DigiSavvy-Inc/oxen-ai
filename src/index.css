@@ -1729,6 +1729,101 @@ a {
   z-index: 8;
 }
 
+.attach-chip-copy {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.attach-chip-token {
+  font-family: var(--mono);
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.attach-chip-name {
+  max-width: 148px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.attach-name-tip,
+.attach-audio-tip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 9;
+  min-width: 140px;
+  max-width: 240px;
+  padding: 7px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.attach-name-tip {
+  left: 0;
+  transform: none;
+}
+
+.attach-chip-copy:hover .attach-name-tip,
+.attach-chip-copy:focus-within .attach-name-tip,
+.attach-audio:hover .attach-audio-tip,
+.attach-audio:focus-within .attach-audio-tip {
+  opacity: 1;
+  visibility: visible;
+}
+
+.attach-audio-tip span {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--mono);
+  color: var(--text-muted);
+}
+
+.attach-audio {
+  position: relative;
+  width: 36px;
+  height: 36px;
+}
+
+.attach-audio-play {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #efece7;
+  color: var(--text);
+  padding: 0;
+  font-size: 11px;
+}
+
+.attach-audio-play:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.attach-count {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+
 .attach-chip img,
 .attach-chip video,
 .attach-thumb .pill {
