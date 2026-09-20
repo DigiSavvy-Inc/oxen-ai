@@ -95,6 +95,41 @@ export function LibraryPeek({
             </button>
           ) : null}
         </div>
+        {showStrip ? (
+          <div className="library-peek-thumbs" role="list" aria-label="Variations">
+            {variants.map((item, index) => {
+              const variantReady = Boolean(libraryRefFromGeneration(item));
+              const isCurrent = item.id === generation.id;
+              const isAttached = attachedIds.has(item.id);
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="listitem"
+                  className={`library-peek-thumb${isCurrent ? " active" : ""}${isAttached ? " is-attached" : ""}`}
+                  disabled={!variantReady}
+                  title={variantReady ? `Show variation ${index + 1}` : `Variation ${index + 1}`}
+                  aria-label={
+                    variantReady
+                      ? `Show variation ${index + 1}`
+                      : `Variation ${index + 1}, ${item.status}`
+                  }
+                  onClick={() => onSelectVariant(item.id)}
+                >
+                  {item.thumbUrl ? (
+                    <img src={item.thumbUrl} alt="" />
+                  ) : item.resultUrl && item.mediaType === "video" ? (
+                    <video src={item.resultUrl} muted playsInline preload="metadata" />
+                  ) : item.resultUrl ? (
+                    <img src={item.resultUrl} alt="" />
+                  ) : (
+                    <span>{index + 1}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
         {onDownload || onRemove ? (
           <div className="library-peek-tools">
             {onDownload && generation.resultUrl ? (
@@ -110,39 +145,6 @@ export function LibraryPeek({
           </div>
         ) : null}
         {generation.prompt ? <p className="library-peek-prompt">{generation.prompt}</p> : null}
-        {showStrip ? (
-          <div className="library-peek-thumbs" role="list" aria-label="Variations">
-            {variants.map((item, index) => {
-              const ready = Boolean(libraryRefFromGeneration(item));
-              const isCurrent = item.id === generation.id;
-              const isAttached = attachedIds.has(item.id);
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="listitem"
-                  className={`library-peek-thumb${isCurrent ? " active" : ""}${isAttached ? " is-attached" : ""}`}
-                  disabled={!ready}
-                  title={ready ? `Show variation ${index + 1}` : `Variation ${index + 1}`}
-                  aria-label={
-                    ready
-                      ? `Show variation ${index + 1}`
-                      : `Variation ${index + 1}, ${item.status}`
-                  }
-                  onClick={() => onSelectVariant(item.id)}
-                >
-                  {item.thumbUrl ? (
-                    <img src={item.thumbUrl} alt="" />
-                  ) : item.resultUrl && item.mediaType === "video" ? (
-                    <video src={item.resultUrl} muted playsInline preload="metadata" />
-                  ) : (
-                    <span>{index + 1}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
       </div>
     </aside>
   );
