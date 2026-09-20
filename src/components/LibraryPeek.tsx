@@ -5,6 +5,7 @@ export function LibraryPeek({
   generation,
   variants,
   attachedIds,
+  attachSupported,
   onClose,
   onAttach,
   onSelectVariant,
@@ -14,6 +15,7 @@ export function LibraryPeek({
   generation: Generation;
   variants: Generation[];
   attachedIds: Set<string>;
+  attachSupported: boolean;
   onClose: () => void;
   onAttach: (item: Generation) => void;
   onSelectVariant: (id: string) => void;
@@ -21,12 +23,19 @@ export function LibraryPeek({
   onRemove?: () => void;
 }) {
   const label = MODE_LABELS[generation.mode as GenerationMode] || generation.mode;
-  const canAttach = Boolean(libraryRefFromGeneration(generation));
+  const ready = Boolean(libraryRefFromGeneration(generation));
+  const canAttach = ready && attachSupported;
   const attached = attachedIds.has(generation.id);
   const showStrip = variants.length > 1;
+  const kindLabel =
+    generation.mediaType === "video"
+      ? "video"
+      : generation.mediaType === "audio"
+        ? "audio"
+        : "images";
 
   function attach(item: Generation) {
-    if (!libraryRefFromGeneration(item)) return;
+    if (!libraryRefFromGeneration(item) || !attachSupported) return;
     onSelectVariant(item.id);
     onAttach(item);
   }
@@ -66,13 +75,23 @@ export function LibraryPeek({
               {generation.status === "succeeded" ? "Media unavailable" : generation.status}
             </span>
           )}
-          {canAttach ? (
+          {ready ? (
             <button
               type="button"
               className="library-peek-action"
               onClick={() => attach(generation)}
+              disabled={!canAttach}
+              title={
+                canAttach
+                  ? "Attach as reference"
+                  : `This model doesn't accept ${kindLabel}`
+              }
             >
-              {attached ? "Attached" : "Click to attach"}
+              {attached
+                ? "Attached"
+                : canAttach
+                  ? "Click to attach"
+                  : `Can't attach ${kindLabel}`}
             </button>
           ) : null}
         </div>

@@ -1,4 +1,4 @@
-import type { Generation } from "./api";
+import { slotMax, type Generation, type GenerationMode, type ModelControls } from "./api";
 import { downloadFilename } from "./download";
 import type { MediaKind } from "./files";
 
@@ -27,6 +27,37 @@ export function libraryRefFromGeneration(generation: Generation): LibraryRef | n
   };
 }
 
+export function mediaKindCap(
+  controls: Pick<ModelControls, "slots"> | null,
+  mode: GenerationMode | null | undefined,
+  kind: MediaKind,
+): number {
+  const fromSlots = slotMax(controls, kind);
+  let modeFloor = 0;
+  switch (kind) {
+    case "image":
+      modeFloor =
+        mode === "image-to-image" || mode === "reference-to-video" || mode === "video-to-video"
+          ? 1
+          : 0;
+      break;
+    case "video":
+      modeFloor = mode === "video-to-video" ? 1 : 0;
+      break;
+    case "audio":
+      modeFloor = 0;
+      break;
+    default: {
+      const _exhaustive: never = kind;
+      return _exhaustive;
+    }
+  }
+  if (controls) return Math.max(fromSlots, modeFloor);
+  if (modeFloor > 0) return modeFloor;
+  if (!mode) return 1;
+  return 0;
+}
+
 export function mergeLibraryRefs<T extends { kind: MediaKind; generationId?: string }>(
   prev: T[],
   incoming: T[],
@@ -37,9 +68,11 @@ export function mergeLibraryRefs<T extends { kind: MediaKind; generationId?: str
     if (item.generationId && next.some((entry) => entry.generationId === item.generationId)) {
       continue;
     }
+    const cap = capForKind(item.kind);
+    if (cap <= 0) continue;
     const existing = next.filter((entry) => entry.kind === item.kind);
     const others = next.filter((entry) => entry.kind !== item.kind);
-    next = [...others, ...[...existing, item].slice(0, capForKind(item.kind))];
+    next = [...others, ...[...existing, item].slice(-cap)];
   }
   return next;
 }
