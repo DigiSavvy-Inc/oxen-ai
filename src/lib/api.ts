@@ -132,7 +132,7 @@ export function modeIsVideo(mode: GenerationMode): boolean {
   );
 }
 
-export function slotMax(controls: ModelControls | null, kind: MediaSlot["kind"]): number {
+export function slotMax(controls: Pick<ModelControls, "slots"> | null, kind: MediaSlot["kind"]): number {
   if (!controls) return 0;
   const slots = controls.slots.filter((slot) => slot.kind === kind);
   if (slots.length === 0) return 0;

@@ -6,7 +6,6 @@ import {
   mentionToken,
   modeIsVideo,
   modelSupportsMode,
-  slotMax,
   slotRequired,
   type GenerationMode,
   type ModelControls,
@@ -25,6 +24,7 @@ import {
   type PromptMention,
 } from "../lib/mentions";
 import { shortenFileName } from "../lib/files";
+import { mediaKindCap } from "../lib/library-refs";
 import { AudioAttachControl, ExpandMediaButton } from "./MediaLightbox";
 import { ModelMenu } from "./ModelMenu";
 
@@ -108,12 +108,9 @@ export function Composer(props: Props) {
   const [dropInsertBefore, setDropInsertBefore] = useState<number | null>(null);
   const [promptHeight, setPromptHeight] = useState(96);
 
-  const imageMax = Math.max(slotMax(props.controls, "image"), props.mode === "image-to-image" ? 1 : 0);
-  const videoMax = Math.max(
-    slotMax(props.controls, "video"),
-    props.mode === "video-to-video" ? 1 : 0,
-  );
-  const audioMax = slotMax(props.controls, "audio");
+  const imageMax = mediaKindCap(props.controls, props.mode, "image");
+  const videoMax = mediaKindCap(props.controls, props.mode, "video");
+  const audioMax = mediaKindCap(props.controls, props.mode, "audio");
   const audioCount = props.attachments.filter((item) => item.kind === "audio").length;
   const showDropzone =
     imageMax > 0 ||

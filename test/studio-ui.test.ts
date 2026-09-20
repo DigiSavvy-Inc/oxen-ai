@@ -15,7 +15,13 @@ import {
 } from "../src/lib/api";
 import { downloadFilename, tilePreviewUrl } from "../src/lib/download";
 import { formatAudioClock, shortenFileName } from "../src/lib/files";
-import { kindFromMediaType, libraryRefFromGeneration, mergeLibraryRefs } from "../src/lib/library-refs";
+import {
+  appendAttachMention,
+  kindFromMediaType,
+  libraryRefFromGeneration,
+  mediaKindCap,
+  mergeLibraryRefs,
+} from "../src/lib/library-refs";
 import {
   attachmentForMention,
   cycleHotIndex,
@@ -341,11 +347,39 @@ describe("library refs", () => {
     const b = { kind: "image" as const, generationId: "b" };
     const c = { kind: "image" as const, generationId: "c" };
     expect(mergeLibraryRefs([a], [a], () => 4)).toEqual([a]);
-    expect(mergeLibraryRefs([a], [b], () => 1)).toEqual([a]);
+    expect(mergeLibraryRefs([a], [b], () => 1)).toEqual([b]);
     expect(mergeLibraryRefs([a], [b, c], () => 2).map((item) => item.generationId)).toEqual([
-      "a",
       "b",
+      "c",
     ]);
+    expect(mergeLibraryRefs([a], [b], () => 0)).toEqual([a]);
+  });
+
+  it("caps attach slots from the live model, with a library-first fallback", () => {
+    const imageSlots = {
+      slots: [{ field: "input_images" as const, kind: "image" as const, required: false, maxItems: 9, asArray: true }],
+    };
+    const videoOnly = {
+      slots: [{ field: "input_videos" as const, kind: "video" as const, required: false, maxItems: 3, asArray: true }],
+    };
+    expect(mediaKindCap(null, null, "image")).toBe(1);
+    expect(mediaKindCap(null, null, "video")).toBe(1);
+    expect(mediaKindCap(null, null, "audio")).toBe(1);
+    expect(mediaKindCap(null, "image-to-image", "image")).toBe(1);
+    expect(mediaKindCap(null, "reference-to-video", "image")).toBe(1);
+    expect(mediaKindCap(null, "text-to-video", "image")).toBe(0);
+    expect(mediaKindCap(imageSlots, "text-to-image", "image")).toBe(9);
+    expect(mediaKindCap(videoOnly, "text-to-video", "image")).toBe(0);
+    expect(mediaKindCap(videoOnly, "text-to-video", "video")).toBe(3);
+    expect(mediaKindCap(imageSlots, "text-to-image", "audio")).toBe(0);
+  });
+
+  it("always writes mention tokens when a library item is newly staged", () => {
+    expect(appendAttachMention("", "image", 0, 1)).toBe("@Image1");
+    expect(appendAttachMention("a red ox", "image", 0, 1)).toBe("a red ox @Image1");
+    expect(appendAttachMention("@Image1", "image", 0, 1)).toBe("@Image1");
+    expect(appendAttachMention("clip", "audio", 1, 1)).toBe("clip @Audio2");
+    expect(appendAttachMention("clip", "audio", 1, 0)).toBe("clip");
   });
 });
 

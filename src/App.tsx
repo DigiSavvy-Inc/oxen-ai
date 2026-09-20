@@ -11,9 +11,7 @@ import { Sidebar } from "./components/Sidebar";
 import {
   api,
   firstSupportedMode,
-  mentionToken,
   modelSupportsMode,
-  slotMax,
   slotRequired,
   type CreditBalance,
   type Generation,
@@ -25,7 +23,14 @@ import {
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations } from "./lib/batches";
 import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
 import { filesFromList, kindFromFile } from "./lib/files";
-import { libraryRefFromGeneration, mergeLibraryRefs, releasePreview } from "./lib/library-refs";
+import {
+  appendAttachMention,
+  kindFromMediaType,
+  libraryRefFromGeneration,
+  mediaKindCap,
+  mergeLibraryRefs,
+  releasePreview,
+} from "./lib/library-refs";
 import { moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 
@@ -366,15 +371,8 @@ export default function App() {
   }, [model, user?.hasOxenKey]);
 
   useEffect(() => {
-    const imageMax = slotMax(controls, "image");
-    const videoMax = slotMax(controls, "video");
-    const audioMax = slotMax(controls, "audio");
     setStaged((prev) => {
-      const next = prev.filter((item) => {
-        if (item.kind === "image") return imageMax > 0 || mode === "image-to-image" || mode === "reference-to-video" || mode === "video-to-video";
-        if (item.kind === "video") return videoMax > 0 || mode === "video-to-video";
-        return audioMax > 0;
-      });
+      const next = prev.filter((item) => mediaKindCap(controls, mode, item.kind) > 0);
       if (next.length !== prev.length) {
         for (const item of prev) {
           if (!next.includes(item)) releasePreview(item.preview);
@@ -408,24 +406,12 @@ export default function App() {
   }, [generations, refreshCredits]);
 
   function capForKind(kind: "image" | "video" | "audio") {
-    return Math.max(
-      slotMax(controls, kind),
-      kind === "image" && (mode === "image-to-image" || mode === "reference-to-video") ? 1 : 0,
-      kind === "video" && mode === "video-to-video" ? 1 : 0,
-    );
+    return mediaKindCap(controls, mode, kind);
   }
 
   function appendMentionTokens(kind: "image" | "video" | "audio", existingCount: number, addedCount: number) {
-    const mentionsOn = Boolean(controls?.mentions || controls?.slots.some((slot) => slot.kind === kind));
-    if (!mentionsOn || addedCount <= 0) return;
-    setPrompt((current) => {
-      let next = current;
-      for (let offset = 0; offset < addedCount; offset += 1) {
-        const token = mentionToken(kind, existingCount + offset);
-        if (!next.includes(token)) next = next.trim() ? `${next.trim()} ${token}` : token;
-      }
-      return next;
-    });
+    if (addedCount <= 0) return;
+    setPrompt((current) => appendAttachMention(current, kind, existingCount, addedCount));
   }
 
   function addFilesOfKind(kind: "image" | "video" | "audio", incoming: File[]) {
@@ -464,10 +450,12 @@ export default function App() {
   function addLibraryItem(generation: Generation) {
     const ref = libraryRefFromGeneration(generation);
     if (!ref) return;
+    const cap = capForKind(ref.kind);
+    if (cap <= 0) return;
+    if (staged.some((item) => item.generationId === ref.generationId)) return;
     const existingCount = staged.filter((item) => item.kind === ref.kind).length;
-    let added = 0;
-    setStaged((prev) => {
-      const next = mergeLibraryRefs(
+    setStaged((prev) =>
+      mergeLibraryRefs(
         prev,
         [
           {
@@ -479,11 +467,9 @@ export default function App() {
           },
         ],
         capForKind,
-      );
-      added = next.length - prev.length;
-      return next;
-    });
-    appendMentionTokens(ref.kind, existingCount, added);
+      ),
+    );
+    if (existingCount < cap) appendMentionTokens(ref.kind, existingCount, 1);
   }
 
   function startNew() {
@@ -521,6 +507,8 @@ export default function App() {
 
   const imageCount = staged.filter((item) => item.kind === "image").length;
   const videoCount = staged.filter((item) => item.kind === "video").length;
+  const peekKind = peek ? kindFromMediaType(peek.mediaType) : null;
+  const peekAttachSupported = peekKind ? capForKind(peekKind) > 0 : false;
   const readyMedia = useMemo(() => completedMedia(generations), [generations]);
 
   const canGenerate = Boolean(
@@ -738,6 +726,7 @@ export default function App() {
               generation={peek}
               variants={peekVariants}
               attachedIds={attachedIds}
+              attachSupported={peekAttachSupported}
               onClose={() => setPeekId(null)}
               onAttach={addLibraryItem}
               onSelectVariant={setPeekId}
