@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { batchPreviewItems, coverGeneration, groupGenerationBatches } from "../lib/batches";
+import { coverGeneration, groupGenerationBatches } from "../lib/batches";
 import type { Generation } from "../lib/api";
 import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia, tilePreviewUrl } from "../lib/download";
 import { collectUniqueTags, suggestTags, tagsMatchQuery } from "../lib/tags";
@@ -134,7 +134,6 @@ export function Sidebar({
         ) : (
           batches.map((batch) => {
             const cover = coverGeneration(batch.items);
-            const previews = batchPreviewItems(batch.items);
             const selected = batch.items.some((item) => item.id === selectedId);
             const status = cover?.status ?? "queued";
             const ready = completedMedia(batch.items);
@@ -149,14 +148,8 @@ export function Sidebar({
                   onClick={() => onSelect(cover?.id ?? batch.items[0]?.id ?? batch.id)}
                   title={cover?.prompt || "Generation"}
                 >
-                  <div
-                    className={`history-tile-media${
-                      previews.length > 1 ? ` mosaic mosaic-${Math.min(previews.length, 4)}` : ""
-                    }`}
-                  >
-                    {previews.map((item, index) => (
-                      <TileFace key={item.id} item={item} allowFull={index === 0} />
-                    ))}
+                  <div className="history-tile-media">
+                    {cover ? <TileFace item={cover} allowFull /> : null}
                   </div>
                 </button>
                 {batch.items.length > 1 ? (
