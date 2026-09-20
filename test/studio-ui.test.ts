@@ -14,6 +14,7 @@ import {
   type Generation,
 } from "../src/lib/api";
 import { downloadFilename, tilePreviewUrl } from "../src/lib/download";
+import { formatAudioClock, shortenFileName } from "../src/lib/files";
 import { kindFromMediaType, libraryRefFromGeneration, mergeLibraryRefs } from "../src/lib/library-refs";
 import {
   attachmentForMention,
@@ -345,5 +346,14 @@ describe("library refs", () => {
       "a",
       "b",
     ]);
+  });
+});
+
+describe("attachment labels", () => {
+  it("keeps short names and shortens long audio filenames", () => {
+    expect(shortenFileName("voice.mp3")).toBe("voice.mp3");
+    expect(shortenFileName("viewer-voice-take-two-final.mp3")).toBe("viewer-voice-take….mp3");
+    expect(formatAudioClock(8.2)).toBe("8s");
+    expect(formatAudioClock(null)).toBe("");
   });
 });

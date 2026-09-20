@@ -15,3 +15,19 @@ export function filesFromList(list: FileList | File[] | null | undefined): File[
   if (!list) return [];
   return Array.from(list);
 }
+
+export function shortenFileName(name: string, max = 22): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "audio";
+  if (trimmed.length <= max) return trimmed;
+  const dot = trimmed.lastIndexOf(".");
+  const ext = dot > 0 ? trimmed.slice(dot) : "";
+  const base = ext ? trimmed.slice(0, dot) : trimmed;
+  const keep = Math.max(4, max - ext.length - 1);
+  return `${base.slice(0, keep)}…${ext}`;
+}
+
+export function formatAudioClock(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return "";
+  return `${Math.round(seconds)}s`;
+}
