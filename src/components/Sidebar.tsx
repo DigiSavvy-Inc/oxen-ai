@@ -1,15 +1,8 @@
 import { useMemo, useState } from "react";
 import { coverGeneration, groupGenerationBatches } from "../lib/batches";
 import type { Generation } from "../lib/api";
-import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia, tilePreviewUrl } from "../lib/download";
+import { completedMedia, tilePreviewUrl } from "../lib/download";
 import { collectUniqueTags, suggestTags, tagsMatchQuery } from "../lib/tags";
-import { DownloadButton } from "./DownloadButton";
-
-function statusClass(status: string) {
-  if (status === "succeeded") return "ok";
-  if (status === "failed" || status === "cancelled") return "bad";
-  return "warn";
-}
 
 function tileSrc(item: Generation, allowFull = false): string | null {
   return tilePreviewUrl(item) || (allowFull ? item.resultUrl : null);
@@ -34,7 +27,6 @@ export function Sidebar({
   onSelect,
   onClose,
   onDownloadAll,
-  onDelete,
 }: {
   generations: Generation[];
   selectedId: string | null;
@@ -43,7 +35,7 @@ export function Sidebar({
   onSelect: (id: string) => void;
   onClose?: () => void;
   onDownloadAll?: () => void;
-  onDelete: (ids: string[]) => void;
+  onDelete?: (ids: string[]) => void;
 }) {
   const [tagQuery, setTagQuery] = useState("");
   const allTags = useMemo(
@@ -136,8 +128,6 @@ export function Sidebar({
             batches.map((batch) => {
               const cover = coverGeneration(batch.items);
               const selected = batch.items.some((item) => item.id === selectedId);
-              const status = cover?.status ?? "queued";
-              const ready = completedMedia(batch.items);
               return (
                 <div
                   key={batch.id}
@@ -159,34 +149,6 @@ export function Sidebar({
                         {batch.items.length}
                       </span>
                     ) : null}
-                    <span className={`history-status pill ${statusClass(status)}`}>{status}</span>
-                    {ready.length === 1 && ready[0]?.resultUrl ? (
-                      <DownloadButton
-                        label="Download"
-                        onDownload={() =>
-                          void downloadMedia(ready[0]?.resultUrl ?? "", downloadFilename(ready[0]!))
-                        }
-                      />
-                    ) : ready.length > 1 ? (
-                      <DownloadButton
-                        caption={String(ready.length)}
-                        label={`Download ${ready.length} completed`}
-                        onDownload={() => void downloadAllMedia(ready)}
-                      />
-                    ) : null}
-                    <button
-                      type="button"
-                      className="media-delete"
-                      aria-label="Remove from library"
-                      title="Remove from library"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        onDelete(batch.items.map((item) => item.id));
-                      }}
-                    >
-                      ×
-                    </button>
                   </div>
                 </div>
               );
