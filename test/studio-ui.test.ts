@@ -419,6 +419,8 @@ describe("library history layout", () => {
     expect(css).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
     expect(css).toMatch(/\.history-tile-square\s*\{[^}]*aspect-ratio:\s*1\s*\/\s*1/);
     expect(css).toMatch(/\.history-tile-square\s*\{[^}]*contain:\s*paint/);
+    expect(css).toContain(".history-tile-square > .history-count");
+    expect(css).not.toMatch(/\.history-tile-square span\s*\{/);
     expect(css).not.toContain("history-tile-media.mosaic");
     expect(css).not.toMatch(/\.history\s*\{[^}]*display:\s*(flex|grid)/);
     expect(sidebar).not.toContain("history-status");

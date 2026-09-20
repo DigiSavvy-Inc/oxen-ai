@@ -703,7 +703,7 @@ a {
 
 .history-tile-square img,
 .history-tile-square video,
-.history-tile-square span {
+.history-tile-media span {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -714,16 +714,18 @@ a {
   object-position: center;
 }
 
-.history-tile-square span {
+.history-tile-media span {
   display: grid;
   place-items: center;
 }
 
-.history-count {
+.history-tile-square > .history-count {
   position: absolute;
+  inset: auto;
   top: 6px;
   right: 6px;
-  left: auto;
+  width: auto;
+  height: auto;
   background: rgba(28, 27, 25, 0.82);
   color: #fff;
   font-size: 10px;
