@@ -104,13 +104,13 @@ export function LibraryPeek({
                   role="listitem"
                   className={`library-peek-thumb${isCurrent ? " active" : ""}${isAttached ? " is-attached" : ""}`}
                   disabled={!ready}
-                  title={ready ? `Attach variation ${index + 1}` : `Variation ${index + 1}`}
+                  title={ready ? `Show variation ${index + 1}` : `Variation ${index + 1}`}
                   aria-label={
                     ready
-                      ? `Attach variation ${index + 1}`
+                      ? `Show variation ${index + 1}`
                       : `Variation ${index + 1}, ${item.status}`
                   }
-                  onClick={() => attach(item)}
+                  onClick={() => onSelectVariant(item.id)}
                 >
                   {item.thumbUrl ? (
                     <img src={item.thumbUrl} alt="" />
