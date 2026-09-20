@@ -656,10 +656,14 @@ a {
   border-radius: 10px;
   padding: 0;
   overflow: hidden;
-  aspect-ratio: 1;
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  min-height: 0;
 }
 
 .history-tile-hit {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
@@ -705,6 +709,7 @@ a {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center;
 }
 
 .history-tile-media span {
@@ -715,7 +720,8 @@ a {
 .history-count {
   position: absolute;
   top: 6px;
-  left: 6px;
+  right: 6px;
+  left: auto;
   background: rgba(28, 27, 25, 0.82);
   color: #fff;
   font-size: 10px;
@@ -1109,38 +1115,24 @@ a {
   }
 
   .history-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
     padding: 8px;
   }
 
   .history-tile {
-    border-radius: 10px;
+    border-radius: 8px;
     border: 1px solid var(--border);
-  }
-
-  .history-tile-media.mosaic,
-  .history-tile-media.mosaic-2 {
-    display: block;
-    background: #efece7;
-  }
-
-  .history-tile-media.mosaic > :not(:first-child) {
-    display: none;
-  }
-
-  .history-tile-media.mosaic > :first-child {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+    aspect-ratio: 1 / 1;
   }
 
   .history-count {
-    top: 8px;
-    left: 8px;
-    font-size: 12px;
+    top: 4px;
+    right: 4px;
+    left: auto;
+    font-size: 11px;
     font-weight: 600;
-    padding: 2px 8px;
+    padding: 2px 6px;
   }
 
   .history-tile .media-download,
