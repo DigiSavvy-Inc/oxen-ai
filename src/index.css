@@ -204,7 +204,6 @@ a {
   cursor: default;
   color: var(--text-dim);
 }
-}
 
 .library-peek-media.is-attached .library-peek-action {
   color: var(--text-muted);
