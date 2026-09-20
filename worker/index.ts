@@ -39,12 +39,14 @@ import {
   filterModelsForMode,
   getGeneration,
   getModel,
+  isD1TooBig,
   isMediaGenerationModel,
   listFavoriteModels,
   listModels,
   listQueue,
   mergeMissingFeaturedModels,
   notePollFailure,
+  paramsJsonForStorage,
   pollErrorMessage,
   resetPollFailures,
   searchModels,
@@ -1172,26 +1174,51 @@ app.post("/api/generate", async (c) => {
 
   for (const gen of generations) {
     const id = crypto.randomUUID();
-    await c.env.DB.prepare(
-      `INSERT INTO generations
-        (id, user_id, oxen_generation_id, mode, model, prompt, status, media_type, params_json, batch_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(
-        id,
-        user.id,
-        gen.generation_id,
-        mode,
-        body.model.trim(),
-        body.prompt.trim(),
-        gen.status || "queued",
-        meta.mediaType,
-        JSON.stringify(payload),
-        batchId,
-        now,
-        now,
+    const row = [
+      id,
+      user.id,
+      gen.generation_id,
+      mode,
+      body.model.trim(),
+      body.prompt.trim(),
+      gen.status || "queued",
+      meta.mediaType,
+      paramsJsonForStorage(payload),
+      batchId,
+      now,
+      now,
+    ] as const;
+    try {
+      await c.env.DB.prepare(
+        `INSERT INTO generations
+          (id, user_id, oxen_generation_id, mode, model, prompt, status, media_type, params_json, batch_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run();
+        .bind(...row)
+        .run();
+    } catch (err) {
+      if (!isD1TooBig(err)) throw err;
+      await c.env.DB.prepare(
+        `INSERT INTO generations
+          (id, user_id, oxen_generation_id, mode, model, prompt, status, media_type, params_json, batch_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          id,
+          user.id,
+          gen.generation_id,
+          mode,
+          body.model.trim(),
+          body.prompt.trim(),
+          gen.status || "queued",
+          meta.mediaType,
+          "{}",
+          batchId,
+          now,
+          now,
+        )
+        .run();
+    }
     saved.push({
       id,
       oxenGenerationId: gen.generation_id,

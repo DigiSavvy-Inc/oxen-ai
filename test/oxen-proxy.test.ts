@@ -7,6 +7,8 @@ import {
   filterModelsForMode,
   isMediaGenerationModel,
   notePollFailure,
+  paramsJsonForStorage,
+  redactStoredMediaRef,
   resetPollFailures,
   shouldPersistPollFailure,
   type OxenModel,
@@ -362,6 +364,27 @@ describe("buildEnqueuePayload", () => {
     expect(payload.duration).toBe("8");
     expect(payload.num_generations).toBe(2);
     expect("input_image" in payload).toBe(false);
+  });
+
+  it("redacts data URIs before storing Seedance params in D1", () => {
+    const dataUri = `data:image/png;base64,${"A".repeat(5000)}`;
+    const json = paramsJsonForStorage({
+      model: "bytedance-seedance-2-5-reference-to-video",
+      prompt: "@Image1 walk",
+      input_images: [dataUri, "https://studio.digisavvy.dev/api/media/a.png"],
+      input_audios: [`data:audio/mpeg;base64,${"B".repeat(3000)}`],
+    });
+    const stored = JSON.parse(json) as {
+      input_images: string[];
+      input_audios: string[];
+      prompt: string;
+    };
+    expect(json.length).toBeLessThan(2000);
+    expect(stored.prompt).toBe("@Image1 walk");
+    expect(stored.input_images[0]).toBe(redactStoredMediaRef(dataUri));
+    expect(stored.input_images[0]?.includes("omitted")).toBe(true);
+    expect(stored.input_images[1]).toBe("https://studio.digisavvy.dev/api/media/a.png");
+    expect(stored.input_audios[0]?.startsWith("data:audio/mpeg;base64,<omitted")).toBe(true);
   });
 
   it("sends Seedream size instead of resolution when provided", () => {

@@ -71,6 +71,58 @@ export type EnqueueBody = {
 
 const pollFailures = new Map<string, number>();
 
+const D1_MAX_TEXT_BYTES = 1_800_000;
+
+export function redactStoredMediaRef(value: string): string {
+  if (!value.startsWith("data:")) return value;
+  const comma = value.indexOf(",");
+  const header = comma >= 0 ? value.slice(0, Math.min(comma, 80)) : "data:";
+  const omitted = Math.max(0, value.length - (comma >= 0 ? comma + 1 : 5));
+  return `${header},<omitted ${omitted} chars>`;
+}
+
+function redactStoredMediaValue(value: unknown): unknown {
+  if (typeof value === "string") return redactStoredMediaRef(value);
+  if (Array.isArray(value)) return value.map(redactStoredMediaValue);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      out[key] = redactStoredMediaValue(entry);
+    }
+    return out;
+  }
+  return value;
+}
+
+function utf8Bytes(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+export function isD1TooBig(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /TOOBIG|too big/i.test(message);
+}
+
+export function paramsJsonForStorage(payload: Record<string, unknown>): string {
+  const stored = redactStoredMediaValue(payload) as Record<string, unknown>;
+  let json = JSON.stringify(stored);
+  if (utf8Bytes(json) <= D1_MAX_TEXT_BYTES) return json;
+  const slim: Record<string, unknown> = { ...stored, media_omitted: true };
+  delete slim.input_image;
+  delete slim.input_images;
+  delete slim.input_video;
+  delete slim.input_videos;
+  delete slim.input_audios;
+  json = JSON.stringify(slim);
+  if (utf8Bytes(json) <= D1_MAX_TEXT_BYTES) return json;
+  const prompt = typeof payload.prompt === "string" ? payload.prompt.slice(0, 20_000) : "";
+  return JSON.stringify({
+    model: payload.model,
+    prompt,
+    media_omitted: true,
+  });
+}
+
 export function oxenErrorText(data: OxenErrorBody, fallback: string): string {
   if (typeof data.error === "string" && data.error.trim()) return data.error.trim();
   if (data.error && typeof data.error === "object") {
