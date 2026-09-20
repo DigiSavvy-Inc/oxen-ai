@@ -17,6 +17,7 @@ import { downloadFilename, tilePreviewUrl } from "../src/lib/download";
 import { formatAudioClock, shortenFileName } from "../src/lib/files";
 import {
   appendAttachMention,
+  DEFAULT_ATTACH_MAX,
   kindFromMediaType,
   libraryRefFromGeneration,
   mediaKindCap,
@@ -342,15 +343,16 @@ describe("library refs", () => {
     ).toBeNull();
   });
 
-  it("dedupes library items and respects the per-kind cap", () => {
+  it("dedupes library items and appends until the per-kind cap", () => {
     const a = { kind: "image" as const, generationId: "a" };
     const b = { kind: "image" as const, generationId: "b" };
     const c = { kind: "image" as const, generationId: "c" };
     expect(mergeLibraryRefs([a], [a], () => 4)).toEqual([a]);
-    expect(mergeLibraryRefs([a], [b], () => 1)).toEqual([b]);
+    expect(mergeLibraryRefs([a], [b], () => 1)).toEqual([a]);
+    expect(mergeLibraryRefs([a], [b], () => 2).map((item) => item.generationId)).toEqual(["a", "b"]);
     expect(mergeLibraryRefs([a], [b, c], () => 2).map((item) => item.generationId)).toEqual([
+      "a",
       "b",
-      "c",
     ]);
     expect(mergeLibraryRefs([a], [b], () => 0)).toEqual([a]);
   });
@@ -362,13 +364,14 @@ describe("library refs", () => {
     const videoOnly = {
       slots: [{ field: "input_videos" as const, kind: "video" as const, required: false, maxItems: 3, asArray: true }],
     };
-    expect(mediaKindCap(null, null, "image")).toBe(1);
-    expect(mediaKindCap(null, null, "video")).toBe(1);
-    expect(mediaKindCap(null, null, "audio")).toBe(1);
-    expect(mediaKindCap(null, "image-to-image", "image")).toBe(1);
-    expect(mediaKindCap(null, "reference-to-video", "image")).toBe(1);
+    expect(mediaKindCap(null, null, "image")).toBe(DEFAULT_ATTACH_MAX);
+    expect(mediaKindCap(null, null, "video")).toBe(DEFAULT_ATTACH_MAX);
+    expect(mediaKindCap(null, null, "audio")).toBe(DEFAULT_ATTACH_MAX);
+    expect(mediaKindCap(null, "image-to-image", "image")).toBe(DEFAULT_ATTACH_MAX);
+    expect(mediaKindCap(null, "reference-to-video", "image")).toBe(DEFAULT_ATTACH_MAX);
     expect(mediaKindCap(null, "text-to-video", "image")).toBe(0);
     expect(mediaKindCap(imageSlots, "text-to-image", "image")).toBe(9);
+    expect(mediaKindCap(imageSlots, "reference-to-video", "image")).toBe(9);
     expect(mediaKindCap(videoOnly, "text-to-video", "image")).toBe(0);
     expect(mediaKindCap(videoOnly, "text-to-video", "video")).toBe(3);
     expect(mediaKindCap(imageSlots, "text-to-image", "audio")).toBe(0);
