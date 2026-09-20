@@ -23,8 +23,10 @@ export type MediaKind = "image" | "video" | "audio";
 export type MediaField =
   | "input_image"
   | "input_images"
+  | "input_face_images"
   | "input_video"
   | "input_videos"
+  | "input_face_videos"
   | "input_audio"
   | "input_audios";
 
@@ -63,8 +65,10 @@ export type ModelControls = {
 const FIELD_KIND: Record<MediaField, MediaKind> = {
   input_image: "image",
   input_images: "image",
+  input_face_images: "image",
   input_video: "video",
   input_videos: "video",
+  input_face_videos: "video",
   input_audio: "audio",
   input_audios: "audio",
 };
@@ -222,8 +226,10 @@ export function parseModelControls(model: OxenModel): ModelControls {
   const slots: MediaSlot[] = [];
   const fields: MediaField[] = [
     "input_image",
+    "input_face_images",
     "input_images",
     "input_video",
+    "input_face_videos",
     "input_videos",
     "input_audio",
     "input_audios",
@@ -364,7 +370,11 @@ export function mapMediaUrls(
     const matches = slots.filter((slot) => slot.kind === kind);
     const list = urls[kind];
     if (matches.length === 0 || list.length === 0) continue;
-    const slot = [...matches].sort((a, b) => b.maxItems - a.maxItems)[0];
+    const slot = [...matches].sort((a, b) => {
+      const faceDelta = Number(b.field.includes("face")) - Number(a.field.includes("face"));
+      if (faceDelta !== 0) return faceDelta;
+      return b.maxItems - a.maxItems;
+    })[0];
     const clipped = list.slice(0, slot.maxItems);
     mapped[slot.field] = slot.asArray || clipped.length > 1 ? clipped : clipped[0];
   }

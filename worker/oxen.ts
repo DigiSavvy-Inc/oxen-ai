@@ -55,8 +55,10 @@ export type EnqueueBody = {
   seed?: number;
   input_image?: string | string[];
   input_images?: string[];
+  input_face_images?: string[];
   input_video?: string;
   input_videos?: string[];
+  input_face_videos?: string[];
   input_audios?: string[];
   generate_audio?: boolean;
   num_generations?: number;
@@ -110,8 +112,10 @@ export function paramsJsonForStorage(payload: Record<string, unknown>): string {
   const slim: Record<string, unknown> = { ...stored, media_omitted: true };
   delete slim.input_image;
   delete slim.input_images;
+  delete slim.input_face_images;
   delete slim.input_video;
   delete slim.input_videos;
+  delete slim.input_face_videos;
   delete slim.input_audios;
   json = JSON.stringify(slim);
   if (utf8Bytes(json) <= D1_MAX_TEXT_BYTES) return json;
@@ -250,6 +254,7 @@ export function buildEnqueuePayload(
   if (body.seed != null) payload.seed = body.seed;
   assignIfPresent(payload, "input_image", body.input_image);
   assignIfPresent(payload, "input_images", body.input_images);
+  assignIfPresent(payload, "input_face_images", body.input_face_images);
   assignIfPresent(payload, "quality", body.quality);
   assignIfPresent(payload, "resolution", body.resolution);
   assignIfPresent(payload, "size", body.size);
@@ -264,6 +269,7 @@ export function buildEnqueuePayload(
     case "video":
       assignIfPresent(payload, "input_video", body.input_video);
       assignIfPresent(payload, "input_videos", body.input_videos);
+      assignIfPresent(payload, "input_face_videos", body.input_face_videos);
       assignIfPresent(payload, "input_audios", body.input_audios);
       assignIfPresent(payload, "duration", body.duration);
       if (body.generate_audio != null) payload.generate_audio = body.generate_audio;

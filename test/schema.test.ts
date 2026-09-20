@@ -155,6 +155,33 @@ describe("parseModelControls", () => {
     expect(controls.slots.every((slot) => slot.required === false)).toBe(true);
   });
 
+  it("prefers Seedance face image slots over generic input_images", () => {
+    const model: OxenModel = {
+      id: "bytedance-seedance-2-5-reference-to-video",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          input_face_images: { type: "array", maxItems: 30, items: { type: "string" } },
+          input_images: { type: "array", maxItems: 30, items: { type: "string" } },
+          input_face_videos: { type: "array", maxItems: 10, items: { type: "string" } },
+          input_videos: { type: "array", maxItems: 10, items: { type: "string" } },
+        },
+      },
+    };
+    const controls = parseModelControls(model);
+    expect(
+      mapMediaUrls(controls.slots, {
+        image: ["https://a", "https://b"],
+        video: ["https://v"],
+        audio: [],
+      }),
+    ).toEqual({
+      input_face_images: ["https://a", "https://b"],
+      input_face_videos: ["https://v"],
+    });
+  });
+
   it("sets mentions from @Image/@Video/@Audio in the prompt description", () => {
     const controls = parseModelControls({
       id: "mention-model",

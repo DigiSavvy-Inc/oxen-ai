@@ -366,6 +366,17 @@ describe("buildEnqueuePayload", () => {
     expect("input_image" in payload).toBe(false);
   });
 
+  it("includes Seedance face image fields on video jobs", () => {
+    const payload = buildEnqueuePayload("video", {
+      model: "bytedance-seedance-2-5-reference-to-video",
+      prompt: "@Image1 waves",
+      input_face_images: ["https://hub.oxen.ai/api/repos/a.png"],
+      duration: 4,
+    });
+    expect(payload.input_face_images).toEqual(["https://hub.oxen.ai/api/repos/a.png"]);
+    expect("input_images" in payload).toBe(false);
+  });
+
   it("redacts data URIs before storing Seedance params in D1", () => {
     const dataUri = `data:image/png;base64,${"A".repeat(5000)}`;
     const json = paramsJsonForStorage({

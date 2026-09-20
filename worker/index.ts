@@ -27,6 +27,7 @@ import {
   putMediaObject,
   verifyMediaSignature,
 } from "./media";
+import { rewriteRefsToOxenSources } from "./oxen-refs";
 import {
   buildEnqueuePayload,
   cancelGeneration,
@@ -1051,8 +1052,10 @@ app.post("/api/generate", async (c) => {
     seed?: number;
     input_image?: string | string[];
     input_images?: string[];
+    input_face_images?: string[];
     input_video?: string;
     input_videos?: string[];
+    input_face_videos?: string[];
     input_audios?: string[];
     images?: string[];
     videos?: string[];
@@ -1086,22 +1089,34 @@ app.post("/api/generate", async (c) => {
     console.error("model schema error", err);
   }
 
-  const imageUrls = [
-    ...(body.images ?? []),
-    ...(Array.isArray(body.input_image)
-      ? body.input_image
-      : body.input_image
-        ? [body.input_image]
-        : []),
-    ...(body.input_images ?? []),
-  ].filter((url) => url.trim());
-  const videoUrls = [
-    ...(body.videos ?? []),
-    ...(body.input_video ? [body.input_video] : []),
-    ...(body.input_videos ?? []),
-  ].filter((url) => url.trim());
-  const audioUrls = [...(body.audios ?? []), ...(body.input_audios ?? [])].filter((url) =>
-    url.trim(),
+  const imageUrls = await rewriteRefsToOxenSources(
+    c.env.DB,
+    user.id,
+    [
+      ...(body.images ?? []),
+      ...(Array.isArray(body.input_image)
+        ? body.input_image
+        : body.input_image
+          ? [body.input_image]
+          : []),
+      ...(body.input_images ?? []),
+      ...(body.input_face_images ?? []),
+    ].filter((url) => url.trim()),
+  );
+  const videoUrls = await rewriteRefsToOxenSources(
+    c.env.DB,
+    user.id,
+    [
+      ...(body.videos ?? []),
+      ...(body.input_video ? [body.input_video] : []),
+      ...(body.input_videos ?? []),
+      ...(body.input_face_videos ?? []),
+    ].filter((url) => url.trim()),
+  );
+  const audioUrls = await rewriteRefsToOxenSources(
+    c.env.DB,
+    user.id,
+    [...(body.audios ?? []), ...(body.input_audios ?? [])].filter((url) => url.trim()),
   );
 
   const mapped =
@@ -1157,12 +1172,14 @@ app.post("/api/generate", async (c) => {
     input_images:
       asStringList(mapped.input_images) ??
       (useFallback && imageUrls.length > 1 ? imageUrls : undefined),
+    input_face_images: asStringList(mapped.input_face_images),
     input_video:
       asSingleString(mapped.input_video) ??
       (useFallback && videoUrls.length === 1 ? videoUrls[0] : undefined),
     input_videos:
       asStringList(mapped.input_videos) ??
       (useFallback && videoUrls.length > 1 ? videoUrls : undefined),
+    input_face_videos: asStringList(mapped.input_face_videos),
     input_audios:
       asStringList(mapped.input_audios) ??
       asStringList(mapped.input_audio) ??
