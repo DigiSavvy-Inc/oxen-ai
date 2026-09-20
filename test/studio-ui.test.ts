@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   batchPreviewItems,
@@ -403,6 +404,21 @@ describe("library refs", () => {
     expect(appendAttachMention("@Image1", "image", 0, 1)).toBe("@Image1");
     expect(appendAttachMention("clip", "audio", 1, 1)).toBe("clip @Audio2");
     expect(appendAttachMention("clip", "audio", 1, 0)).toBe("clip");
+  });
+});
+
+describe("library history layout", () => {
+  it("keeps the scroller off the 3-col square grid so tiles line up", () => {
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+    expect(sidebar).toContain('className="history"');
+    expect(sidebar).toContain('className="history-grid"');
+    expect(sidebar).not.toContain("history history-grid");
+    expect(sidebar).toContain("history-tile-square");
+    expect(css).toMatch(/\.history-grid\s*\{[^}]*display:\s*grid/);
+    expect(css).toMatch(/grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+    expect(css).toMatch(/\.history-tile-square\s*\{[^}]*padding-bottom:\s*100%/);
+    expect(css).not.toMatch(/\.history\s*\{[^}]*display:\s*(flex|grid)/);
   });
 });
 

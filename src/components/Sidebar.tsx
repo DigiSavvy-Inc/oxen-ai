@@ -122,73 +122,77 @@ export function Sidebar({
         ) : null}
       </div>
 
-      <div className="history history-grid">
-        {loading && batches.length === 0 ? (
-          <div className="history-empty">Loading library…</div>
-        ) : batches.length === 0 ? (
-          <div className="history-empty">
-            {tagQuery.trim()
-              ? "No media with that tag."
-              : "No generations yet. Write a prompt and hit Generate — jobs run through Oxen's async queue."}
-          </div>
-        ) : (
-          batches.map((batch) => {
-            const cover = coverGeneration(batch.items);
-            const selected = batch.items.some((item) => item.id === selectedId);
-            const status = cover?.status ?? "queued";
-            const ready = completedMedia(batch.items);
-            return (
-              <div
-                key={batch.id}
-                className={`history-tile${selected ? " active" : ""}`}
-              >
-                <button
-                  type="button"
-                  className="history-tile-hit"
-                  onClick={() => onSelect(cover?.id ?? batch.items[0]?.id ?? batch.id)}
-                  title={cover?.prompt || "Generation"}
+      <div className="history">
+        <div className="history-grid">
+          {loading && batches.length === 0 ? (
+            <div className="history-empty">Loading library…</div>
+          ) : batches.length === 0 ? (
+            <div className="history-empty">
+              {tagQuery.trim()
+                ? "No media with that tag."
+                : "No generations yet. Write a prompt and hit Generate — jobs run through Oxen's async queue."}
+            </div>
+          ) : (
+            batches.map((batch) => {
+              const cover = coverGeneration(batch.items);
+              const selected = batch.items.some((item) => item.id === selectedId);
+              const status = cover?.status ?? "queued";
+              const ready = completedMedia(batch.items);
+              return (
+                <div
+                  key={batch.id}
+                  className={`history-tile${selected ? " active" : ""}`}
                 >
-                  <div className="history-tile-media">
-                    {cover ? <TileFace item={cover} allowFull /> : null}
+                  <div className="history-tile-square">
+                    <button
+                      type="button"
+                      className="history-tile-hit"
+                      onClick={() => onSelect(cover?.id ?? batch.items[0]?.id ?? batch.id)}
+                      title={cover?.prompt || "Generation"}
+                    >
+                      <div className="history-tile-media">
+                        {cover ? <TileFace item={cover} allowFull /> : null}
+                      </div>
+                    </button>
+                    {batch.items.length > 1 ? (
+                      <span className="history-count" aria-label={`${batch.items.length} variations`}>
+                        {batch.items.length}
+                      </span>
+                    ) : null}
+                    <span className={`history-status pill ${statusClass(status)}`}>{status}</span>
+                    {ready.length === 1 && ready[0]?.resultUrl ? (
+                      <DownloadButton
+                        label="Download"
+                        onDownload={() =>
+                          void downloadMedia(ready[0]?.resultUrl ?? "", downloadFilename(ready[0]!))
+                        }
+                      />
+                    ) : ready.length > 1 ? (
+                      <DownloadButton
+                        caption={String(ready.length)}
+                        label={`Download ${ready.length} completed`}
+                        onDownload={() => void downloadAllMedia(ready)}
+                      />
+                    ) : null}
+                    <button
+                      type="button"
+                      className="media-delete"
+                      aria-label="Remove from library"
+                      title="Remove from library"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onDelete(batch.items.map((item) => item.id));
+                      }}
+                    >
+                      ×
+                    </button>
                   </div>
-                </button>
-                {batch.items.length > 1 ? (
-                  <span className="history-count" aria-label={`${batch.items.length} variations`}>
-                    {batch.items.length}
-                  </span>
-                ) : null}
-                <span className={`history-status pill ${statusClass(status)}`}>{status}</span>
-                {ready.length === 1 && ready[0]?.resultUrl ? (
-                  <DownloadButton
-                    label="Download"
-                    onDownload={() =>
-                      void downloadMedia(ready[0]?.resultUrl ?? "", downloadFilename(ready[0]!))
-                    }
-                  />
-                ) : ready.length > 1 ? (
-                  <DownloadButton
-                    caption={String(ready.length)}
-                    label={`Download ${ready.length} completed`}
-                    onDownload={() => void downloadAllMedia(ready)}
-                  />
-                ) : null}
-                <button
-                  type="button"
-                  className="media-delete"
-                  aria-label="Remove from library"
-                  title="Remove from library"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onDelete(batch.items.map((item) => item.id));
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            );
-          })
-        )}
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
     </aside>
   );
