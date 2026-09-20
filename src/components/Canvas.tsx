@@ -257,7 +257,7 @@ export function Canvas({
                     <DownloadButton
                       label={`Download variation ${index + 1}`}
                       onDownload={() =>
-                        void downloadMedia(item.resultUrl ?? "", downloadFilename(item, index))
+                        void downloadMedia(item.resultUrl ?? "", downloadFilename(item))
                       }
                     />
                   ) : null}

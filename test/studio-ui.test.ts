@@ -15,7 +15,7 @@ import {
   slotRequired,
   type Generation,
 } from "../src/lib/api";
-import { downloadFilename, tilePreviewUrl } from "../src/lib/download";
+import { downloadFilename, mediaAssetId, tilePreviewUrl } from "../src/lib/download";
 import { formatAudioClock, shortenFileName } from "../src/lib/files";
 import {
   appendAttachMention,
@@ -272,15 +272,20 @@ describe("mentions and cost", () => {
     ).toBe(1.13);
   });
 
-  it("builds download filenames from prompt and media type", () => {
-    expect(
-      downloadFilename(
-        gen({ id: "abc12345xxxx", prompt: "A red ox on a hill!", mediaType: "image" }),
-      ),
-    ).toBe("ds-studio-a-red-ox-on-a-hill.png");
-    expect(
-      downloadFilename(gen({ id: "v", prompt: "clip", mediaType: "video" }), 2),
-    ).toBe("ds-studio-clip-3.mp4");
+  it("builds download filenames from prompt, media type, and a stable asset id", () => {
+    const hill = gen({ id: "abc12345xxxx", prompt: "A red ox on a hill!", mediaType: "image" });
+    const otherHill = gen({ id: "other-generation", prompt: "A red ox on a hill!", mediaType: "image" });
+    expect(mediaAssetId(hill.id)).toMatch(/^\d{5}$/);
+    expect(mediaAssetId(hill.id)).toBe(mediaAssetId("abc12345xxxx"));
+    expect(mediaAssetId(hill.id)).not.toBe(mediaAssetId(otherHill.id));
+    expect(downloadFilename(hill)).toBe(`ds-studio-a-red-ox-on-a-hill-${mediaAssetId(hill.id)}.png`);
+    expect(downloadFilename(otherHill)).toBe(
+      `ds-studio-a-red-ox-on-a-hill-${mediaAssetId(otherHill.id)}.png`,
+    );
+    expect(downloadFilename(hill)).not.toBe(downloadFilename(otherHill));
+    expect(downloadFilename(gen({ id: "v", prompt: "clip", mediaType: "video" }))).toBe(
+      `ds-studio-clip-${mediaAssetId("v")}.mp4`,
+    );
   });
 
   it("uses compact thumbs for image tiles instead of full results", () => {
