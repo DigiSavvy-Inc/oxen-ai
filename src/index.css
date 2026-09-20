@@ -227,12 +227,16 @@ a {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .library-peek-thumbs {
   display: flex;
   gap: 8px;
   overflow-x: auto;
+  flex: 0 0 auto;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .library-peek-thumb {
@@ -1147,9 +1151,14 @@ a {
 
   .library-peek {
     position: fixed;
-    inset: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
     z-index: 55;
-    width: auto;
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
     border: 0;
     border-left: 0;
     border-radius: 0;
@@ -1181,17 +1190,46 @@ a {
 
   .library-peek-body {
     flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .library-peek-media {
+    flex: 0 0 auto;
   }
 
   .library-peek-media img,
   .library-peek-media video,
   .library-peek-hit img {
-    max-height: min(70dvh, calc(100dvh - 180px));
+    max-height: min(42dvh, 320px);
+    min-height: 160px;
+  }
+
+  .library-peek-thumbs {
+    margin: 0 -4px;
+    padding: 0 4px;
+  }
+
+  .library-peek-thumb {
+    width: 72px;
+    height: 72px;
+  }
+
+  .library-peek-tools {
+    flex: 0 0 auto;
   }
 
   .library-peek-tools .ghost-btn {
     flex: 1;
     min-height: 42px;
+  }
+
+  .library-peek-prompt {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 
   .result-stage.has-strip {
