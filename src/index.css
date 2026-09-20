@@ -718,6 +718,7 @@ a {
   border-radius: 999px;
   padding: 1px 6px;
   z-index: 1;
+  line-height: 1.3;
 }
 
 .history-tile .history-status {
@@ -1080,8 +1081,8 @@ a {
   }
 
   .app-shell.library-open.has-peek .sidebar {
-    width: 50%;
-    border-right: 1px solid var(--border);
+    width: 100%;
+    border-right: 0;
   }
 
   .library-backdrop {
@@ -1105,17 +1106,37 @@ a {
 
   .history-grid {
     grid-template-columns: repeat(2, 1fr);
-    gap: 2px;
-    padding: 2px;
-  }
-
-  .app-shell.library-open.has-peek .history-grid {
-    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 8px;
   }
 
   .history-tile {
-    border-radius: 0;
-    border: 0;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+
+  .history-tile-media.mosaic,
+  .history-tile-media.mosaic-2 {
+    display: block;
+    background: #efece7;
+  }
+
+  .history-tile-media.mosaic > :not(:first-child) {
+    display: none;
+  }
+
+  .history-tile-media.mosaic > :first-child {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .history-count {
+    top: 8px;
+    left: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px;
   }
 
   .history-tile .media-download,
@@ -1126,14 +1147,30 @@ a {
 
   .library-peek {
     position: fixed;
-    inset: 0 0 0 50%;
-    z-index: 50;
+    inset: 0;
+    z-index: 55;
     width: auto;
     border: 0;
-    border-left: 1px solid var(--border-strong);
+    border-left: 0;
     border-radius: 0;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
+    animation: library-peek-in 0.22s ease;
+  }
+
+  @keyframes library-peek-in {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .library-peek {
+      animation: none;
+    }
   }
 
   .library-peek-head .icon-btn {

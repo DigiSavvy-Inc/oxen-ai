@@ -33,6 +33,13 @@ export function coverGeneration(items: Generation[]): Generation | undefined {
   );
 }
 
+export function batchPreviewItems(items: Generation[], max = 4): Generation[] {
+  const cover = coverGeneration(items);
+  if (!cover) return items.slice(0, max);
+  if (items.length <= 1) return [cover];
+  return [cover, ...items.filter((item) => item.id !== cover.id)].slice(0, max);
+}
+
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
 
 export function isActiveGeneration(generation: Generation): boolean {
