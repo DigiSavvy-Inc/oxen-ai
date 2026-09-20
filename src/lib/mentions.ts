@@ -92,14 +92,45 @@ export function mentionAtCaret(
   const before = text.slice(0, caret);
   const match = before.match(/@([A-Za-z0-9]*)$/);
   if (!match) return null;
-  const token = match[1];
-  if (/^(image|video|audio)\d+$/i.test(token)) return null;
-  return { start: caret - match[0].length, query: token.toLowerCase() };
+  return { start: caret - match[0].length, query: (match[1] ?? "").toLowerCase() };
+}
+
+function kindFromQueryPrefix(raw: string | undefined): MediaSlot["kind"] | null {
+  if (!raw) return null;
+  switch (raw) {
+    case "image":
+    case "img":
+      return "image";
+    case "video":
+    case "vid":
+      return "video";
+    case "audio":
+    case "aud":
+      return "audio";
+    default:
+      return null;
+  }
 }
 
 export function filterMentionItems<T extends MentionItem>(query: string, items: T[]): T[] {
   const q = query.toLowerCase();
   if (!q) return items;
+  const numbered = q.match(/^(image|img|video|vid|audio|aud)?(\d+)$/);
+  if (numbered) {
+    const n = Number(numbered[2]);
+    const kind = kindFromQueryPrefix(numbered[1]);
+    const pool = kind ? items.filter((item) => item.kind === kind) : null;
+    if (pool) {
+      const hit = pool[n - 1];
+      return hit ? [hit] : [];
+    }
+    for (const fallback of ["image", "video", "audio"] as const) {
+      const ofKind = items.filter((item) => item.kind === fallback);
+      const hit = ofKind[n - 1];
+      if (hit) return [hit];
+    }
+    return [];
+  }
   if ("image".startsWith(q) || q.startsWith("im")) {
     return items.filter((item) => item.kind === "image");
   }
@@ -128,7 +159,8 @@ export function insertMentionToken(
   const mention = mentionAtCaret(text, caret);
   if (!mention) return null;
   const inserted = `${token} `;
-  const next = `${text.slice(0, mention.start)}${inserted}${text.slice(caret)}`;
+  const rest = text.slice(caret).replace(/^\s+/, "");
+  const next = `${text.slice(0, mention.start)}${inserted}${rest}`;
   return { next, caret: mention.start + inserted.length };
 }
 

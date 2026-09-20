@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type DragEvent, type PointerEvent, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent, type ReactNode } from "react";
 import {
   ALL_MODES,
   MODE_LABELS,
@@ -190,6 +190,18 @@ export function Composer(props: Props) {
     el.setSelectionRange(nextCaret, nextCaret);
   }
 
+  function syncPromptScroll() {
+    const prompt = promptRef.current;
+    const highlight = highlightRef.current;
+    if (!prompt || !highlight) return;
+    highlight.scrollTop = prompt.scrollTop;
+    highlight.scrollLeft = prompt.scrollLeft;
+  }
+
+  useLayoutEffect(() => {
+    syncPromptScroll();
+  }, [props.prompt, promptHeight]);
+
   function startPromptResize(event: PointerEvent<HTMLDivElement>) {
     event.preventDefault();
     const handle = event.currentTarget;
@@ -348,10 +360,12 @@ export function Composer(props: Props) {
                   </span>
                 );
               })}
+              {props.prompt.endsWith("\n") ? "\n" : null}
             </div>
             <textarea
               ref={promptRef}
               value={props.prompt}
+              onScroll={syncPromptScroll}
               onChange={(e) => {
                 setMentionOpen(true);
                 props.onPromptChange(e.target.value);

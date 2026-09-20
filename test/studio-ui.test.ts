@@ -19,6 +19,7 @@ import {
   attachmentForMention,
   cycleHotIndex,
   deleteMentionToken,
+  filterMentionItems,
   indexAfterInsertBefore,
   insertMentionToken,
   mentionAtCaret,
@@ -88,14 +89,37 @@ describe("mentions and cost", () => {
   it("treats a typed @ as an open mention and a picked token as closed", () => {
     expect(mentionAtCaret("look @", 6)).toEqual({ start: 5, query: "" });
     expect(mentionAtCaret("look @im", 8)).toEqual({ start: 5, query: "im" });
-    expect(mentionAtCaret("look @Image1", 12)).toBeNull();
-    expect(mentionAtCaret("look @Image1 more", 12)).toBeNull();
+    expect(mentionAtCaret("look @Image4", 12)).toEqual({ start: 5, query: "image4" });
+    expect(mentionAtCaret("look @Image4 more", 12)).toEqual({ start: 5, query: "image4" });
+    expect(mentionAtCaret("look @Image4 more", 13)).toBeNull();
   });
 
   it("inserts the token and moves the caret past it", () => {
     const result = insertMentionToken("look @", 6, "@Image1");
     expect(result).toEqual({ next: "look @Image1 ", caret: 13 });
     expect(mentionAtCaret(result?.next ?? "", result?.caret ?? 0)).toBeNull();
+  });
+
+  it("filters the mention picker to the numbered attachment", () => {
+    const items = [
+      { name: "a.png", kind: "image" as const },
+      { name: "b.mp4", kind: "video" as const },
+      { name: "c.png", kind: "image" as const },
+      { name: "d.png", kind: "image" as const },
+      { name: "e.png", kind: "image" as const },
+    ];
+    expect(filterMentionItems("image", items).map((item) => item.name)).toEqual([
+      "a.png",
+      "c.png",
+      "d.png",
+      "e.png",
+    ]);
+    expect(filterMentionItems("image4", items).map((item) => item.name)).toEqual(["e.png"]);
+    expect(filterMentionItems("4", items).map((item) => item.name)).toEqual(["e.png"]);
+    expect(filterMentionItems("video1", items).map((item) => item.name)).toEqual(["b.mp4"]);
+    expect(filterMentionItems("image9", items)).toEqual([]);
+    const picked = insertMentionToken("use @image4", 11, "@Image4");
+    expect(picked).toEqual({ next: "use @Image4 ", caret: 12 });
   });
 
   it("highlights completed @ImageN tokens in the prompt", () => {

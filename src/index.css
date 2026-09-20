@@ -922,12 +922,14 @@ a {
   padding: 14px 14px 8px;
   min-height: 76px;
   height: 100%;
-  line-height: 1.45;
   font-size: 14px;
-  font-family: inherit;
+  line-height: 21px;
+  font-family: var(--font);
+  letter-spacing: normal;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-  word-break: break-word;
+  word-break: normal;
+  tab-size: 4;
 }
 
 .prompt-field {
@@ -941,10 +943,11 @@ a {
   z-index: 0;
   pointer-events: none;
   color: var(--text);
-  overflow: auto;
+  overflow: hidden;
 }
 
 .prompt-field textarea {
+  display: block;
   position: relative;
   z-index: 1;
   color: transparent;
@@ -983,6 +986,11 @@ a {
   color: var(--blue);
   background: rgba(29, 78, 137, 0.1);
   border-radius: 4px;
+  margin: 0;
+  padding: 0;
+  line-height: inherit;
+  font: inherit;
+  vertical-align: baseline;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
@@ -1428,10 +1436,6 @@ a {
   outline: none;
   resize: none;
   background: transparent;
-  padding: 14px 14px 8px;
-  min-height: 76px;
-  line-height: 1.45;
-  font-size: 14px;
 }
 
 .composer-toolbar {
