@@ -15,6 +15,7 @@ import {
   slotRequired,
   type Generation,
 } from "../src/lib/api";
+import { copyText } from "../src/lib/clipboard";
 import { downloadFilename, mediaAssetId, tilePreviewUrl } from "../src/lib/download";
 import { formatAudioClock, shortenFileName } from "../src/lib/files";
 import {
@@ -430,6 +431,31 @@ describe("library history layout", () => {
     expect(css).not.toMatch(/\.history\s*\{[^}]*display:\s*(flex|grid)/);
     expect(sidebar).not.toContain("history-status");
     expect(sidebar).not.toContain("DownloadButton");
+  });
+});
+
+describe("copy prompt", () => {
+  it("writes prompt text to the clipboard writer", async () => {
+    let written = "";
+    expect(await copyText("", { writeText: async (value) => { written = value; } })).toBe(false);
+    expect(written).toBe("");
+    expect(await copyText("a red ox", { writeText: async (value) => { written = value; } })).toBe(true);
+    expect(written).toBe("a red ox");
+    expect(
+      await copyText("nope", {
+        writeText: async () => {
+          throw new Error("denied");
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("puts a copy control next to saved prompts on the canvas and library peek", () => {
+    const canvas = readFileSync(new URL("../src/components/Canvas.tsx", import.meta.url), "utf8");
+    const peek = readFileSync(new URL("../src/components/LibraryPeek.tsx", import.meta.url), "utf8");
+    expect(canvas).toContain("<CopyPrompt");
+    expect(peek).toContain("<CopyPrompt");
+    expect(peek).toContain('className="library-peek-prompt"');
   });
 });
 

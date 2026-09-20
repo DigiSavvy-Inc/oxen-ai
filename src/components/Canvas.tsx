@@ -8,6 +8,7 @@ import {
 } from "../lib/download";
 import { estimateGenerationWait } from "../lib/progress";
 import { MAX_TAGS_PER_MEDIA, parseTagList } from "../lib/tags";
+import { CopyPrompt } from "./CopyPrompt";
 import { DownloadButton } from "./DownloadButton";
 
 function MediaPreview({
@@ -266,9 +267,7 @@ export function Canvas({
             </div>
           ) : null}
         </div>
-        {generation.prompt ? (
-          <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 13 }}>{generation.prompt}</p>
-        ) : null}
+        {generation.prompt ? <CopyPrompt prompt={generation.prompt} /> : null}
         <TagEditor
           tags={generation.tags ?? []}
           onChange={(tags) => onTagsChange(generation.id, tags)}

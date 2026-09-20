@@ -1,5 +1,6 @@
 import { MODE_LABELS, type Generation, type GenerationMode } from "../lib/api";
 import { libraryRefFromGeneration } from "../lib/library-refs";
+import { CopyPrompt } from "./CopyPrompt";
 
 export function LibraryPeek({
   generation,
@@ -144,7 +145,9 @@ export function LibraryPeek({
             ) : null}
           </div>
         ) : null}
-        {generation.prompt ? <p className="library-peek-prompt">{generation.prompt}</p> : null}
+        {generation.prompt ? (
+          <CopyPrompt prompt={generation.prompt} className="library-peek-prompt" />
+        ) : null}
       </div>
     </aside>
   );

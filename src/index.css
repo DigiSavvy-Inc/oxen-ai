@@ -224,10 +224,34 @@ a {
 
 .library-peek-prompt {
   margin: 0;
-  color: var(--text-muted);
+}
+
+.library-peek-prompt .prompt-quote-text {
   font-size: 12px;
+}
+
+.prompt-quote {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.prompt-quote-text {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 13px;
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+.prompt-copy {
+  flex: 0 0 auto;
+}
+
+.prompt-copy.is-copied {
+  color: var(--ok);
 }
 
 .library-peek-thumbs {
@@ -1216,9 +1240,19 @@ a {
   .library-peek-prompt {
     flex: 1 1 auto;
     min-height: 0;
+    overflow: hidden;
+  }
+
+  .library-peek-prompt .prompt-quote-text {
+    min-height: 0;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+  }
+
+  .library-peek-prompt .prompt-copy {
+    width: 44px;
+    height: 44px;
   }
 
   .result-stage.has-strip {
