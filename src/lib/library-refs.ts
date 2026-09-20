@@ -27,34 +27,35 @@ export function libraryRefFromGeneration(generation: Generation): LibraryRef | n
   };
 }
 
+export const DEFAULT_ATTACH_MAX = 16;
+
+function modeMinForKind(mode: GenerationMode | null | undefined, kind: MediaKind): number {
+  switch (kind) {
+    case "image":
+      return mode === "image-to-image" || mode === "reference-to-video" || mode === "video-to-video"
+        ? 1
+        : 0;
+    case "video":
+      return mode === "video-to-video" ? 1 : 0;
+    case "audio":
+      return 0;
+    default: {
+      const _exhaustive: never = kind;
+      return _exhaustive;
+    }
+  }
+}
+
 export function mediaKindCap(
   controls: Pick<ModelControls, "slots"> | null,
   mode: GenerationMode | null | undefined,
   kind: MediaKind,
 ): number {
   const fromSlots = slotMax(controls, kind);
-  let modeFloor = 0;
-  switch (kind) {
-    case "image":
-      modeFloor =
-        mode === "image-to-image" || mode === "reference-to-video" || mode === "video-to-video"
-          ? 1
-          : 0;
-      break;
-    case "video":
-      modeFloor = mode === "video-to-video" ? 1 : 0;
-      break;
-    case "audio":
-      modeFloor = 0;
-      break;
-    default: {
-      const _exhaustive: never = kind;
-      return _exhaustive;
-    }
-  }
-  if (controls) return Math.max(fromSlots, modeFloor);
-  if (modeFloor > 0) return modeFloor;
-  if (!mode) return 1;
+  const modeMin = modeMinForKind(mode, kind);
+  if (fromSlots > 0) return Math.max(fromSlots, modeMin);
+  if (controls) return modeMin;
+  if (modeMin > 0 || !mode) return DEFAULT_ATTACH_MAX;
   return 0;
 }
 
@@ -72,7 +73,8 @@ export function mergeLibraryRefs<T extends { kind: MediaKind; generationId?: str
     if (cap <= 0) continue;
     const existing = next.filter((entry) => entry.kind === item.kind);
     const others = next.filter((entry) => entry.kind !== item.kind);
-    next = [...others, ...[...existing, item].slice(-cap)];
+    if (existing.length >= cap) continue;
+    next = [...others, ...existing, item];
   }
   return next;
 }

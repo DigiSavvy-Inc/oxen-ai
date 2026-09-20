@@ -97,6 +97,29 @@ describe("parseModelControls", () => {
     expect(controls.mentions).toBe(true);
   });
 
+  it("raises a singular image slot when the schema mentions multiple @Image refs", () => {
+    const controls = parseModelControls({
+      id: "multi-still-model",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: {
+            type: "string",
+            description: "Reference stills with @Image1 through @Image9. Up to 9 images.",
+          },
+          input_image: { type: "string" },
+        },
+      },
+    });
+    expect(controls.slots.find((slot) => slot.kind === "image")).toEqual({
+      field: "input_image",
+      kind: "image",
+      required: false,
+      maxItems: 9,
+      asArray: true,
+    });
+  });
+
   it("reads an audio cap from the model description", () => {
     const controls = parseModelControls({
       id: "described-audio-model",

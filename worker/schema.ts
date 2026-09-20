@@ -77,18 +77,64 @@ function modelListsAudioInput(model: OxenModel): boolean {
   return (model.capabilities?.input ?? []).some((item) => item.toLowerCase() === "audio");
 }
 
-function inferAudioMaxFromText(texts: string[]): number | null {
-  const joined = texts.join("\n");
-  const patterns = [
-    /(?:up to|max(?:imum)?(?: of)?|at most|1\s*[–-]\s*)\s*(\d+)\s+(?:reference\s+)?audio/i,
-    /(\d+)\s+(?:reference\s+)?audio(?:s| clips?| files?)?/i,
-  ];
-  for (const pattern of patterns) {
-    const match = joined.match(pattern);
-    const value = Number(match?.[1]);
-    if (Number.isInteger(value) && value >= 1 && value <= 32) return value;
+function mentionName(kind: MediaKind): "Image" | "Video" | "Audio" {
+  switch (kind) {
+    case "image":
+      return "Image";
+    case "video":
+      return "Video";
+    case "audio":
+      return "Audio";
+    default: {
+      const _exhaustive: never = kind;
+      return _exhaustive;
+    }
   }
+}
+
+function inferMentionMax(kind: MediaKind, texts: string[]): number | null {
+  const token = mentionName(kind);
+  const pattern = new RegExp(`@${token}(\\d+)`, "gi");
+  let max = 0;
+  for (const text of texts) {
+    for (const match of text.matchAll(pattern)) {
+      const value = Number(match[1]);
+      if (Number.isInteger(value) && value >= 1 && value <= 32) max = Math.max(max, value);
+    }
+  }
+  return max > 0 ? max : null;
+}
+
+function inferCountFromProse(kind: MediaKind, texts: string[]): number | null {
+  const word = kind === "image" ? "image" : kind === "video" ? "video" : "audio";
+  const joined = texts.join("\n");
+  const upTo = new RegExp(
+    `(?:up to|max(?:imum)?(?: of)?|at most|1\\s*[–-]\\s*)\\s*(\\d+)\\s+(?:reference\\s+)?${word}`,
+    "i",
+  );
+  const upToMatch = joined.match(upTo);
+  const upToValue = Number(upToMatch?.[1]);
+  if (Number.isInteger(upToValue) && upToValue >= 1 && upToValue <= 32) return upToValue;
+  if (kind === "image" && /first[- ]?(?:frame|image)|last[- ]?(?:frame|image)|end[- ]?frame/i.test(joined)) {
+    return 2;
+  }
+  if (kind === "image") return null;
+  const loose = new RegExp(`(\\d+)\\s+(?:reference\\s+)?${word}(?:s| clips?| files?)?`, "i");
+  const looseMatch = joined.match(loose);
+  const looseValue = Number(looseMatch?.[1]);
+  if (Number.isInteger(looseValue) && looseValue >= 1 && looseValue <= 32) return looseValue;
   return null;
+}
+
+function inferKindMax(kind: MediaKind, texts: string[]): number | null {
+  const mention = inferMentionMax(kind, texts);
+  const prose = inferCountFromProse(kind, texts);
+  if (mention == null && prose == null) return null;
+  return Math.max(mention ?? 0, prose ?? 0);
+}
+
+function inferAudioMaxFromText(texts: string[]): number | null {
+  return inferKindMax("audio", texts);
 }
 
 function enrichAudioSlots(model: OxenModel, schema: JsonSchema, slots: MediaSlot[]): MediaSlot[] {
@@ -116,6 +162,44 @@ function enrichAudioSlots(model: OxenModel, schema: JsonSchema, slots: MediaSlot
   for (const slot of audioSlots) {
     if (slot.asArray) {
       slot.field = "input_audios";
+    }
+  }
+  return next;
+}
+
+function modelListsImageInput(model: OxenModel): boolean {
+  return (model.capabilities?.input ?? []).some((item) => item.toLowerCase() === "image");
+}
+
+function enrichImageSlots(model: OxenModel, schema: JsonSchema, slots: MediaSlot[]): MediaSlot[] {
+  const next = slots.map((slot) => ({ ...slot }));
+  const imageSlots = next.filter((slot) => slot.kind === "image");
+  const texts: string[] = [];
+  collectSchemaText(schema, texts);
+  if (model.description) texts.push(model.description);
+  if (model.display_name) texts.push(model.display_name);
+  const acceptsImage =
+    imageSlots.length > 0 || modelListsImageInput(model) || texts.some((text) => /@Image\d*/i.test(text));
+  if (!acceptsImage) return next;
+
+  const inferredMax = inferKindMax("image", texts);
+  if (imageSlots.length === 0) {
+    if (!inferredMax || inferredMax <= 1) return next;
+    next.push({
+      field: "input_images",
+      kind: "image",
+      required: false,
+      maxItems: inferredMax,
+      asArray: true,
+    });
+    return next;
+  }
+  if (inferredMax && inferredMax > 1) {
+    for (const slot of imageSlots) {
+      if (slot.maxItems < inferredMax) {
+        slot.maxItems = inferredMax;
+        slot.asArray = true;
+      }
     }
   }
   return next;
@@ -302,7 +386,7 @@ export function parseModelControls(model: OxenModel): ModelControls {
     }
   }
 
-  const nextSlots = enrichAudioSlots(model, root, slots);
+  const nextSlots = enrichImageSlots(model, root, enrichAudioSlots(model, root, slots));
   const mentions =
     schemaMentionsMedia(root) ||
     nextSlots.some((slot) => slot.kind === "image" || slot.kind === "video" || slot.kind === "audio");
