@@ -1064,6 +1064,11 @@ a {
     padding-top: env(safe-area-inset-top);
   }
 
+  .app-shell.library-open.has-peek .sidebar {
+    width: 50%;
+    border-right: 1px solid var(--border);
+  }
+
   .library-backdrop {
     display: none;
   }
@@ -1089,6 +1094,10 @@ a {
     padding: 2px;
   }
 
+  .app-shell.library-open.has-peek .history-grid {
+    grid-template-columns: 1fr;
+  }
+
   .history-tile {
     border-radius: 0;
     border: 0;
@@ -1102,17 +1111,14 @@ a {
 
   .library-peek {
     position: fixed;
-    inset: 0;
+    inset: 0 0 0 50%;
     z-index: 50;
-    width: 100%;
+    width: auto;
     border: 0;
+    border-left: 1px solid var(--border-strong);
     border-radius: 0;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
-  }
-
-  .workspace.has-peek {
-    z-index: 50;
   }
 
   .library-peek-head .icon-btn {
@@ -1121,10 +1127,14 @@ a {
     font-size: 22px;
   }
 
+  .library-peek-body {
+    flex: 1;
+  }
+
   .library-peek-media img,
   .library-peek-media video,
   .library-peek-hit img {
-    max-height: min(52dvh, 480px);
+    max-height: min(70dvh, calc(100dvh - 180px));
   }
 
   .library-peek-tools .ghost-btn {

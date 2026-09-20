@@ -677,7 +677,7 @@ export default function App() {
   }
 
   return (
-    <div className={`app-shell${libraryOpen ? " library-open" : ""}`}>
+    <div className={`app-shell${libraryOpen ? " library-open" : ""}${peek ? " has-peek" : ""}`}>
       <Sidebar
         generations={generations}
         selectedId={peekId}
