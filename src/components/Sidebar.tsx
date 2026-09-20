@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { coverGeneration, groupGenerationBatches } from "../lib/batches";
+import { batchPreviewItems, coverGeneration, groupGenerationBatches } from "../lib/batches";
 import type { Generation } from "../lib/api";
 import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia, tilePreviewUrl } from "../lib/download";
 import { collectUniqueTags, suggestTags, tagsMatchQuery } from "../lib/tags";
@@ -11,12 +11,12 @@ function statusClass(status: string) {
   return "warn";
 }
 
-function tileSrc(item: Generation): string | null {
-  return tilePreviewUrl(item);
+function tileSrc(item: Generation, allowFull = false): string | null {
+  return tilePreviewUrl(item) || (allowFull ? item.resultUrl : null);
 }
 
-function TileFace({ item }: { item: Generation }) {
-  const src = tileSrc(item);
+function TileFace({ item, allowFull = false }: { item: Generation; allowFull?: boolean }) {
+  const src = tileSrc(item, allowFull);
   if (src && item.mediaType === "image") {
     return <img src={src} alt="" loading="lazy" />;
   }
@@ -134,6 +134,7 @@ export function Sidebar({
         ) : (
           batches.map((batch) => {
             const cover = coverGeneration(batch.items);
+            const previews = batchPreviewItems(batch.items);
             const selected = batch.items.some((item) => item.id === selectedId);
             const status = cover?.status ?? "queued";
             const ready = completedMedia(batch.items);
@@ -150,16 +151,18 @@ export function Sidebar({
                 >
                   <div
                     className={`history-tile-media${
-                      batch.items.length > 1 ? ` mosaic mosaic-${Math.min(batch.items.length, 4)}` : ""
+                      previews.length > 1 ? ` mosaic mosaic-${Math.min(previews.length, 4)}` : ""
                     }`}
                   >
-                    {(batch.items.length > 1 ? batch.items.slice(0, 4) : [cover ?? batch.items[0]]).map(
-                      (item) => (item ? <TileFace key={item.id} item={item} /> : null),
-                    )}
+                    {previews.map((item, index) => (
+                      <TileFace key={item.id} item={item} allowFull={index === 0} />
+                    ))}
                   </div>
                 </button>
                 {batch.items.length > 1 ? (
-                  <span className="history-count">{batch.items.length}</span>
+                  <span className="history-count" aria-label={`${batch.items.length} variations`}>
+                    {batch.items.length}
+                  </span>
                 ) : null}
                 <span className={`history-status pill ${statusClass(status)}`}>{status}</span>
                 {ready.length === 1 && ready[0]?.resultUrl ? (

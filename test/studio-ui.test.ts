@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  batchPreviewItems,
   coverGeneration,
   groupGenerationBatches,
   isActiveGeneration,
@@ -64,6 +65,25 @@ describe("groupGenerationBatches", () => {
     expect(batches).toHaveLength(2);
     expect(batches[0]?.items.map((item) => item.id)).toEqual(["a", "b"]);
     expect(coverGeneration(batches[0]?.items ?? [])?.id).toBe("a");
+  });
+
+  it("puts the ready cover first in library tile previews", () => {
+    const queued = gen({ id: "q", batchId: "b1", status: "queued", resultUrl: null });
+    const ready = gen({
+      id: "r",
+      batchId: "b1",
+      status: "succeeded",
+      resultUrl: "https://x/a.png",
+      thumbUrl: "t.avif",
+    });
+    const extra = gen({
+      id: "e",
+      batchId: "b1",
+      status: "succeeded",
+      resultUrl: "https://x/b.png",
+    });
+    expect(batchPreviewItems([queued, ready, extra]).map((item) => item.id)).toEqual(["r", "q", "e"]);
+    expect(batchPreviewItems([ready]).map((item) => item.id)).toEqual(["r"]);
   });
 
   it("merges newer rows without dropping in-session jobs", () => {
