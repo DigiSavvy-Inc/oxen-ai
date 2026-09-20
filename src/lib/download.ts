@@ -11,7 +11,17 @@ export function tilePreviewUrl(
   return item.thumbUrl || item.resultUrl || null;
 }
 
-export function downloadFilename(generation: Generation, index = 0): string {
+/** Stable 5-digit id derived from the generation row. The same asset always hashes to the same number. */
+export function mediaAssetId(id: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < id.length; i += 1) {
+    hash ^= id.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return String((hash >>> 0) % 100_000).padStart(5, "0");
+}
+
+export function downloadFilename(generation: Pick<Generation, "id" | "mediaType" | "prompt">): string {
   const ext =
     generation.mediaType === "video" ? "mp4" : generation.mediaType === "audio" ? "mp3" : "png";
   const prompt = (generation.prompt || "media")
@@ -19,8 +29,7 @@ export function downloadFilename(generation: Generation, index = 0): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
-  const suffix = index > 0 ? `-${index + 1}` : "";
-  return `ds-studio-${prompt || "media"}${suffix}.${ext}`;
+  return `ds-studio-${prompt || "media"}-${mediaAssetId(generation.id)}.${ext}`;
 }
 
 function triggerDownload(url: string, filename: string) {
@@ -53,6 +62,6 @@ export async function downloadMedia(url: string, filename: string): Promise<void
 export async function downloadAllMedia(generations: Generation[]): Promise<void> {
   const ready = completedMedia(generations);
   await Promise.all(
-    ready.map((item, index) => downloadMedia(item.resultUrl ?? "", downloadFilename(item, index))),
+    ready.map((item) => downloadMedia(item.resultUrl ?? "", downloadFilename(item))),
   );
 }
