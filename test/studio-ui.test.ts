@@ -544,4 +544,22 @@ describe("prompt box chrome", () => {
     expect(composer).toContain("prompt-resize-arrow is-up");
     expect(composer).toContain("prompt-resize-arrow is-down");
   });
+
+  it("leaves a gap between the prompt box and attached media", () => {
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.prompt-box\s*\{[^}]*margin:\s*8px 10px/);
+    expect(css).toMatch(/\.attach-preview\s*\{[^}]*padding:\s*8px 10px 10px/);
+  });
+});
+
+describe("thumbnail frames", () => {
+  it("uses a 1px border on every side without a second ring", () => {
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.variation-thumb\s*\{[^}]*border:\s*1px solid var\(--border\)/);
+    expect(css).toMatch(/\.history-tile-square\s*\{[^}]*border:\s*1px solid var\(--border\)/);
+    expect(css).toMatch(/\.library-peek-thumb\s*\{[^}]*border:\s*1px solid var\(--border\)/);
+    expect(css).not.toMatch(/\.variation-thumb\.active\s*\{[^}]*box-shadow/);
+    expect(css).not.toMatch(/\.history-tile\.active \.history-tile-square\s*\{[^}]*box-shadow/);
+    expect(css).not.toMatch(/\.library-peek-thumb\.active\s*\{[^}]*box-shadow/);
+  });
 });
