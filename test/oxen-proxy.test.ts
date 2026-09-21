@@ -357,10 +357,12 @@ describe("buildEnqueuePayload", () => {
       model: "bytedance-seedance-2-0-reference-to-video",
       prompt: "@Image1 waves",
       input_images: ["https://example.com/a.png"],
+      aspect_ratio: "9:16",
       duration: "8",
       num_generations: 2,
     });
     expect(payload.input_images).toEqual(["https://example.com/a.png"]);
+    expect(payload.aspect_ratio).toBe("9:16");
     expect(payload.duration).toBe("8");
     expect(payload.num_generations).toBe(2);
     expect("input_image" in payload).toBe(false);

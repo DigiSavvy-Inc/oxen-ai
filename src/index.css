@@ -958,6 +958,13 @@ a {
   position: relative;
 }
 
+.prompt-box {
+  margin: 8px 10px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
 .prompt-highlight,
 .prompt-field textarea {
   width: 100%;
@@ -1006,17 +1013,38 @@ a {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 12px;
+  height: 18px;
   cursor: ns-resize;
   touch-action: none;
 }
 
-.prompt-resize::after {
-  content: "";
-  width: 36px;
-  height: 3px;
+.prompt-resize-mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.prompt-resize-line {
+  width: 28px;
+  height: 2px;
   border-radius: 99px;
   background: var(--border-strong);
+}
+
+.prompt-resize-arrow {
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+}
+
+.prompt-resize-arrow.is-up {
+  border-bottom: 3.5px solid var(--text-dim);
+}
+
+.prompt-resize-arrow.is-down {
+  border-top: 3.5px solid var(--text-dim);
 }
 
 .prompt-field textarea::placeholder {

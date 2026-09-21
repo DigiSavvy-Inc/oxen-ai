@@ -33,7 +33,7 @@ import {
 } from "./lib/library-refs";
 import { moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
-import { takeStagedOfKind } from "./lib/params";
+import { preferredAspectRatio, takeStagedOfKind } from "./lib/params";
 
 type StagedMedia = {
   file?: File;
@@ -188,7 +188,9 @@ export default function App() {
         setSettings(data);
         if (hydratedParamsUserId.current === user.id || paramsTouched.current) return;
         hydratedParamsUserId.current = user.id;
-        if (data.lastParams.aspect_ratio) setAspectRatio(data.lastParams.aspect_ratio);
+        if (data.lastParams.aspect_ratio && data.lastParams.aspect_ratio !== "auto") {
+          setAspectRatio(data.lastParams.aspect_ratio);
+        }
         if (data.lastParams.duration != null) setDuration(String(data.lastParams.duration));
         if (typeof data.lastParams.generate_audio === "boolean") {
           setGenerateAudio(data.lastParams.generate_audio);
@@ -318,11 +320,7 @@ export default function App() {
         if (cancelled) return;
         setControls(data.controls);
         if (data.controls.aspectRatios && data.controls.aspectRatios.length > 0) {
-          setAspectRatio((prev) =>
-            data.controls.aspectRatios?.includes(prev)
-              ? prev
-              : data.controls.aspectRatios?.[0] || prev,
-          );
+          setAspectRatio((prev) => preferredAspectRatio(data.controls.aspectRatios ?? [], prev));
         }
         if (data.controls.duration?.kind === "enum") {
           setDuration((prev) =>

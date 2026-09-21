@@ -65,6 +65,7 @@ import {
   parseGenerationListScope,
   parseModelControls,
   pickCompatible,
+  resolveEnqueueAspectRatio,
   resolutionPayloadFields,
   videoSlotRequired,
   type GenerationListScope,
@@ -1147,9 +1148,7 @@ app.post("/api/generate", async (c) => {
   const payload = buildEnqueuePayload(meta.mediaType, {
     model: body.model.trim(),
     prompt: body.prompt.trim(),
-    aspect_ratio: controls.aspectRatios
-      ? pickCompatible(body.aspect_ratio, controls.aspectRatios)
-      : body.aspect_ratio,
+    aspect_ratio: resolveEnqueueAspectRatio(body.aspect_ratio, controls.aspectRatios),
     duration: clampDuration(body.duration, controls.duration),
     seed: controls.seed || useFallback ? body.seed : undefined,
     generate_audio: controls.generateAudio || useFallback ? body.generate_audio : undefined,

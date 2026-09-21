@@ -444,6 +444,35 @@ export function pickCompatible<T extends string>(
   return undefined;
 }
 
+function firstExplicitAspect(catalog: string[]): string | undefined {
+  return catalog.find((value) => value === "16:9") ?? catalog.find((value) => value !== "auto");
+}
+
+/** Keep an explicit composer ratio. Do not fall back to `auto` (match the reference). */
+export function preferredAspectRatio(catalog: string[], current?: string | null): string {
+  if (current && current !== "auto" && (catalog.length === 0 || catalog.includes(current))) {
+    return current;
+  }
+  return firstExplicitAspect(catalog) ?? catalog[0] ?? current ?? "1:1";
+}
+
+/** Always enqueue the composer aspect so Oxen cannot inherit the reference image. */
+export function resolveEnqueueAspectRatio(
+  value: string | undefined,
+  catalog: string[] | null,
+): string | undefined {
+  const trimmed = value?.trim();
+  if (trimmed) {
+    if (!catalog || catalog.length === 0 || catalog.includes(trimmed) || trimmed !== "auto") {
+      return trimmed;
+    }
+  }
+  if (catalog && catalog.length > 0) {
+    return firstExplicitAspect(catalog) ?? catalog[0];
+  }
+  return trimmed || undefined;
+}
+
 export function mapMediaUrls(
   slots: MediaSlot[],
   urls: { image: string[]; video: string[]; audio: string[] },

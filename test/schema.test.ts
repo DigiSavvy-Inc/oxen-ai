@@ -4,6 +4,8 @@ import {
   mapMediaUrls,
   parseGenerationListScope,
   parseModelControls,
+  preferredAspectRatio,
+  resolveEnqueueAspectRatio,
   resolutionPayloadFields,
 } from "../worker/schema";
 import type { OxenModel } from "../worker/oxen";
@@ -285,6 +287,16 @@ describe("parseModelControls", () => {
     expect(controls.resolution).toEqual(["1K", "2K", "4K"]);
     expect(controls.quality).toEqual(["high"]);
     expect(controls.resolutionField).toBe("resolution");
+  });
+});
+
+describe("composer aspect vs reference auto", () => {
+  it("sends the prompt aspect even when the schema defaults to auto", () => {
+    const catalog = ["auto", "21:9", "16:9", "9:16"];
+    expect(preferredAspectRatio(catalog, "9:16")).toBe("9:16");
+    expect(preferredAspectRatio(catalog, "auto")).toBe("16:9");
+    expect(resolveEnqueueAspectRatio("9:16", catalog)).toBe("9:16");
+    expect(resolveEnqueueAspectRatio(undefined, catalog)).toBe("16:9");
   });
 });
 

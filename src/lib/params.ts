@@ -1,6 +1,8 @@
 import { modeIsVideo, type GenerationMode } from "./api";
 import type { MediaKind } from "./files";
 
+export { preferredAspectRatio, resolveEnqueueAspectRatio } from "../../worker/schema";
+
 export function aspectCatalog(
   controls: { aspectRatios?: string[] | null } | null | undefined,
   mode: GenerationMode | null,
