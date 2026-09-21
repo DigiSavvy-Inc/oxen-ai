@@ -24,11 +24,12 @@ import { creditBalanceResponse, fetchOxenCredits } from "./credits";
 import {
   buildReferenceMediaUrl,
   displayStoredMediaUrl,
+  guessMediaContentType,
   putMediaObject,
   verifyMediaSignature,
 } from "./media";
 import { deleteOxenGeneration } from "./oxen-delete";
-import { rewriteRefsToOxenSources } from "./oxen-refs";
+import { resolveRefsForOxen } from "./oxen-refs";
 import {
   buildEnqueuePayload,
   downloadOxenResult,
@@ -1047,12 +1048,17 @@ app.get("/api/media/*", async (c) => {
   }
   const headers = new Headers();
   object.writeHttpMetadata(headers);
-  const contentType = object.httpMetadata?.contentType || "application/octet-stream";
+  const contentType = object.httpMetadata?.contentType || guessMediaContentType(key);
   headers.set("Content-Type", contentType);
+  if (typeof object.size === "number" && Number.isFinite(object.size)) {
+    headers.set("Content-Length", String(object.size));
+  }
+  headers.set("Access-Control-Allow-Origin", "*");
+  headers.set("Cross-Origin-Resource-Policy", "cross-origin");
   const remaining = Number(exp) - Math.floor(Date.now() / 1000);
   headers.set(
     "Cache-Control",
-    `private, max-age=${Math.max(0, remaining)}, immutable`,
+    `public, max-age=${Math.max(0, remaining)}, immutable`,
   );
   return new Response(object.body, { headers });
 });
@@ -1106,8 +1112,9 @@ app.post("/api/generate", async (c) => {
     console.error("model schema error", err);
   }
 
-  const imageUrls = await rewriteRefsToOxenSources(
+  const imageUrls = await resolveRefsForOxen(
     c.env.DB,
+    c.env.MEDIA,
     user.id,
     [
       ...(body.images ?? []),
@@ -1119,9 +1126,11 @@ app.post("/api/generate", async (c) => {
       ...(body.input_images ?? []),
       ...(body.input_face_images ?? []),
     ].filter((url) => url.trim()),
+    c.env.IMAGES,
   );
-  const videoUrls = await rewriteRefsToOxenSources(
+  const videoUrls = await resolveRefsForOxen(
     c.env.DB,
+    c.env.MEDIA,
     user.id,
     [
       ...(body.videos ?? []),
@@ -1129,11 +1138,14 @@ app.post("/api/generate", async (c) => {
       ...(body.input_videos ?? []),
       ...(body.input_face_videos ?? []),
     ].filter((url) => url.trim()),
+    c.env.IMAGES,
   );
-  const audioUrls = await rewriteRefsToOxenSources(
+  const audioUrls = await resolveRefsForOxen(
     c.env.DB,
+    c.env.MEDIA,
     user.id,
     [...(body.audios ?? []), ...(body.input_audios ?? [])].filter((url) => url.trim()),
+    c.env.IMAGES,
   );
 
   const mapped =

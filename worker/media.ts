@@ -90,10 +90,23 @@ export async function verifyMediaSignature(
 }
 
 export function arrayBufferToDataUri(buffer: ArrayBuffer, contentType: string): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return `data:${contentType};base64,${btoa(binary)}`;
+  return `data:${contentType};base64,${Buffer.from(buffer).toString("base64")}`;
+}
+
+export function guessMediaContentType(key: string): string {
+  const lower = key.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".avif")) return "image/avif";
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mov")) return "video/quicktime";
+  if (lower.endsWith(".mp3")) return "audio/mpeg";
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".m4a")) return "audio/mp4";
+  return "application/octet-stream";
 }
 
 export async function displayStoredMediaUrl(

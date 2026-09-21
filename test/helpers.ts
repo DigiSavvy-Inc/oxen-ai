@@ -55,7 +55,9 @@ export function createMockR2(): {
       if (!obj) return null;
       return {
         body: obj.body,
+        size: obj.body.byteLength,
         httpMetadata: { contentType: obj.contentType },
+        arrayBuffer: async () => obj.body,
         writeHttpMetadata(headers: Headers) {
           headers.set("Content-Type", obj.contentType);
         },

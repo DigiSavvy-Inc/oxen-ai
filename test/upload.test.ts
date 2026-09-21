@@ -98,7 +98,9 @@ describe("GET /api/media/*", () => {
     const res = await app.request(signed, {}, env);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("video/mp4");
-    expect(res.headers.get("Cache-Control")).toMatch(/private, max-age=\d+, immutable/);
+    expect(res.headers.get("Content-Length")).toBe("4");
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(res.headers.get("Cache-Control")).toMatch(/public, max-age=\d+, immutable/);
     expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual([1, 2, 3, 4]);
   });
 
