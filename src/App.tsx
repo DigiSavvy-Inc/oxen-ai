@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "./auth/AuthContext";
 import { AccountMenu } from "./components/AccountMenu";
 import { Canvas } from "./components/Canvas";
@@ -33,6 +33,7 @@ import {
 } from "./lib/library-refs";
 import { moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
+import { takeStagedOfKind } from "./lib/params";
 
 type StagedMedia = {
   file?: File;
@@ -83,6 +84,15 @@ export default function App() {
   const [peekId, setPeekId] = useState<string | null>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
+  const hydratedParamsUserId = useRef<string | null>(null);
+  const paramsTouched = useRef(false);
+
+  function rememberParam<T>(setter: (value: T) => void) {
+    return (value: T) => {
+      paramsTouched.current = true;
+      setter(value);
+    };
+  }
 
   const selected = useMemo(
     () => generations.find((g) => g.id === selectedId) ?? null,
@@ -164,7 +174,11 @@ export default function App() {
   }, [user?.hasOxenKey]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      hydratedParamsUserId.current = null;
+      paramsTouched.current = false;
+      return;
+    }
     void refreshActive().catch((err) =>
       setError(err instanceof Error ? err.message : "Failed to resume jobs"),
     );
@@ -172,6 +186,8 @@ export default function App() {
       .studioSettings()
       .then((data) => {
         setSettings(data);
+        if (hydratedParamsUserId.current === user.id || paramsTouched.current) return;
+        hydratedParamsUserId.current = user.id;
         if (data.lastParams.aspect_ratio) setAspectRatio(data.lastParams.aspect_ratio);
         if (data.lastParams.duration != null) setDuration(String(data.lastParams.duration));
         if (typeof data.lastParams.generate_audio === "boolean") {
@@ -369,18 +385,6 @@ export default function App() {
       cancelled = true;
     };
   }, [model, user?.hasOxenKey]);
-
-  useEffect(() => {
-    setStaged((prev) => {
-      const next = prev.filter((item) => mediaKindCap(controls, mode, item.kind) > 0);
-      if (next.length !== prev.length) {
-        for (const item of prev) {
-          if (!next.includes(item)) releasePreview(item.preview);
-        }
-      }
-      return next;
-    });
-  }, [mode, controls]);
 
   useEffect(() => {
     const active = generations.filter(isActiveGeneration);
@@ -619,7 +623,12 @@ export default function App() {
       const images: string[] = [];
       const videos: string[] = [];
       const audios: string[] = [];
-      for (const item of staged) {
+      const sendable = [
+        ...takeStagedOfKind(staged, "image", capForKind("image")),
+        ...takeStagedOfKind(staged, "video", capForKind("video")),
+        ...takeStagedOfKind(staged, "audio", capForKind("audio")),
+      ];
+      for (const item of sendable) {
         const url = item.url ?? (item.file ? (await api.upload(item.file)).url : "");
         if (!url) continue;
         if (item.kind === "image") images.push(url);
@@ -762,23 +771,23 @@ export default function App() {
           prompt={prompt}
           onPromptChange={setPrompt}
           aspectRatio={aspectRatio}
-          onAspectRatioChange={setAspectRatio}
+          onAspectRatioChange={rememberParam(setAspectRatio)}
           duration={duration}
-          onDurationChange={setDuration}
+          onDurationChange={rememberParam(setDuration)}
           seed={seed}
           onSeedChange={setSeed}
           numGenerations={numGenerations}
           onNumGenerationsChange={setNumGenerations}
           generateAudio={generateAudio}
-          onGenerateAudioChange={setGenerateAudio}
+          onGenerateAudioChange={rememberParam(setGenerateAudio)}
           quality={quality}
-          onQualityChange={setQuality}
+          onQualityChange={rememberParam(setQuality)}
           resolution={resolution}
-          onResolutionChange={setResolution}
+          onResolutionChange={rememberParam(setResolution)}
           outputFormat={outputFormat}
-          onOutputFormatChange={setOutputFormat}
+          onOutputFormatChange={rememberParam(setOutputFormat)}
           background={background}
-          onBackgroundChange={setBackground}
+          onBackgroundChange={rememberParam(setBackground)}
           attachments={staged.map((item) => ({
             name: item.name,
             preview: item.preview,

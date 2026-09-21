@@ -39,6 +39,7 @@ import {
   promptHighlightParts,
 } from "../src/lib/mentions";
 import { filterModels, generationCountForModelChange, groupPreferredModels, modelLabel, pickModel } from "../src/lib/model-menu";
+import { aspectCatalog, aspectSelectOptions, takeStagedOfKind } from "../src/lib/params";
 
 function gen(partial: Partial<Generation> & Pick<Generation, "id">): Generation {
   return {
@@ -476,5 +477,39 @@ describe("attachment labels", () => {
     expect(shortenFileName("viewer-voice-take-two-final.mp3")).toBe("viewer-voice-take….mp3");
     expect(formatAudioClock(8.2)).toBe("8s");
     expect(formatAudioClock(null)).toBe("");
+  });
+});
+
+describe("composer params across jobs and models", () => {
+  it("keeps the current aspect in the select even when the catalog changed", () => {
+    expect(aspectCatalog({ aspectRatios: ["16:9", "9:16"] }, "text-to-image")).toEqual([
+      "16:9",
+      "9:16",
+    ]);
+    expect(aspectCatalog(null, "text-to-video")).toEqual(["16:9", "9:16", "1:1"]);
+    expect(aspectSelectOptions(["16:9", "9:16"], "1:1")).toEqual(["1:1", "16:9", "9:16"]);
+    expect(aspectSelectOptions(["16:9", "9:16"], "9:16")).toEqual(["16:9", "9:16"]);
+  });
+
+  it("sends only as many staged files as the live model accepts", () => {
+    const staged = [
+      { kind: "image" as const, name: "a" },
+      { kind: "image" as const, name: "b" },
+      { kind: "video" as const, name: "c" },
+    ];
+    expect(takeStagedOfKind(staged, "image", 1).map((item) => item.name)).toEqual(["a"]);
+    expect(takeStagedOfKind(staged, "image", 0)).toEqual([]);
+    expect(takeStagedOfKind(staged, "video", 2).map((item) => item.name)).toEqual(["c"]);
+  });
+
+  it("does not drop staged media when the model or mode changes", () => {
+    const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+    const composer = readFileSync(new URL("../src/components/Composer.tsx", import.meta.url), "utf8");
+    expect(app).not.toContain("mediaKindCap(controls, mode, item.kind)");
+    expect(app).toContain("takeStagedOfKind");
+    expect(app).toContain("hydratedParamsUserId");
+    expect(app).toContain("paramsTouched");
+    expect(composer).toContain("aspectSelectOptions");
+    expect(composer).toContain("value={props.aspectRatio}");
   });
 });

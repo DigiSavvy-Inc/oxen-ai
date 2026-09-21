@@ -25,6 +25,7 @@ import {
 } from "../lib/mentions";
 import { shortenFileName } from "../lib/files";
 import { mediaKindCap } from "../lib/library-refs";
+import { aspectCatalog, aspectSelectOptions } from "../lib/params";
 import { AudioAttachControl, ExpandMediaButton } from "./MediaLightbox";
 import { ModelMenu } from "./ModelMenu";
 
@@ -119,12 +120,10 @@ export function Composer(props: Props) {
     props.mode === "image-to-image" ||
     props.mode === "reference-to-video" ||
     props.mode === "video-to-video";
-  const aspectOptions =
-    props.controls?.aspectRatios && props.controls.aspectRatios.length > 0
-      ? props.controls.aspectRatios
-      : props.mode && modeIsVideo(props.mode)
-        ? ["16:9", "9:16", "1:1"]
-        : ["1:1", "16:9", "9:16", "4:3", "3:4"];
+  const aspectOptions = aspectSelectOptions(
+    aspectCatalog(props.controls, props.mode),
+    props.aspectRatio,
+  );
   const selectedModel = props.models.find((item) => item.id === props.model);
   const cost = estimateGenerationCost({
     pricing: props.controls?.pricing ?? selectedModel?.pricing,
@@ -609,7 +608,7 @@ export function Composer(props: Props) {
           <ToolbarField label="Aspect">
             <select
               className="select"
-              value={aspectOptions.includes(props.aspectRatio) ? props.aspectRatio : aspectOptions[0]}
+              value={props.aspectRatio}
               onChange={(e) => props.onAspectRatioChange(e.target.value)}
             >
               {aspectOptions.map((ratio) => (
