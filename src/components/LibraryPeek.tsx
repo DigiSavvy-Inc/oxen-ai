@@ -140,7 +140,7 @@ export function LibraryPeek({
             ) : null}
             {onRemove ? (
               <button type="button" className="ghost-btn library-peek-remove" onClick={onRemove}>
-                Remove
+                Delete
               </button>
             ) : null}
           </div>

@@ -329,7 +329,9 @@ export function SettingsModal({
           <>
             <h3>Library cleanup</h3>
             <p>
-              Removes jobs from DS Studio and their files in R2. Oxen billing is unchanged.
+              Removes jobs from DS Studio and their files in R2. Deleting an item from the
+              canvas or library peek also cancels it on Oxen and removes the stored Oxen
+              file when we can find it. Billing is unchanged.
               Thumbnails are 320px JPEGs for the library grid; full results stay for the canvas
               and downloads.
             </p>

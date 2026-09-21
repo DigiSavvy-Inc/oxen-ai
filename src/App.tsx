@@ -562,6 +562,14 @@ export default function App() {
     }
   }
 
+  function requestDeleteMedia(ids: string[]) {
+    if (ids.length === 0) return;
+    if (!window.confirm("Delete this media from DS Studio and Oxen? This cannot be undone.")) {
+      return;
+    }
+    void onDeleteGenerations(ids);
+  }
+
   async function onDeleteGenerations(ids: string[]) {
     if (ids.length === 0) return;
     const removing = new Set(ids);
@@ -570,9 +578,9 @@ export default function App() {
     setPeekId((prev) => (prev && removing.has(prev) ? null : prev));
     setError(null);
     try {
-      await Promise.all(ids.map((id) => api.cancelGeneration(id)));
+      await Promise.all(ids.map((id) => api.deleteGeneration(id)));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to remove media");
+      setError(err instanceof Error ? err.message : "Failed to delete media");
       if (libraryOpen) void refreshLibrary();
     }
   }
@@ -720,6 +728,7 @@ export default function App() {
             variants={selectedVariants}
             onSelect={setSelectedId}
             onTagsChange={(id, tags) => void onSaveTags(id, tags)}
+            onDelete={(id) => requestDeleteMedia([id])}
           />
           {peek ? (
             <LibraryPeek
@@ -734,9 +743,7 @@ export default function App() {
                 if (!peek.resultUrl) return;
                 void downloadMedia(peek.resultUrl, downloadFilename(peek));
               }}
-              onRemove={() => {
-                void onDeleteGenerations(peekVariants.map((item) => item.id));
-              }}
+              onRemove={() => requestDeleteMedia([peek.id])}
             />
           ) : null}
         </div>
