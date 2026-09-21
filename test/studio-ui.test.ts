@@ -16,7 +16,7 @@ import {
   type Generation,
 } from "../src/lib/api";
 import { copyText } from "../src/lib/clipboard";
-import { downloadFilename, mediaAssetId, tilePreviewUrl } from "../src/lib/download";
+import { canvasWashUrl, downloadFilename, mediaAssetId, tilePreviewUrl } from "../src/lib/download";
 import { formatAudioClock, shortenFileName } from "../src/lib/files";
 import {
   appendAttachMention,
@@ -304,6 +304,14 @@ describe("mentions and cost", () => {
     ).toBe("tiny.avif");
     expect(tilePreviewUrl(gen({ id: "b", mediaType: "image", resultUrl: "full.png" }))).toBeNull();
   });
+
+  it("uses a tiny thumb as the canvas wash and skips full-size files", () => {
+    expect(
+      canvasWashUrl(gen({ id: "a", mediaType: "image", resultUrl: "full.png", thumbUrl: "tiny.avif" })),
+    ).toBe("tiny.avif");
+    expect(canvasWashUrl(gen({ id: "b", mediaType: "image", resultUrl: "full.png" }))).toBeNull();
+    expect(canvasWashUrl(gen({ id: "c", mediaType: "video", resultUrl: "clip.mp4" }))).toBeNull();
+  });
 });
 
 describe("model menu filter", () => {
@@ -561,5 +569,16 @@ describe("thumbnail frames", () => {
     expect(css).not.toMatch(/\.variation-thumb\.active\s*\{[^}]*box-shadow/);
     expect(css).not.toMatch(/\.history-tile\.active \.history-tile-square\s*\{[^}]*box-shadow/);
     expect(css).not.toMatch(/\.library-peek-thumb\.active\s*\{[^}]*box-shadow/);
+  });
+});
+
+describe("canvas media wash", () => {
+  it("fills letterbox space with a blurred thumb or the light beige page tone", () => {
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    const canvas = readFileSync(new URL("../src/components/Canvas.tsx", import.meta.url), "utf8");
+    expect(canvas).toContain("canvasWashUrl");
+    expect(canvas).toContain("result-media-wash");
+    expect(css).toMatch(/\.result-media\s*\{[^}]*background:\s*var\(--bg\)/);
+    expect(css).toMatch(/\.result-media-wash\s*\{[^}]*filter:\s*blur\(/);
   });
 });

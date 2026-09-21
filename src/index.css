@@ -1380,9 +1380,10 @@ a {
 
 .result-media {
   position: relative;
+  isolation: isolate;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: #fff;
+  background: var(--bg);
   overflow: hidden;
   box-shadow: var(--shadow);
   min-height: 240px;
@@ -1390,8 +1391,30 @@ a {
   place-items: center;
 }
 
-.result-media img,
-.result-media video {
+.result-media-wash {
+  position: absolute;
+  inset: -20px;
+  z-index: 0;
+  width: calc(100% + 40px);
+  height: calc(100% + 40px);
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+  filter: blur(28px);
+  transform: scale(1.08);
+  pointer-events: none;
+  user-select: none;
+}
+
+.result-media .result-preview,
+.result-media .wait-panel,
+.result-media .status-block {
+  position: relative;
+  z-index: 1;
+}
+
+.result-media img.result-preview,
+.result-media video.result-preview {
   display: block;
   max-width: 100%;
   max-height: min(70vh, 720px);
