@@ -8,6 +8,16 @@ import {
   type OxenModel,
   type StudioSettings,
 } from "../lib/api";
+import {
+  canPromptInstall,
+  canUseNotifications,
+  disablePushNotifications,
+  enablePushNotifications,
+  isStandaloneDisplay,
+  notificationPermission,
+  onInstallAvailable,
+  promptInstall,
+} from "../lib/pwa";
 
 type AllowRow = {
   github_login: string;
@@ -15,7 +25,7 @@ type AllowRow = {
   created_at: number;
 };
 
-type SettingsPane = "api-key" | "models" | "cleanup" | "allowlist";
+type SettingsPane = "api-key" | "models" | "notifications" | "cleanup" | "allowlist";
 
 export function SettingsModal({
   onClose,
@@ -50,6 +60,16 @@ export function SettingsModal({
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
   const [cleanupError, setCleanupError] = useState<string | null>(null);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [notifyPermission, setNotifyPermission] = useState<
+    NotificationPermission | "unsupported"
+  >(() => notificationPermission());
+  const [notifyBusy, setNotifyBusy] = useState(false);
+  const [notifyMessage, setNotifyMessage] = useState<string | null>(null);
+  const [notifyError, setNotifyError] = useState<string | null>(null);
+  const [installReady, setInstallReady] = useState(() => canPromptInstall());
+  const [installed, setInstalled] = useState(() => isStandaloneDisplay());
 
   async function loadAllowlist() {
     const data = await api.allowlist();
@@ -64,6 +84,23 @@ export function SettingsModal({
       setAllowError(err instanceof Error ? err.message : "Failed to load allowlist"),
     );
   }, [user?.isAdmin]);
+
+  useEffect(() => {
+    return onInstallAvailable(() => setInstallReady(canPromptInstall()));
+  }, []);
+
+  useEffect(() => {
+    if (pane !== "notifications") return;
+    void api
+      .pushConfig()
+      .then((data) => {
+        setPushEnabled(data.enabled);
+        setPushSubscribed(data.subscribed);
+      })
+      .catch((err) =>
+        setNotifyError(err instanceof Error ? err.message : "Failed to load notification settings"),
+      );
+  }, [pane]);
 
   useEffect(() => {
     if (!user?.hasOxenKey || !modelSearch.trim()) {
@@ -167,6 +204,61 @@ export function SettingsModal({
       setModelError(err instanceof Error ? err.message : "Failed to update favorite");
     } finally {
       setModelBusy(false);
+    }
+  }
+
+  async function installApp() {
+    setNotifyError(null);
+    const outcome = await promptInstall();
+    if (outcome === "accepted") {
+      setInstallReady(false);
+      setInstalled(true);
+      setNotifyMessage("DS Studio is installing. Open it from your home screen.");
+      return;
+    }
+    if (outcome === "unavailable") {
+      setNotifyError("Your browser did not offer an install prompt. Use the Add to Home Screen steps below.");
+    }
+  }
+
+  async function enableNotifications() {
+    setNotifyBusy(true);
+    setNotifyError(null);
+    setNotifyMessage(null);
+    try {
+      const result = await enablePushNotifications();
+      setNotifyPermission(result.permission);
+      setPushSubscribed(result.subscribed);
+      if (result.permission === "denied") {
+        setNotifyError("Notifications are blocked. Allow them for this site in your phone settings.");
+      } else if (result.permission === "unsupported") {
+        setNotifyError("This browser does not support notifications.");
+      } else if (result.subscribed) {
+        setNotifyMessage("You’ll get a notification when a generation finishes, even if DS Studio is closed.");
+      } else {
+        setNotifyMessage(
+          "Notifications are on while DS Studio is open. Install the app and enable again for alerts after you leave.",
+        );
+      }
+    } catch (err) {
+      setNotifyError(err instanceof Error ? err.message : "Failed to enable notifications");
+    } finally {
+      setNotifyBusy(false);
+    }
+  }
+
+  async function disableNotifications() {
+    setNotifyBusy(true);
+    setNotifyError(null);
+    setNotifyMessage(null);
+    try {
+      await disablePushNotifications();
+      setPushSubscribed(false);
+      setNotifyMessage("Push notifications turned off on this device.");
+    } catch (err) {
+      setNotifyError(err instanceof Error ? err.message : "Failed to disable notifications");
+    } finally {
+      setNotifyBusy(false);
     }
   }
 
@@ -324,6 +416,86 @@ export function SettingsModal({
             )}
           </>
         );
+      case "notifications":
+        return (
+          <>
+            <h3>Install DS Studio</h3>
+            <p>
+              Add it to your phone’s home screen so it opens like an app. iPhone needs this
+              step before notifications can work in the background.
+            </p>
+            {installed ? (
+              <p className="settings-ok">This session is already running as an installed app.</p>
+            ) : (
+              <ol className="settings-steps">
+                <li>
+                  <strong>iPhone / iPad:</strong> Safari → Share → Add to Home Screen.
+                </li>
+                <li>
+                  <strong>Android:</strong> Chrome menu → Install app or Add to Home Screen.
+                </li>
+                <li>
+                  <strong>Desktop Chrome:</strong> the install icon in the address bar, or the
+                  button below when it appears.
+                </li>
+              </ol>
+            )}
+            {!installed && installReady ? (
+              <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+                <button
+                  type="button"
+                  className="primary-btn"
+                  style={{ marginLeft: 0 }}
+                  onClick={() => void installApp()}
+                >
+                  Install DS Studio
+                </button>
+              </div>
+            ) : null}
+
+            <h3>Notifications</h3>
+            <p>
+              Get an alert when an image or video finishes. On iPhone, open the installed app
+              first, then tap Enable.
+            </p>
+            {!canUseNotifications() ? (
+              <p className="settings-bad">This browser does not support notifications.</p>
+            ) : (
+              <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+                {pushSubscribed || notifyPermission === "granted" ? (
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    disabled={notifyBusy}
+                    onClick={() => void disableNotifications()}
+                  >
+                    Turn off
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="primary-btn"
+                  style={{ marginLeft: 0 }}
+                  disabled={notifyBusy}
+                  onClick={() => void enableNotifications()}
+                >
+                  Enable notifications
+                </button>
+              </div>
+            )}
+            {pushEnabled && pushSubscribed ? (
+              <p className="settings-ok">Background alerts are on for this device.</p>
+            ) : null}
+            {!pushEnabled && notifyPermission === "granted" ? (
+              <p>
+                Local alerts work while the app is open. Background push is not configured on
+                this server yet.
+              </p>
+            ) : null}
+            {notifyMessage ? <p className="settings-ok">{notifyMessage}</p> : null}
+            {notifyError ? <p className="settings-bad">{notifyError}</p> : null}
+          </>
+        );
       case "cleanup":
         return (
           <>
@@ -449,6 +621,13 @@ export function SettingsModal({
               onClick={() => setPane("models")}
             >
               Models
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-btn${pane === "notifications" ? " active" : ""}`}
+              onClick={() => setPane("notifications")}
+            >
+              Notifications
             </button>
             <button
               type="button"

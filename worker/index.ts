@@ -81,6 +81,14 @@ import {
 import { GENERATION_MODES } from "./model-modes";
 import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
 import { getStudioSettings, saveStudioSettings } from "./user-settings";
+import {
+  deletePushSubscription,
+  notifyGenerationComplete,
+  parsePushSubscription,
+  savePushSubscription,
+  userHasPushSubscription,
+  vapidConfigured,
+} from "./push";
 
 type Variables = {
   user: UserRow;
@@ -397,6 +405,7 @@ function catalogForMode(all: OxenModel[], mode: GenerationMode | null): OxenMode
 
 type GenerationRow = {
   id: string;
+  user_id?: string;
   oxen_generation_id: string;
   mode: string;
   model: string;
@@ -713,6 +722,13 @@ async function syncGenerationRow(
       thumbKey,
       errorMessage,
       updatedAt,
+    });
+    await notifyGenerationComplete(env, userId, row.status, {
+      id: row.id,
+      status,
+      prompt: row.prompt,
+      mediaType: row.media_type,
+      errorMessage,
     });
   }
 
@@ -1432,4 +1448,91 @@ app.get("/api/oxen/queue", async (c) => {
   return c.json(data);
 });
 
-export default app;
+app.get("/api/push/config", async (c) => {
+  const user = await requireUser(c);
+  const enabled = vapidConfigured(c.env);
+  const subscribed = enabled ? await userHasPushSubscription(c.env.DB, user.id) : false;
+  return c.json({
+    enabled,
+    vapidPublicKey: enabled ? c.env.VAPID_PUBLIC_KEY : null,
+    subscribed,
+  });
+});
+
+app.post("/api/push/subscribe", async (c) => {
+  const user = await requireUser(c);
+  if (!vapidConfigured(c.env)) {
+    throw new HTTPException(503, { message: "Push notifications are not configured" });
+  }
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    throw new HTTPException(400, { message: "Invalid push subscription" });
+  }
+  try {
+    const subscription = parsePushSubscription(body);
+    await savePushSubscription(c.env.DB, user.id, subscription);
+    return c.json({ ok: true });
+  } catch (err) {
+    throw new HTTPException(400, {
+      message: err instanceof Error ? err.message : "Invalid push subscription",
+    });
+  }
+});
+
+app.delete("/api/push/subscribe", async (c) => {
+  const user = await requireUser(c);
+  let endpoint = "";
+  try {
+    const body = (await c.req.json()) as { endpoint?: unknown };
+    endpoint = typeof body.endpoint === "string" ? body.endpoint.trim() : "";
+  } catch {
+    endpoint = "";
+  }
+  if (!endpoint) {
+    throw new HTTPException(400, { message: "Missing push endpoint" });
+  }
+  await deletePushSubscription(c.env.DB, user.id, endpoint);
+  return c.json({ ok: true });
+});
+
+export async function pollActiveGenerations(env: Env): Promise<{ polled: number }> {
+  const { results } = await env.DB.prepare(
+    `SELECT * FROM generations
+     WHERE status NOT IN ('succeeded', 'failed', 'cancelled')
+     ORDER BY updated_at ASC
+     LIMIT 80`,
+  ).all<GenerationRow & { user_id: string }>();
+  const rows = results ?? [];
+  const users = new Map<string, UserRow>();
+  let polled = 0;
+  for (const row of rows) {
+    if (!row.user_id) continue;
+    let user = users.get(row.user_id);
+    if (!user) {
+      const loaded = await env.DB.prepare(`SELECT * FROM users WHERE id = ?`)
+        .bind(row.user_id)
+        .first<UserRow>();
+      if (!loaded) continue;
+      user = loaded;
+      users.set(row.user_id, loaded);
+    }
+    const apiKey = await getOxenKey(user, env.ENCRYPTION_KEY);
+    await syncGenerationRow(env, user.id, apiKey, row, {
+      persistMissing: true,
+      pollActive: true,
+    });
+    polled += 1;
+  }
+  return { polled };
+}
+
+export { app };
+
+export default {
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
+  scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(pollActiveGenerations(env));
+  },
+};

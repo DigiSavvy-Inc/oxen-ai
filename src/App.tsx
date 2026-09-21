@@ -21,6 +21,7 @@ import {
   type StudioSettings,
 } from "./lib/api";
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations } from "./lib/batches";
+import { notifyGenerationLocal } from "./lib/pwa";
 import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
 import { filesFromList, kindFromFile } from "./lib/files";
 import {
@@ -396,6 +397,13 @@ export default function App() {
             setGenerations((prev) => mergeGenerations(prev, [generation]));
             if (generation.status === "succeeded" || generation.status === "failed") {
               void refreshCredits();
+              void notifyGenerationLocal({
+                id: generation.id,
+                status: generation.status,
+                prompt: generation.prompt,
+                mediaType: generation.mediaType,
+                errorMessage: generation.errorMessage,
+              });
             }
           } catch {
             // ignore transient poll errors

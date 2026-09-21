@@ -268,6 +268,22 @@ export const api = {
     ),
   credits: () =>
     fetch("/api/billing/credits").then((r) => parseJson<CreditBalance>(r)),
+  pushConfig: () =>
+    fetch("/api/push/config").then((r) =>
+      parseJson<{ enabled: boolean; vapidPublicKey: string | null; subscribed: boolean }>(r),
+    ),
+  subscribePush: (subscription: PushSubscriptionJSON) =>
+    fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(subscription),
+    }).then((r) => parseJson<{ ok: boolean }>(r)),
+  unsubscribePush: (endpoint: string) =>
+    fetch("/api/push/subscribe", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint }),
+    }).then((r) => parseJson<{ ok: boolean }>(r)),
   allowlist: () =>
     fetch("/api/admin/allowlist").then((r) =>
       parseJson<{

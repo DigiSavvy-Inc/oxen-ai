@@ -45,6 +45,11 @@
   "images": {
     "binding": "IMAGES"
   },
+  // Poll in-flight Oxen jobs so home-screen PWAs can get a push when a
+  // generation finishes even if the app is closed.
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
   // Committed vars = local/dev defaults.
   // Production vars shape (dashboard / `npx wrangler deploy --var`, not git):
   //   GITHUB_ORG=DigiSavvy-Inc
@@ -52,10 +57,12 @@
   //   PUBLIC_BASE_URL=https://studio.digisavvy.dev
   //   GITHUB_CLIENT_ID=<id from the studio.digisavvy.dev OAuth app>
   //   SESSION_TTL_SECONDS=604800
+  //   VAPID_PUBLIC_KEY=<url-safe base64 P-256 public key>
   // Secrets (`wrangler secret put`, never commit):
   //   GITHUB_CLIENT_SECRET
   //   ENCRYPTION_KEY
   //   SESSION_SECRET
+  //   VAPID_PRIVATE_KEY
   "vars": {
     "GITHUB_ORG": "DigiSavvy-Inc",
     "GITHUB_ADMINS": "",
