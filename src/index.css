@@ -265,6 +265,7 @@ a {
 
 .library-peek-thumb {
   flex: 0 0 auto;
+  box-sizing: border-box;
   width: 64px;
   height: 64px;
   padding: 0;
@@ -272,13 +273,13 @@ a {
   border-radius: 8px;
   overflow: hidden;
   background: #efece7;
+  background-clip: padding-box;
   color: var(--text-dim);
   cursor: pointer;
 }
 
 .library-peek-thumb.active {
   border-color: var(--text);
-  box-shadow: 0 0 0 1px var(--text);
 }
 
 .library-peek-thumb.is-attached {
@@ -683,6 +684,7 @@ a {
 
 .history-tile-square {
   position: relative;
+  box-sizing: border-box;
   width: 100%;
   aspect-ratio: 1 / 1;
   overflow: hidden;
@@ -691,6 +693,7 @@ a {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #efece7;
+  background-clip: padding-box;
 }
 
 .history-tile-hit {
@@ -711,7 +714,6 @@ a {
 
 .history-tile.active .history-tile-square {
   border-color: var(--text);
-  box-shadow: 0 0 0 1px var(--text);
 }
 
 .history-tile-media {
@@ -874,17 +876,19 @@ a {
   gap: 8px;
   max-height: min(70vh, 720px);
   overflow: auto;
+  padding: 1px;
 }
 
 .variation-thumb {
   position: relative;
+  box-sizing: border-box;
   width: 88px;
   height: 88px;
   flex: 0 0 auto;
   border: 1px solid var(--border);
   border-radius: 10px;
-  overflow: hidden;
   background: #efece7;
+  background-clip: padding-box;
   color: var(--text-dim);
 }
 
@@ -894,13 +898,14 @@ a {
   height: 100%;
   padding: 0;
   border: 0;
+  border-radius: inherit;
   background: transparent;
   color: inherit;
+  overflow: hidden;
 }
 
 .variation-thumb.active {
   border-color: var(--text);
-  box-shadow: 0 0 0 1px var(--text);
 }
 
 .variation-thumb img,
@@ -959,7 +964,7 @@ a {
 }
 
 .prompt-box {
-  margin: 8px 10px 0;
+  margin: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: #fff;
@@ -1797,7 +1802,7 @@ a {
 .attach-preview {
   display: flex;
   gap: 8px;
-  padding: 0 10px 10px;
+  padding: 8px 10px 10px;
   flex-wrap: wrap;
   align-items: center;
 }
