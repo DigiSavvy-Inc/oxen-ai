@@ -11,6 +11,10 @@ export function tilePreviewUrl(
   return item.thumbUrl || item.resultUrl || null;
 }
 
+export function canvasWashUrl(item: Pick<Generation, "thumbUrl">): string | null {
+  return item.thumbUrl || null;
+}
+
 /** Stable 5-digit id derived from the generation row. The same asset always hashes to the same number. */
 export function mediaAssetId(id: string): string {
   let hash = 2166136261;

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { MODE_LABELS, type Generation, type GenerationMode } from "../lib/api";
 import {
+  canvasWashUrl,
   completedMedia,
   downloadAllMedia,
   downloadFilename,
@@ -190,6 +191,7 @@ export function Canvas({
   const showStrip = variants.length > 1;
   const readyVariants = completedMedia(variants);
   const canDownload = Boolean(generation.status === "succeeded" && generation.resultUrl);
+  const washUrl = canvasWashUrl(generation);
 
   return (
     <div className="canvas">
@@ -210,8 +212,11 @@ export function Canvas({
           </div>
         </div>
         <div className={`result-stage${showStrip ? " has-strip" : ""}`}>
-          <div className="result-media">
-            <MediaPreview generation={generation} />
+          <div className={`result-media${washUrl ? " has-wash" : ""}`}>
+            {washUrl ? (
+              <img className="result-media-wash" src={washUrl} alt="" aria-hidden />
+            ) : null}
+            <MediaPreview generation={generation} className="result-preview" />
             {canDownload && generation.resultUrl ? (
               <div className="media-actions">
                 <DownloadButton
