@@ -1,4 +1,10 @@
+import { arrayBufferToDataUri, guessMediaContentType } from "./media";
+import { encodeImageForOxen } from "./thumbs";
+
 const MEDIA_PATH_PREFIX = "/api/media/";
+
+/** Raw bytes we will base64-inline so Oxen does not have to GET Studio. */
+export const OXEN_INLINE_MEDIA_MAX_BYTES = 12 * 1024 * 1024;
 
 export function isOxenHostedMediaUrl(value: string): boolean {
   try {
@@ -63,4 +69,49 @@ export async function rewriteRefsToOxenSources(
     out.push(source ?? url);
   }
   return out;
+}
+
+export async function inlineStudioMediaRefs(
+  bucket: R2Bucket,
+  urls: string[],
+  options?: { maxBytes?: number; images?: ImagesBinding },
+): Promise<string[]> {
+  const maxBytes = options?.maxBytes ?? OXEN_INLINE_MEDIA_MAX_BYTES;
+  const out: string[] = [];
+  for (const url of urls) {
+    if (url.startsWith("data:") || isOxenHostedMediaUrl(url)) {
+      out.push(url);
+      continue;
+    }
+    const key = studioMediaKeyFromUrl(url);
+    if (!key) {
+      out.push(url);
+      continue;
+    }
+    const object = await bucket.get(key);
+    if (!object) {
+      out.push(url);
+      continue;
+    }
+    if (object.size > maxBytes) {
+      out.push(url);
+      continue;
+    }
+    const raw = await object.arrayBuffer();
+    const sourceType = object.httpMetadata?.contentType || guessMediaContentType(key);
+    const encoded = await encodeImageForOxen(options?.images, raw, sourceType);
+    out.push(arrayBufferToDataUri(encoded.bytes, encoded.contentType));
+  }
+  return out;
+}
+
+export async function resolveRefsForOxen(
+  db: D1Database,
+  bucket: R2Bucket,
+  userId: string,
+  urls: string[],
+  images?: ImagesBinding,
+): Promise<string[]> {
+  const rewritten = await rewriteRefsToOxenSources(db, userId, urls);
+  return inlineStudioMediaRefs(bucket, rewritten, { images });
 }

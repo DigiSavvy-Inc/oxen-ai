@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { parseCleanupAction, thumbIsReusable } from "../worker/library";
-import { createImageThumbnail, isRasterImage, THUMB_MAX_BYTES } from "../worker/thumbs";
+import {
+  createImageThumbnail,
+  encodeImageForOxen,
+  isRasterImage,
+  THUMB_MAX_BYTES,
+} from "../worker/thumbs";
 
 describe("library cleanup", () => {
   it("accepts failed and thumbs actions", () => {
@@ -15,6 +20,11 @@ describe("thumbnails", () => {
     expect(isRasterImage("image/png")).toBe(true);
     expect(isRasterImage("video/mp4")).toBe(false);
     expect(await createImageThumbnail(undefined, new ArrayBuffer(8), "image/png")).toBeNull();
+    const raw = new Uint8Array([1, 2, 3, 4]).buffer;
+    await expect(encodeImageForOxen(undefined, raw, "image/png")).resolves.toEqual({
+      bytes: raw,
+      contentType: "image/png",
+    });
   });
 
   it("skips R2 HEADs for thumbs that already exist unless rebuilding oversized files", () => {

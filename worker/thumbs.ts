@@ -50,6 +50,29 @@ async function encodeThumb(
   }
 }
 
+/** Shrink large reference stills for the Oxen enqueue body. Stored R2 files stay original. */
+export async function encodeImageForOxen(
+  images: ImagesBinding | undefined,
+  bytes: ArrayBuffer,
+  contentType: string,
+): Promise<{ bytes: ArrayBuffer; contentType: string }> {
+  const skipBelow = 2_500_000;
+  if (!images || !isRasterImage(contentType) || bytes.byteLength <= skipBelow) {
+    return { bytes, contentType };
+  }
+  try {
+    const stream = toStream(bytes);
+    const result = await images.input(stream).output({ format: "image/jpeg", quality: 88 });
+    const encoded = await result.response().arrayBuffer();
+    if (encoded.byteLength > 0 && encoded.byteLength < bytes.byteLength) {
+      return { bytes: encoded, contentType: result.contentType() || "image/jpeg" };
+    }
+  } catch (err) {
+    console.error("oxen image encode error", err);
+  }
+  return { bytes, contentType };
+}
+
 export async function createImageThumbnail(
   images: ImagesBinding | undefined,
   bytes: ArrayBuffer,
