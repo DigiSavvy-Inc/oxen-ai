@@ -212,6 +212,7 @@ export function SettingsModal({
     const outcome = await promptInstall();
     if (outcome === "accepted") {
       setInstallReady(false);
+      setInstalled(true);
       setNotifyMessage("DS Studio is installing. Open it from your home screen.");
       return;
     }

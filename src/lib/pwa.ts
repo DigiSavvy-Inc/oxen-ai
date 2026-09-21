@@ -129,11 +129,14 @@ export async function enablePushNotifications(): Promise<{
   }
   const registration = await navigator.serviceWorker.ready;
   const existing = await registration.pushManager.getSubscription();
-  const subscription =
+    const applicationServerKey = Uint8Array.from(
+      urlBase64ToUint8Array(config.vapidPublicKey),
+    );
+    const subscription =
     existing ??
     (await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(config.vapidPublicKey),
+      applicationServerKey,
     }));
   await api.subscribePush(subscription.toJSON());
   return { permission, subscribed: true };

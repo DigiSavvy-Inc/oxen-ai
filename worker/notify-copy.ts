@@ -10,8 +10,12 @@ export function isTerminalNotifyStatus(status: string): boolean {
   return status === "succeeded" || status === "failed";
 }
 
+export function isSettledStatus(status: string): boolean {
+  return isTerminalNotifyStatus(status) || status === "cancelled";
+}
+
 export function shouldNotifyStatusChange(previous: string, next: string): boolean {
-  return isTerminalNotifyStatus(next) && previous !== next && !isTerminalNotifyStatus(previous);
+  return isTerminalNotifyStatus(next) && previous !== next && !isSettledStatus(previous);
 }
 
 export function generationNotifyCopy(generation: GenerationNotifyInput): {
