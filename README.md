@@ -15,6 +15,7 @@ This repository does **not** auto-deploy. CI lints, tests, and typechecks; `wran
 - GitHub OAuth: DigiSavvy-Inc org members **or** D1 allowlist (admins manage it in Settings)
 - Per-user encrypted Oxen API keys
 - R2 uploads for reference media (data URI fallback locally)
+- Installable PWA (Add to Home Screen) with optional generation-complete notifications
 
 ## Setup
 
@@ -76,9 +77,10 @@ Paste the printed D1 `database_id` into `wrangler.jsonc` (replace the all-zeros 
 npx wrangler secret put GITHUB_CLIENT_SECRET
 npx wrangler secret put ENCRYPTION_KEY
 npx wrangler secret put SESSION_SECRET
+npx wrangler secret put VAPID_PRIVATE_KEY
 ```
 
-Use long random values for `ENCRYPTION_KEY` and `SESSION_SECRET` (32+ bytes).
+Use long random values for `ENCRYPTION_KEY` and `SESSION_SECRET` (32+ bytes). Generate a P-256 VAPID pair once; store the private key as a secret and the public key as a deploy-time var. Never commit either key.
 
 ### 4. Production vars
 
@@ -90,6 +92,7 @@ GITHUB_ADMINS=digisavvy
 GITHUB_CLIENT_ID=<id from the new OAuth app>
 PUBLIC_BASE_URL=https://studio.digisavvy.dev
 SESSION_TTL_SECONDS=604800
+VAPID_PUBLIC_KEY=<url-safe base64 P-256 public key>
 ```
 
 Do not put `PUBLIC_BASE_URL` or a real `GITHUB_CLIENT_ID` in the committed jsonc — both would change local `npm run dev` (signed media URLs / OAuth redirects).

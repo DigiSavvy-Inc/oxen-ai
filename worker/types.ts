@@ -14,6 +14,12 @@ export type Env = {
   PUBLIC_BASE_URL?: string;
   /** Local-only: `gh auth token`. Used when no OAuth app is configured. */
   GH_TOKEN?: string;
+  /** Web Push VAPID public key (URL-safe base64). Set as a deploy-time var. */
+  VAPID_PUBLIC_KEY?: string;
+  /** Web Push VAPID private key. Set with `wrangler secret put`, never commit. */
+  VAPID_PRIVATE_KEY?: string;
+  /** Optional `mailto:` or HTTPS origin for VAPID. */
+  VAPID_SUBJECT?: string;
 };
 
 export type UserRow = {
