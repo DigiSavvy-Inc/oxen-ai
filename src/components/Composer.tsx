@@ -25,6 +25,7 @@ import {
 } from "../lib/mentions";
 import { shortenFileName } from "../lib/files";
 import { mediaKindCap } from "../lib/library-refs";
+import { aspectCatalog, aspectSelectOptions } from "../lib/params";
 import { AudioAttachControl, ExpandMediaButton } from "./MediaLightbox";
 import { ModelMenu } from "./ModelMenu";
 
@@ -119,12 +120,10 @@ export function Composer(props: Props) {
     props.mode === "image-to-image" ||
     props.mode === "reference-to-video" ||
     props.mode === "video-to-video";
-  const aspectOptions =
-    props.controls?.aspectRatios && props.controls.aspectRatios.length > 0
-      ? props.controls.aspectRatios
-      : props.mode && modeIsVideo(props.mode)
-        ? ["16:9", "9:16", "1:1"]
-        : ["1:1", "16:9", "9:16", "4:3", "3:4"];
+  const aspectOptions = aspectSelectOptions(
+    aspectCatalog(props.controls, props.mode),
+    props.aspectRatio,
+  );
   const selectedModel = props.models.find((item) => item.id === props.model);
   const cost = estimateGenerationCost({
     pricing: props.controls?.pricing ?? selectedModel?.pricing,
@@ -344,7 +343,8 @@ export function Composer(props: Props) {
         </div>
 
         <div className="prompt-drop">
-          <div className="prompt-field" style={{ height: promptHeight }}>
+          <div className="prompt-box">
+            <div className="prompt-field" style={{ height: promptHeight }}>
             <div className="prompt-highlight" aria-hidden ref={highlightRef}>
               {highlightParts.map((part, index) => {
                 if (part.type === "text") return <span key={`t-${index}`}>{part.value}</span>;
@@ -439,7 +439,14 @@ export function Composer(props: Props) {
             aria-orientation="horizontal"
             aria-label="Resize prompt"
             onPointerDown={startPromptResize}
-          />
+          >
+            <span className="prompt-resize-mark" aria-hidden>
+              <span className="prompt-resize-arrow is-up" />
+              <span className="prompt-resize-line" />
+              <span className="prompt-resize-arrow is-down" />
+            </span>
+          </div>
+          </div>
           {showMentions ? (
             <div className="mention-menu" role="listbox">
               {mentionItems.map((item, index) => (
@@ -609,7 +616,7 @@ export function Composer(props: Props) {
           <ToolbarField label="Aspect">
             <select
               className="select"
-              value={aspectOptions.includes(props.aspectRatio) ? props.aspectRatio : aspectOptions[0]}
+              value={props.aspectRatio}
               onChange={(e) => props.onAspectRatioChange(e.target.value)}
             >
               {aspectOptions.map((ratio) => (
