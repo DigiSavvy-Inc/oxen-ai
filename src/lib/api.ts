@@ -254,6 +254,8 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tags }),
     }).then((r) => parseJson<{ generation: Generation }>(r)),
+  deleteGeneration: (id: string) =>
+    fetch(`/api/generations/${id}`, { method: "DELETE" }).then((r) => parseJson(r)),
   cancelGeneration: (id: string) =>
     fetch(`/api/generations/${id}`, { method: "DELETE" }).then((r) => parseJson(r)),
   cleanupLibrary: (action: "failed" | "thumbs") =>

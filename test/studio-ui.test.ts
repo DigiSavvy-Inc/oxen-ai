@@ -450,6 +450,17 @@ describe("copy prompt", () => {
     ).toBe(false);
   });
 
+  it("exposes a Delete control on the canvas and library peek", () => {
+    const canvas = readFileSync(new URL("../src/components/Canvas.tsx", import.meta.url), "utf8");
+    const peek = readFileSync(new URL("../src/components/LibraryPeek.tsx", import.meta.url), "utf8");
+    const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+    expect(canvas).toContain("Delete");
+    expect(canvas).toContain("onDelete");
+    expect(peek).toContain("Delete");
+    expect(app).toContain("requestDeleteMedia");
+    expect(app).toContain("api.deleteGeneration");
+  });
+
   it("puts a copy control next to saved prompts on the canvas and library peek", () => {
     const canvas = readFileSync(new URL("../src/components/Canvas.tsx", import.meta.url), "utf8");
     const peek = readFileSync(new URL("../src/components/LibraryPeek.tsx", import.meta.url), "utf8");

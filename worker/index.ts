@@ -27,10 +27,10 @@ import {
   putMediaObject,
   verifyMediaSignature,
 } from "./media";
+import { deleteOxenGeneration } from "./oxen-delete";
 import { rewriteRefsToOxenSources } from "./oxen-refs";
 import {
   buildEnqueuePayload,
-  cancelGeneration,
   downloadOxenResult,
   enqueueGeneration,
   extractOxenErrorMessage,
@@ -1388,14 +1388,12 @@ app.delete("/api/generations/:id", async (c) => {
   if (!row) {
     throw new HTTPException(404, { message: "Generation not found" });
   }
-  if (!["succeeded", "failed", "cancelled"].includes(row.status)) {
-    const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
-    if (apiKey) {
-      try {
-        await cancelGeneration(apiKey, row.oxen_generation_id);
-      } catch (err) {
-        console.error("cancel error", err);
-      }
+  const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
+  if (apiKey && row.oxen_generation_id) {
+    try {
+      await deleteOxenGeneration(apiKey, row.oxen_generation_id, row.result_url);
+    } catch (err) {
+      console.error("oxen delete error", err);
     }
   }
   await deleteGenerationRecord(c.env, user.id, row);

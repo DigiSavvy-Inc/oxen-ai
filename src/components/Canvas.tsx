@@ -164,11 +164,13 @@ export function Canvas({
   variants,
   onSelect,
   onTagsChange,
+  onDelete,
 }: {
   generation: Generation | null;
   variants: Generation[];
   onSelect: (id: string) => void;
   onTagsChange: (id: string, tags: string[]) => void;
+  onDelete?: (id: string) => void;
 }) {
   if (!generation) {
     return (
@@ -196,9 +198,16 @@ export function Canvas({
           <h3>
             {label} · {generation.model}
           </h3>
-          <span className={`pill ${generation.status === "succeeded" ? "ok" : "warn"}`}>
-            {generation.status}
-          </span>
+          <div className="frame-head-actions">
+            <span className={`pill ${generation.status === "succeeded" ? "ok" : "warn"}`}>
+              {generation.status}
+            </span>
+            {onDelete ? (
+              <button type="button" className="ghost-btn" onClick={() => onDelete(generation.id)}>
+                Delete
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className={`result-stage${showStrip ? " has-strip" : ""}`}>
           <div className="result-media">
