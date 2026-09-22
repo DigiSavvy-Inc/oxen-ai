@@ -1083,6 +1083,8 @@ app.post("/api/generate", async (c) => {
     images?: string[];
     videos?: string[];
     audios?: string[];
+    image_roles?: ("character" | "scene")[];
+    video_roles?: ("character" | "scene")[];
     generate_audio?: boolean;
     num_generations?: number;
     quality?: string;
@@ -1150,11 +1152,18 @@ app.post("/api/generate", async (c) => {
 
   const mapped =
     controls.slots.length > 0
-      ? mapMediaUrls(controls.slots, {
-          image: imageUrls,
-          video: videoUrls,
-          audio: audioUrls,
-        })
+      ? mapMediaUrls(
+          controls.slots,
+          {
+            image: imageUrls,
+            video: videoUrls,
+            audio: audioUrls,
+          },
+          {
+            image: body.image_roles,
+            video: body.video_roles,
+          },
+        )
       : {};
   const useFallback = controls.slots.length === 0;
 

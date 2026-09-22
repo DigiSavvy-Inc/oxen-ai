@@ -43,6 +43,7 @@ type StagedMedia = {
   name: string;
   url?: string;
   generationId?: string;
+  role?: "character" | "scene";
 };
 
 function initialLibraryOpen(): boolean {
@@ -419,6 +420,16 @@ export default function App() {
     return mediaKindCap(controls, mode, kind);
   }
 
+  function modelHasFaceSlot(kind: "image" | "video") {
+    const field = kind === "image" ? "input_face_images" : "input_face_videos";
+    return Boolean(controls?.slots.some((slot) => slot.field === field));
+  }
+
+  function mentionStart(kind: "image" | "video" | "audio", existing: StagedMedia[]) {
+    if (kind === "audio" || !modelHasFaceSlot(kind)) return existing.length;
+    return existing.filter((item) => item.role !== "scene").length;
+  }
+
   function appendMentionTokens(kind: "image" | "video" | "audio", existingCount: number, addedCount: number) {
     if (addedCount <= 0) return;
     setPrompt((current) => appendAttachMention(current, kind, existingCount, addedCount));
@@ -427,23 +438,25 @@ export default function App() {
   function addFilesOfKind(kind: "image" | "video" | "audio", incoming: File[]) {
     if (incoming.length === 0) return;
     const cap = capForKind(kind);
-    const existingCount = staged.filter((item) => item.kind === kind).length;
+    const existing = staged.filter((item) => item.kind === kind);
+    const start = mentionStart(kind, existing);
     setStaged((prev) => {
       const others = prev.filter((item) => item.kind !== kind);
-      const existing = prev.filter((item) => item.kind === kind);
+      const existingItems = prev.filter((item) => item.kind === kind);
       const added = incoming.map((file) => ({
         file,
         kind,
         name: file.name,
         preview: URL.createObjectURL(file),
+        role: kind === "audio" ? undefined : ("character" as const),
       }));
-      const merged = [...existing, ...added].slice(0, cap);
-      for (const item of existing) {
+      const merged = [...existingItems, ...added].slice(0, cap);
+      for (const item of existingItems) {
         if (!merged.includes(item)) releasePreview(item.preview);
       }
       return [...others, ...merged];
     });
-    appendMentionTokens(kind, existingCount, Math.min(incoming.length, Math.max(0, cap - existingCount)));
+    appendMentionTokens(kind, start, Math.min(incoming.length, Math.max(0, cap - existing.length)));
   }
 
   function onAddFiles(list: FileList | File[] | null) {
@@ -463,7 +476,8 @@ export default function App() {
     const cap = capForKind(ref.kind);
     if (cap <= 0) return;
     if (staged.some((item) => item.generationId === ref.generationId)) return;
-    const existingCount = staged.filter((item) => item.kind === ref.kind).length;
+    const existing = staged.filter((item) => item.kind === ref.kind);
+    const start = mentionStart(ref.kind, existing);
     setStaged((prev) =>
       mergeLibraryRefs(
         prev,
@@ -474,12 +488,13 @@ export default function App() {
             preview: ref.preview,
             url: ref.url,
             generationId: ref.generationId,
+            role: ref.kind === "audio" ? undefined : ("character" as const),
           },
         ],
         capForKind,
       ),
     );
-    if (existingCount < cap) appendMentionTokens(ref.kind, existingCount, 1);
+    if (existing.length < cap) appendMentionTokens(ref.kind, start, 1);
   }
 
   function startNew() {
@@ -507,6 +522,15 @@ export default function App() {
         return current !== index;
       });
     });
+  }
+
+  function onToggleAttachmentRole(index: number) {
+    setStaged((prev) =>
+      prev.map((item, itemIndex) => {
+        if (itemIndex !== index || item.kind === "audio") return item;
+        return { ...item, role: item.role === "scene" ? "character" : "scene" };
+      }),
+    );
   }
 
   function onReorderAttachments(from: number, to: number) {
@@ -629,6 +653,8 @@ export default function App() {
       const images: string[] = [];
       const videos: string[] = [];
       const audios: string[] = [];
+      const imageRoles: ("character" | "scene")[] = [];
+      const videoRoles: ("character" | "scene")[] = [];
       const sendable = [
         ...takeStagedOfKind(staged, "image", capForKind("image")),
         ...takeStagedOfKind(staged, "video", capForKind("video")),
@@ -637,9 +663,14 @@ export default function App() {
       for (const item of sendable) {
         const url = item.url ?? (item.file ? (await api.upload(item.file)).url : "");
         if (!url) continue;
-        if (item.kind === "image") images.push(url);
-        else if (item.kind === "video") videos.push(url);
-        else audios.push(url);
+        const role = item.role === "scene" ? "scene" : "character";
+        if (item.kind === "image") {
+          images.push(url);
+          imageRoles.push(role);
+        } else if (item.kind === "video") {
+          videos.push(url);
+          videoRoles.push(role);
+        } else audios.push(url);
       }
 
       const payload: Record<string, unknown> = {
@@ -661,8 +692,14 @@ export default function App() {
       if (resolution) payload.resolution = resolution;
       if (outputFormat) payload.output_format = outputFormat;
       if (background) payload.background = background;
-      if (images.length) payload.images = images;
-      if (videos.length) payload.videos = videos;
+      if (images.length) {
+        payload.images = images;
+        if (modelHasFaceSlot("image")) payload.image_roles = imageRoles;
+      }
+      if (videos.length) {
+        payload.videos = videos;
+        if (modelHasFaceSlot("video")) payload.video_roles = videoRoles;
+      }
       if (audios.length) payload.audios = audios;
 
       const { generations: created } = await api.generate(payload);
@@ -798,9 +835,11 @@ export default function App() {
             name: item.name,
             preview: item.preview,
             kind: item.kind,
+            role: item.role,
           }))}
           onAddFiles={onAddFiles}
           onClearAttachment={onClearAttachment}
+          onToggleAttachmentRole={onToggleAttachmentRole}
           onReorderAttachments={onReorderAttachments}
           busy={busy}
           error={error}

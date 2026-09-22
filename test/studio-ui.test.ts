@@ -1,5 +1,8 @@
 import { readFileSync } from "node:fs";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { Composer } from "../src/components/Composer";
 import {
   batchPreviewItems,
   coverGeneration,
@@ -14,6 +17,7 @@ import {
   mentionToken,
   slotRequired,
   type Generation,
+  type ModelControls,
 } from "../src/lib/api";
 import { copyText } from "../src/lib/clipboard";
 import { canvasWashUrl, downloadFilename, mediaAssetId, tilePreviewUrl } from "../src/lib/download";
@@ -35,7 +39,9 @@ import {
   insertMentionToken,
   mentionAtCaret,
   mentionAtOffset,
+  mentionOrdered,
   moveItem,
+  tokenForItem,
   promptHighlightParts,
 } from "../src/lib/mentions";
 import { filterModels, generationCountForModelChange, groupPreferredModels, modelLabel, pickModel } from "../src/lib/model-menu";
@@ -215,6 +221,176 @@ describe("mentions and cost", () => {
     expect(attachmentForMention(items, { kind: "image", index: 1 })?.name).toBe("c.png");
     expect(attachmentForMention(items, { kind: "video", index: 0 })?.name).toBe("b.mp4");
     expect(attachmentForMention(items, { kind: "audio", index: 0 })).toBeNull();
+  });
+
+  it("exposes a Seedance character or scene control on reference chips", () => {
+    const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+    const composer = readFileSync(new URL("../src/components/Composer.tsx", import.meta.url), "utf8");
+    expect(app).toContain("image_roles");
+    expect(app).toContain("video_roles");
+    expect(app).toContain("onToggleAttachmentRole");
+    expect(composer).toContain("attach-role");
+    expect(composer).toContain("mentionOrdered");
+    expect(composer).toContain("input_face_images");
+  });
+
+  it("numbers character chips before scene chips and hides the control without a face slot", () => {
+    const controls: ModelControls = {
+      modelId: "bytedance-seedance-2-0-fast-reference-to-video",
+      aspectRatios: ["16:9"],
+      duration: { kind: "int", min: 4, max: 15 },
+      seed: false,
+      generateAudio: true,
+      quality: null,
+      resolution: ["480p", "720p"],
+      outputFormat: null,
+      background: null,
+      mentions: true,
+      pricing: null,
+      slots: [
+        { field: "input_face_images", kind: "image", required: false, maxItems: 9, asArray: true },
+        { field: "input_images", kind: "image", required: false, maxItems: 9, asArray: true },
+        { field: "input_face_videos", kind: "video", required: false, maxItems: 3, asArray: true },
+        { field: "input_videos", kind: "video", required: false, maxItems: 3, asArray: true },
+        { field: "input_audios", kind: "audio", required: false, maxItems: 3, asArray: true },
+      ],
+    };
+    const html = renderToStaticMarkup(
+      createElement(Composer, {
+        mode: "reference-to-video",
+        onModeChange: () => undefined,
+        models: [{ id: controls.modelId, display_name: "Seedance 2.0 Fast" }],
+        preferred: [],
+        model: controls.modelId,
+        onModelChange: () => undefined,
+        modelQuery: "",
+        onModelQueryChange: () => undefined,
+        isFavorite: false,
+        onToggleFavorite: () => undefined,
+        controls,
+        prompt: "",
+        onPromptChange: () => undefined,
+        aspectRatio: "16:9",
+        onAspectRatioChange: () => undefined,
+        duration: "4",
+        onDurationChange: () => undefined,
+        seed: "",
+        onSeedChange: () => undefined,
+        numGenerations: 1,
+        onNumGenerationsChange: () => undefined,
+        generateAudio: true,
+        onGenerateAudioChange: () => undefined,
+        quality: "",
+        onQualityChange: () => undefined,
+        resolution: "480p",
+        onResolutionChange: () => undefined,
+        outputFormat: "",
+        onOutputFormatChange: () => undefined,
+        background: "",
+        onBackgroundChange: () => undefined,
+        attachments: [
+          { name: "room.png", preview: "data:image/gif;base64,room", kind: "image", role: "scene" },
+          { name: "hero.png", preview: "data:image/gif;base64,hero", kind: "image", role: "character" },
+          { name: "walk.mp4", preview: "data:video/mp4;base64,walk", kind: "video", role: "character" },
+          { name: "voice.mp3", preview: "", kind: "audio" },
+        ],
+        onAddFiles: () => undefined,
+        onClearAttachment: () => undefined,
+        onToggleAttachmentRole: () => undefined,
+        onReorderAttachments: () => undefined,
+        busy: false,
+        error: null,
+        onGenerate: () => undefined,
+        canGenerate: true,
+      }),
+    );
+    const tokenBefore = (markup: string, name: string) => {
+      const at = markup.indexOf(name);
+      return markup.slice(Math.max(0, at - 80), at).match(/@(Image|Video|Audio)\d+/)?.[0] ?? "";
+    };
+    expect(html.indexOf("room.png")).toBeLessThan(html.indexOf("hero.png"));
+    expect(tokenBefore(html, "room.png")).toBe("@Image2");
+    expect(tokenBefore(html, "hero.png")).toBe("@Image1");
+    expect(tokenBefore(html, "walk.mp4")).toBe("@Video1");
+    const audioName = html.indexOf('class="attach-chip-name">voice.mp3');
+    expect(html.slice(audioName - 80, audioName)).toContain("@Audio1");
+    expect(html.slice(audioName, audioName + 180)).not.toContain("attach-role");
+    expect(html.match(/class="attach-role"/g)?.length).toBe(2);
+    expect(html.match(/class="attach-role is-scene"/g)?.length).toBe(1);
+
+    const plain = renderToStaticMarkup(
+      createElement(Composer, {
+        mode: "image-to-image",
+        onModeChange: () => undefined,
+        models: [{ id: "flux" }],
+        preferred: [],
+        model: "flux",
+        onModelChange: () => undefined,
+        modelQuery: "",
+        onModelQueryChange: () => undefined,
+        isFavorite: false,
+        onToggleFavorite: () => undefined,
+        controls: { ...controls, modelId: "flux", slots: [
+          { field: "input_images", kind: "image", required: false, maxItems: 4, asArray: true },
+        ] },
+        prompt: "",
+        onPromptChange: () => undefined,
+        aspectRatio: "1:1",
+        onAspectRatioChange: () => undefined,
+        duration: "",
+        onDurationChange: () => undefined,
+        seed: "",
+        onSeedChange: () => undefined,
+        numGenerations: 1,
+        onNumGenerationsChange: () => undefined,
+        generateAudio: false,
+        onGenerateAudioChange: () => undefined,
+        quality: "",
+        onQualityChange: () => undefined,
+        resolution: "",
+        onResolutionChange: () => undefined,
+        outputFormat: "",
+        onOutputFormatChange: () => undefined,
+        background: "",
+        onBackgroundChange: () => undefined,
+        attachments: [
+          { name: "room.png", preview: "data:image/gif;base64,room", kind: "image", role: "scene" },
+          { name: "hero.png", preview: "data:image/gif;base64,hero", kind: "image", role: "character" },
+        ],
+        onAddFiles: () => undefined,
+        onClearAttachment: () => undefined,
+        onToggleAttachmentRole: () => undefined,
+        onReorderAttachments: () => undefined,
+        busy: false,
+        error: null,
+        onGenerate: () => undefined,
+        canGenerate: true,
+      }),
+    );
+    expect(plain).not.toContain("attach-role");
+    expect(plain.indexOf("room.png")).toBeLessThan(plain.indexOf("hero.png"));
+    expect(tokenBefore(plain, "room.png")).toBe("@Image1");
+    expect(tokenBefore(plain, "hero.png")).toBe("@Image2");
+  });
+
+  it("numbers Seedance character refs before scene refs", () => {
+    const items = [
+      { name: "room.png", kind: "image" as const, role: "scene" as const },
+      { name: "hero.png", kind: "image" as const, role: "character" as const },
+      { name: "walk.mp4", kind: "video" as const, role: "character" as const },
+      { name: "plate.mp4", kind: "video" as const, role: "scene" as const },
+    ];
+    const ordered = mentionOrdered(items, true);
+    expect(ordered.map((item) => item.name)).toEqual([
+      "hero.png",
+      "room.png",
+      "walk.mp4",
+      "plate.mp4",
+    ]);
+    expect(attachmentForMention(ordered, { kind: "image", index: 0 })?.name).toBe("hero.png");
+    expect(attachmentForMention(ordered, { kind: "image", index: 1 })?.name).toBe("room.png");
+    expect(tokenForItem(ordered, items[0]!, 0)).toBe("@Image2");
+    expect(tokenForItem(ordered, items[1]!, 1)).toBe("@Image1");
   });
 
   it("does not require optional Seedance video refs just because the mode is Video → Video", () => {
