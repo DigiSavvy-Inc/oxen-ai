@@ -29,7 +29,7 @@ import {
   verifyMediaSignature,
 } from "./media";
 import { deleteOxenGeneration } from "./oxen-delete";
-import { resolveRefsForOxen } from "./oxen-refs";
+import { collectOxenRefs, resolveRefsForOxen } from "./oxen-refs";
 import {
   buildEnqueuePayload,
   downloadOxenResult,
@@ -1114,33 +1114,41 @@ app.post("/api/generate", async (c) => {
     console.error("model schema error", err);
   }
 
+  const imageHasFace = controls.slots.some((slot) => slot.field === "input_face_images");
+  const videoHasFace = controls.slots.some((slot) => slot.field === "input_face_videos");
+  const imageRefs = collectOxenRefs([
+    { urls: body.images ?? [], roles: body.image_roles, face: imageHasFace },
+    {
+      urls: Array.isArray(body.input_image)
+        ? body.input_image
+        : body.input_image
+          ? [body.input_image]
+          : [],
+    },
+    { urls: body.input_images ?? [] },
+    { urls: body.input_face_images ?? [], face: true },
+  ]);
+  const videoRefs = collectOxenRefs([
+    { urls: body.videos ?? [], roles: body.video_roles, face: videoHasFace },
+    { urls: body.input_video ? [body.input_video] : [] },
+    { urls: body.input_videos ?? [] },
+    { urls: body.input_face_videos ?? [], face: true },
+  ]);
   const imageUrls = await resolveRefsForOxen(
     c.env.DB,
     c.env.MEDIA,
     user.id,
-    [
-      ...(body.images ?? []),
-      ...(Array.isArray(body.input_image)
-        ? body.input_image
-        : body.input_image
-          ? [body.input_image]
-          : []),
-      ...(body.input_images ?? []),
-      ...(body.input_face_images ?? []),
-    ].filter((url) => url.trim()),
+    imageRefs.urls,
     c.env.IMAGES,
+    imageRefs.keepHttps,
   );
   const videoUrls = await resolveRefsForOxen(
     c.env.DB,
     c.env.MEDIA,
     user.id,
-    [
-      ...(body.videos ?? []),
-      ...(body.input_video ? [body.input_video] : []),
-      ...(body.input_videos ?? []),
-      ...(body.input_face_videos ?? []),
-    ].filter((url) => url.trim()),
+    videoRefs.urls,
     c.env.IMAGES,
+    videoRefs.keepHttps,
   );
   const audioUrls = await resolveRefsForOxen(
     c.env.DB,

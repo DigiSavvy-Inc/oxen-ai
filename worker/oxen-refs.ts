@@ -74,11 +74,16 @@ export async function rewriteRefsToOxenSources(
 export async function inlineStudioMediaRefs(
   bucket: R2Bucket,
   urls: string[],
-  options?: { maxBytes?: number; images?: ImagesBinding },
+  options?: { maxBytes?: number; images?: ImagesBinding; keepHttps?: boolean[] },
 ): Promise<string[]> {
   const maxBytes = options?.maxBytes ?? OXEN_INLINE_MEDIA_MAX_BYTES;
   const out: string[] = [];
-  for (const url of urls) {
+  for (const [index, url] of urls.entries()) {
+    // Seedance face upload rejects data: URIs (`unsupported_url_scheme`).
+    if (options?.keepHttps?.[index]) {
+      out.push(url);
+      continue;
+    }
     if (url.startsWith("data:") || isOxenHostedMediaUrl(url)) {
       out.push(url);
       continue;
@@ -111,7 +116,32 @@ export async function resolveRefsForOxen(
   userId: string,
   urls: string[],
   images?: ImagesBinding,
+  keepHttps?: boolean[],
 ): Promise<string[]> {
   const rewritten = await rewriteRefsToOxenSources(db, userId, urls);
-  return inlineStudioMediaRefs(bucket, rewritten, { images });
+  return inlineStudioMediaRefs(bucket, rewritten, { images, keepHttps });
+}
+
+export type OxenRefGroup = {
+  urls: string[];
+  roles?: ("character" | "scene")[];
+  face?: boolean;
+};
+
+/** Pair each ref with whether Seedance must fetch it over https. */
+export function collectOxenRefs(groups: OxenRefGroup[]): { urls: string[]; keepHttps: boolean[] } {
+  const urls: string[] = [];
+  const keepHttps: boolean[] = [];
+  for (const group of groups) {
+    group.urls.forEach((raw, index) => {
+      const url = raw.trim();
+      if (!url) return;
+      urls.push(url);
+      const face = group.roles
+        ? Boolean(group.face) && group.roles[index] !== "scene"
+        : Boolean(group.face);
+      keepHttps.push(face);
+    });
+  }
+  return { urls, keepHttps };
 }
