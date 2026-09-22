@@ -3,7 +3,6 @@ import {
   ALL_MODES,
   MODE_LABELS,
   estimateGenerationCost,
-  mentionToken,
   modeIsVideo,
   modelSupportsMode,
   slotRequired,
@@ -19,6 +18,7 @@ import {
   indexAfterInsertBefore,
   insertMentionToken,
   mentionAtCaret,
+  mentionOrdered,
   promptHighlightParts,
   tokenForItem,
   type PromptMention,
@@ -33,7 +33,23 @@ type AttachItem = {
   name: string;
   preview: string;
   kind: "image" | "video" | "audio";
+  role?: "character" | "scene";
 };
+
+function faceFieldForKind(kind: AttachItem["kind"]): "input_face_images" | "input_face_videos" | null {
+  switch (kind) {
+    case "image":
+      return "input_face_images";
+    case "video":
+      return "input_face_videos";
+    case "audio":
+      return null;
+    default: {
+      const _exhaustive: never = kind;
+      return _exhaustive;
+    }
+  }
+}
 
 function ToolbarField({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -83,6 +99,7 @@ type Props = {
   attachments: AttachItem[];
   onAddFiles: (files: FileList | File[] | null) => void;
   onClearAttachment: (kind: "image" | "video" | "audio", index: number) => void;
+  onToggleAttachmentRole: (index: number) => void;
   onReorderAttachments: (from: number, to: number) => void;
   busy: boolean;
   error: string | null;
@@ -169,11 +186,20 @@ export function Composer(props: Props) {
     const option = controlPrice(kind, value);
     return option.amount != null ? `${value} · ${option.label}` : value;
   }
+  const faceFirst = Boolean(
+    props.controls?.slots.some(
+      (slot) => slot.field === "input_face_images" || slot.field === "input_face_videos",
+    ),
+  );
+  const mentionSource = useMemo(
+    () => mentionOrdered(props.attachments, faceFirst),
+    [props.attachments, faceFirst],
+  );
   const mention = mentionAtCaret(props.prompt, caret);
   const mentionItems = useMemo(() => {
-    if (!mention || props.attachments.length === 0) return [];
-    return filterMentionItems(mention.query, props.attachments);
-  }, [mention, props.attachments]);
+    if (!mention || mentionSource.length === 0) return [];
+    return filterMentionItems(mention.query, mentionSource);
+  }, [mention, mentionSource]);
   const showMentions = Boolean(
     mentionOpen && props.controls?.mentions && mention && mentionItems.length > 0,
   );
@@ -229,7 +255,7 @@ export function Composer(props: Props) {
 
   function insertMention(item: AttachItem) {
     const index = Math.max(0, props.attachments.indexOf(item));
-    const token = tokenForItem(props.attachments, item, index);
+    const token = tokenForItem(mentionSource, item, index);
     const result = insertMentionToken(props.prompt, caret, token);
     if (!result) return;
     setMentionOpen(false);
@@ -239,7 +265,7 @@ export function Composer(props: Props) {
   }
 
   function openMentionHover(mention: PromptMention, el: HTMLElement) {
-    const item = attachmentForMention(props.attachments, mention);
+    const item = attachmentForMention(mentionSource, mention);
     if (!item || (item.kind !== "audio" && !item.preview)) {
       setHoveredMention(null);
       return;
@@ -356,7 +382,7 @@ export function Composer(props: Props) {
             <div className="prompt-highlight" aria-hidden ref={highlightRef}>
               {highlightParts.map((part, index) => {
                 if (part.type === "text") return <span key={`t-${index}`}>{part.value}</span>;
-                const item = attachmentForMention(props.attachments, part.mention);
+                const item = attachmentForMention(mentionSource, part.mention);
                 return (
                   <span
                     key={`m-${part.mention.start}-${part.mention.token}`}
@@ -475,7 +501,7 @@ export function Composer(props: Props) {
                     <span className="pill">{item.kind.slice(0, 3).toUpperCase()}</span>
                   )}
                   <span>
-                    {tokenForItem(props.attachments, item, index)} · {item.name}
+                    {tokenForItem(mentionSource, item, index)} · {item.name}
                   </span>
                 </button>
               ))}
@@ -505,7 +531,12 @@ export function Composer(props: Props) {
             {props.attachments.map((item, index) => {
               const ofKind = props.attachments.filter((entry) => entry.kind === item.kind);
               const kindIndex = ofKind.indexOf(item);
-              const token = mentionToken(item.kind, kindIndex);
+              const token = tokenForItem(mentionSource, item, index);
+              const roleField = faceFieldForKind(item.kind);
+              const showRole = Boolean(
+                roleField && props.controls?.slots.some((slot) => slot.field === roleField),
+              );
+              const isScene = item.role === "scene";
               const showSlot =
                 dragIndex != null &&
                 dropInsertBefore === index &&
@@ -570,6 +601,21 @@ export function Composer(props: Props) {
                         {item.name}
                       </span>
                     </span>
+                    {showRole ? (
+                      <button
+                        className={`attach-role${isScene ? " is-scene" : ""}`}
+                        type="button"
+                        aria-pressed={!isScene}
+                        title={
+                          isScene
+                            ? "Scene reference. Seedance sends this as a regular image or video. Click to mark it as a character."
+                            : "Character reference. Seedance sends faces and people on the face input so content filters do not block them. Click to mark it as a scene."
+                        }
+                        onClick={() => props.onToggleAttachmentRole(index)}
+                      >
+                        {isScene ? "Scene" : "Character"}
+                      </button>
+                    ) : null}
                     <button
                       className="ghost-btn"
                       type="button"

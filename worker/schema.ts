@@ -473,23 +473,79 @@ export function resolveEnqueueAspectRatio(
   return trimmed || undefined;
 }
 
+export type MediaRole = "character" | "scene";
+
+export type MediaRoleLists = {
+  image?: MediaRole[];
+  video?: MediaRole[];
+};
+
+function preferredSlot(slots: MediaSlot[], kind: MediaKind): MediaSlot | undefined {
+  const matches = slots.filter((slot) => slot.kind === kind);
+  return [...matches].sort((a, b) => {
+    const faceDelta = Number(b.field.includes("face")) - Number(a.field.includes("face"));
+    if (faceDelta !== 0) return faceDelta;
+    return b.maxItems - a.maxItems;
+  })[0];
+}
+
+function slotForRole(slots: MediaSlot[], kind: MediaKind, role: MediaRole): MediaSlot | undefined {
+  const matches = slots.filter((slot) => slot.kind === kind);
+  const face = matches.find((slot) => slot.field.includes("face"));
+  const generic = matches.find((slot) => !slot.field.includes("face"));
+  switch (role) {
+    case "character":
+      return face ?? generic;
+    case "scene":
+      return generic ?? face;
+    default: {
+      const _exhaustive: never = role;
+      return _exhaustive;
+    }
+  }
+}
+
+function assignMapped(
+  mapped: Partial<Record<MediaField, string | string[]>>,
+  slot: MediaSlot,
+  values: string[],
+) {
+  const clipped = values.slice(0, slot.maxItems);
+  if (clipped.length === 0) return;
+  mapped[slot.field] = slot.asArray || clipped.length > 1 ? clipped : clipped[0];
+}
+
 export function mapMediaUrls(
   slots: MediaSlot[],
   urls: { image: string[]; video: string[]; audio: string[] },
+  roles?: MediaRoleLists,
 ): Partial<Record<MediaField, string | string[]>> {
   const mapped: Partial<Record<MediaField, string | string[]>> = {};
   const kinds: MediaKind[] = ["image", "video", "audio"];
   for (const kind of kinds) {
-    const matches = slots.filter((slot) => slot.kind === kind);
     const list = urls[kind];
-    if (matches.length === 0 || list.length === 0) continue;
-    const slot = [...matches].sort((a, b) => {
-      const faceDelta = Number(b.field.includes("face")) - Number(a.field.includes("face"));
-      if (faceDelta !== 0) return faceDelta;
-      return b.maxItems - a.maxItems;
-    })[0];
-    const clipped = list.slice(0, slot.maxItems);
-    mapped[slot.field] = slot.asArray || clipped.length > 1 ? clipped : clipped[0];
+    if (list.length === 0) continue;
+    const roleList = kind === "image" ? roles?.image : kind === "video" ? roles?.video : undefined;
+    if (!roleList) {
+      const slot = preferredSlot(slots, kind);
+      if (!slot) continue;
+      assignMapped(mapped, slot, list);
+      continue;
+    }
+    const buckets = new Map<MediaField, string[]>();
+    list.forEach((url, index) => {
+      const role = roleList[index] === "scene" ? "scene" : "character";
+      const slot = slotForRole(slots, kind, role);
+      if (!slot) return;
+      const current = buckets.get(slot.field) ?? [];
+      current.push(url);
+      buckets.set(slot.field, current);
+    });
+    for (const [field, values] of buckets) {
+      const slot = slots.find((item) => item.field === field);
+      if (!slot) continue;
+      assignMapped(mapped, slot, values);
+    }
   }
   return mapped;
 }

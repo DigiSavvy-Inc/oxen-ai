@@ -3,7 +3,27 @@ import { mentionToken, type MediaSlot } from "./api";
 export type MentionItem = {
   name: string;
   kind: MediaSlot["kind"];
+  role?: "character" | "scene";
 };
+
+/** Seedance numbers face/character refs before scene refs of the same type. */
+export function mentionOrdered<T extends MentionItem>(items: T[], faceFirst: boolean): T[] {
+  if (!faceFirst) return items;
+  const kinds: MediaSlot["kind"][] = ["image", "video", "audio"];
+  const ordered: T[] = [];
+  for (const kind of kinds) {
+    const ofKind = items.filter((item) => item.kind === kind);
+    if (kind === "audio") {
+      ordered.push(...ofKind);
+      continue;
+    }
+    ordered.push(
+      ...ofKind.filter((item) => item.role !== "scene"),
+      ...ofKind.filter((item) => item.role === "scene"),
+    );
+  }
+  return ordered;
+}
 
 export type PromptMention = {
   start: number;

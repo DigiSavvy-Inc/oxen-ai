@@ -207,6 +207,42 @@ describe("parseModelControls", () => {
     });
   });
 
+  it("splits Seedance character refs onto the face fields and keeps scene refs generic", () => {
+    const model: OxenModel = {
+      id: "bytedance-seedance-2-0-fast-reference-to-video",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          input_face_images: { type: "array", maxItems: 9, items: { type: "string" } },
+          input_images: { type: "array", maxItems: 9, items: { type: "string" } },
+          input_face_videos: { type: "array", maxItems: 3, items: { type: "string" } },
+          input_videos: { type: "array", maxItems: 3, items: { type: "string" } },
+        },
+      },
+    };
+    const controls = parseModelControls(model);
+    expect(
+      mapMediaUrls(
+        controls.slots,
+        {
+          image: ["https://scene", "https://hero", "https://room"],
+          video: ["https://walk", "https://plate"],
+          audio: [],
+        },
+        {
+          image: ["scene", "character", "scene"],
+          video: ["character", "scene"],
+        },
+      ),
+    ).toEqual({
+      input_face_images: ["https://hero"],
+      input_images: ["https://scene", "https://room"],
+      input_face_videos: ["https://walk"],
+      input_videos: ["https://plate"],
+    });
+  });
+
   it("sets mentions from @Image/@Video/@Audio in the prompt description", () => {
     const controls = parseModelControls({
       id: "mention-model",
