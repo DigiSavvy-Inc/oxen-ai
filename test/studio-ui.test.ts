@@ -137,6 +137,27 @@ describe("mentions and cost", () => {
     expect(mentionAtCaret(result?.next ?? "", result?.caret ?? 0)).toBeNull();
   });
 
+  it("keeps line breaks after an inserted image, video, or audio mention", () => {
+    const prompt = "look @\nsecond line\nthird";
+    const caret = 6;
+    for (const token of ["@Image1", "@Video2", "@Audio3"]) {
+      const result = insertMentionToken(prompt, caret, token);
+      expect(result).toEqual({
+        next: `look ${token} \nsecond line\nthird`,
+        caret: `look ${token} `.length,
+      });
+      expect(mentionAtCaret(result?.next ?? "", result?.caret ?? 0)).toBeNull();
+    }
+  });
+
+  it("keeps an existing space and the following lines without doubling the space", () => {
+    const result = insertMentionToken("look @ more\nstill here", 6, "@Image1");
+    expect(result).toEqual({
+      next: "look @Image1 more\nstill here",
+      caret: "look @Image1 ".length,
+    });
+  });
+
   it("filters the mention picker to the numbered attachment", () => {
     const items = [
       { name: "a.png", kind: "image" as const },

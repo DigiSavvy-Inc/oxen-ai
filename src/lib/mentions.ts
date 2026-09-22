@@ -158,10 +158,13 @@ export function insertMentionToken(
 ): { next: string; caret: number } | null {
   const mention = mentionAtCaret(text, caret);
   if (!mention) return null;
-  const inserted = `${token} `;
-  const rest = text.slice(caret).replace(/^\s+/, "");
-  const next = `${text.slice(0, mention.start)}${inserted}${rest}`;
-  return { next, caret: mention.start + inserted.length };
+  const after = text.slice(caret);
+  // A space closes the @ query. Reuse a space or tab that is already there so
+  // newlines and later lines stay put; otherwise insert one space.
+  const existingSpace = /^[ \t]/.test(after);
+  const inserted = existingSpace ? token : `${token} `;
+  const next = `${text.slice(0, mention.start)}${inserted}${after}`;
+  return { next, caret: mention.start + inserted.length + (existingSpace ? 1 : 0) };
 }
 
 export function moveItem<T>(items: T[], from: number, to: number): T[] {

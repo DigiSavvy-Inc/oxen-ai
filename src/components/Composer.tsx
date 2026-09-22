@@ -108,6 +108,7 @@ export function Composer(props: Props) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropInsertBefore, setDropInsertBefore] = useState<number | null>(null);
   const [promptHeight, setPromptHeight] = useState(96);
+  const pendingCaret = useRef<{ caret: number; prompt: string } | null>(null);
 
   const imageMax = mediaKindCap(props.controls, props.mode, "image");
   const videoMax = mediaKindCap(props.controls, props.mode, "video");
@@ -180,13 +181,20 @@ export function Composer(props: Props) {
   const activeMention =
     mentionItems.length === 0 ? 0 : Math.min(hotMention ?? 0, mentionItems.length - 1);
 
-  function placeCaret(nextCaret: number) {
+  function placeCaret(nextCaret: number, prompt: string) {
+    pendingCaret.current = { caret: nextCaret, prompt };
     setCaret(nextCaret);
-    const el = promptRef.current;
-    if (!el) return;
-    el.focus();
-    el.setSelectionRange(nextCaret, nextCaret);
   }
+
+  useLayoutEffect(() => {
+    const pending = pendingCaret.current;
+    const el = promptRef.current;
+    if (!pending || !el || el.value !== pending.prompt) return;
+    pendingCaret.current = null;
+    const next = Math.max(0, Math.min(pending.caret, el.value.length));
+    el.focus();
+    el.setSelectionRange(next, next);
+  });
 
   function syncPromptScroll() {
     const prompt = promptRef.current;
@@ -227,7 +235,7 @@ export function Composer(props: Props) {
     setMentionOpen(false);
     setHotMention(null);
     props.onPromptChange(result.next);
-    placeCaret(result.caret);
+    placeCaret(result.caret, result.next);
   }
 
   function openMentionHover(mention: PromptMention, el: HTMLElement) {
@@ -392,7 +400,7 @@ export function Composer(props: Props) {
                   if (result) {
                     e.preventDefault();
                     props.onPromptChange(result.next);
-                    placeCaret(result.caret);
+                    placeCaret(result.caret, result.next);
                     return;
                   }
                 }
