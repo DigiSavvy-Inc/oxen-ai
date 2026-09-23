@@ -6,6 +6,7 @@ import { Composer } from "./components/Composer";
 import { CreditMeter } from "./components/CreditMeter";
 import { LibraryPeek } from "./components/LibraryPeek";
 import { LoginPage } from "./components/LoginPage";
+import { Loader } from "./components/Loader";
 import { SettingsModal } from "./components/SettingsModal";
 import { Sidebar } from "./components/Sidebar";
 import {
@@ -754,7 +755,11 @@ export default function App() {
   }
 
   if (loading) {
-    return <div className="loading-screen">Loading DS Studio…</div>;
+    return (
+      <div className="loading-screen">
+        <Loader size="lg" label="Loading DS Studio…" />
+      </div>
+    );
   }
 
   if (!user) {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { Loader } from "./Loader";
 
 export function LoginPage() {
   const { loading } = useAuth();
@@ -13,7 +14,11 @@ export function LoginPage() {
   }, []);
 
   if (loading) {
-    return <div className="loading-screen">Loading…</div>;
+    return (
+      <div className="loading-screen">
+        <Loader size="lg" label="Loading…" />
+      </div>
+    );
   }
 
   return (

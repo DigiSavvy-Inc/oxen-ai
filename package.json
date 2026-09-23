@@ -16,6 +16,7 @@
   "dependencies": {
     "@block65/webcrypto-web-push": "^2.0.0",
     "hono": "^4.13.8",
+    "loading-dev": "^0.3.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.4"

@@ -687,18 +687,22 @@ describe("copy prompt", () => {
     expect(app).toContain("api.deleteGeneration");
   });
 
-  it("shows stacking wait dots while library cleanup runs", () => {
+  it("shows the blocks loader while library cleanup runs", () => {
     const settings = readFileSync(
       new URL("../src/components/SettingsModal.tsx", import.meta.url),
       "utf8",
     );
     const wait = readFileSync(new URL("../src/components/StatusWait.tsx", import.meta.url), "utf8");
-    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    const loader = readFileSync(new URL("../src/components/Loader.tsx", import.meta.url), "utf8");
+    const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+    const composer = readFileSync(new URL("../src/components/Composer.tsx", import.meta.url), "utf8");
     expect(settings).toContain("StatusWait");
     expect(settings).toContain("Deleting failed jobs");
     expect(settings).toContain("Building missing thumbnails");
-    expect(wait).toContain("status-dots");
-    expect(css).toContain("status-dot-stack");
+    expect(wait).toContain("Loader");
+    expect(loader).toContain("Blocks");
+    expect(app).toContain("Loading DS Studio");
+    expect(composer).toContain("Queuing");
   });
 
   it("puts a copy control next to saved prompts on the canvas and library peek", () => {

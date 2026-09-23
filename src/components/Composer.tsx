@@ -27,6 +27,7 @@ import { shortenFileName } from "../lib/files";
 import { mediaKindCap } from "../lib/library-refs";
 import { aspectCatalog, aspectSelectOptions } from "../lib/params";
 import { AudioAttachControl, ExpandMediaButton } from "./MediaLightbox";
+import { Loader } from "./Loader";
 import { ModelMenu } from "./ModelMenu";
 
 type AttachItem = {
@@ -857,7 +858,7 @@ export function Composer(props: Props) {
             }
           >
             {props.busy ? (
-              "Queuing…"
+              <Loader size="sm" label="Queuing…" />
             ) : (
               <>
                 Generate

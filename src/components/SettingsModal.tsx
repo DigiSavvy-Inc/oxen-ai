@@ -63,6 +63,7 @@ export function SettingsModal({
   const [pane, setPane] = useState<SettingsPane>("api-key");
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState(false);
+  const [keyWait, setKeyWait] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -146,6 +147,7 @@ export function SettingsModal({
 
   async function save() {
     setBusy(true);
+    setKeyWait("Saving key");
     setError(null);
     setMessage(null);
     try {
@@ -157,11 +159,13 @@ export function SettingsModal({
       setError(err instanceof Error ? err.message : "Failed to save key");
     } finally {
       setBusy(false);
+      setKeyWait(null);
     }
   }
 
   async function clear() {
     setBusy(true);
+    setKeyWait("Removing key");
     setError(null);
     try {
       await api.clearOxenKey();
@@ -171,6 +175,7 @@ export function SettingsModal({
       setError(err instanceof Error ? err.message : "Failed to clear key");
     } finally {
       setBusy(false);
+      setKeyWait(null);
     }
   }
 
@@ -376,6 +381,7 @@ export function SettingsModal({
                 Save key
               </button>
             </div>
+            {keyWait ? <StatusWait label={keyWait} /> : null}
           </>
         );
       case "models":
@@ -462,6 +468,7 @@ export function SettingsModal({
                   })}
                 </div>
                 {modelError ? <p className="settings-bad">{modelError}</p> : null}
+                {modelBusy ? <StatusWait label="Updating models" /> : null}
               </>
             )}
           </>
@@ -544,6 +551,7 @@ export function SettingsModal({
             ) : null}
             {notifyMessage ? <p className="settings-ok">{notifyMessage}</p> : null}
             {notifyError ? <p className="settings-bad">{notifyError}</p> : null}
+            {notifyBusy ? <StatusWait label="Updating notifications" /> : null}
           </>
         );
       case "cleanup":
@@ -688,6 +696,7 @@ export function SettingsModal({
               </button>
             </div>
             {allowError ? <p className="settings-bad">{allowError}</p> : null}
+            {allowBusy ? <StatusWait label="Updating allowlist" /> : null}
           </>
         );
       default: {

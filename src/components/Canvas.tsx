@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { MODE_LABELS, type Generation, type GenerationMode } from "../lib/api";
+import { isActiveGeneration } from "../lib/batches";
 import {
   canvasWashUrl,
   completedMedia,
@@ -11,6 +12,7 @@ import { estimateGenerationWait } from "../lib/progress";
 import { MAX_TAGS_PER_MEDIA, parseTagList } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
 import { DownloadButton } from "./DownloadButton";
+import { Loader } from "./Loader";
 
 function MediaPreview({
   generation,
@@ -76,7 +78,8 @@ function WaitPanel({ generation }: { generation: Generation }) {
   });
 
   return (
-    <div className="wait-panel">
+    <div className="wait-panel" role="status">
+      <Loader size="lg" />
       <div className="wait-headline">{wait.headline}</div>
       <div className="wait-remaining">{wait.remainingText}</div>
       <div
@@ -258,7 +261,11 @@ export function Canvas({
                       <video src={item.resultUrl} muted playsInline preload="metadata" />
                     ) : (
                       <span className="variation-placeholder">
-                        {item.status === "queued" || item.status === "processing" ? "…" : index + 1}
+                        {isActiveGeneration(item) && !item.resultUrl && !item.thumbUrl ? (
+                          <Loader size="sm" />
+                        ) : (
+                          index + 1
+                        )}
                       </span>
                     )}
                     {item.mediaType === "video" && item.resultUrl ? (

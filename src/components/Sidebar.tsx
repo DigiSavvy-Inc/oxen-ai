@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { coverGeneration, groupGenerationBatches } from "../lib/batches";
+import { coverGeneration, groupGenerationBatches, isActiveGeneration } from "../lib/batches";
 import type { Generation } from "../lib/api";
 import { completedMedia, tilePreviewUrl } from "../lib/download";
 import { collectUniqueTags, suggestTags, tagsMatchQuery } from "../lib/tags";
+import { Loader } from "./Loader";
 import { MediaDeleteGroup } from "./MediaDeleteGroup";
 
 function tileSrc(item: Generation, allowFull = false): string | null {
@@ -16,6 +17,9 @@ function TileFace({ item, allowFull = false }: { item: Generation; allowFull?: b
   }
   if (src && item.mediaType === "video") {
     return <video src={item.resultUrl || src} muted playsInline preload="metadata" />;
+  }
+  if (isActiveGeneration(item) && !src) {
+    return <Loader size="sm" />;
   }
   return <span>{item.mediaType === "video" ? "VID" : "IMG"}</span>;
 }
@@ -72,7 +76,7 @@ export function Sidebar({
               disabled={downloadingAll}
               onClick={onDownloadAll}
             >
-              {downloadingAll ? "Downloading…" : "Download all"}
+              {downloadingAll ? <Loader size="sm" label="Downloading…" /> : "Download all"}
             </button>
           ) : null}
           {onClose ? (
@@ -119,7 +123,9 @@ export function Sidebar({
       <div className="history">
         <div className="history-grid">
           {loading && batches.length === 0 ? (
-            <div className="history-empty">Loading library…</div>
+            <div className="history-empty">
+              <Loader size="md" label="Loading library…" />
+            </div>
           ) : batches.length === 0 ? (
             <div className="history-empty">
               {tagQuery.trim()

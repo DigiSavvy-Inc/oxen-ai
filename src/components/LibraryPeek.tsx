@@ -1,6 +1,8 @@
 import { MODE_LABELS, type Generation, type GenerationMode } from "../lib/api";
+import { isActiveGeneration } from "../lib/batches";
 import { libraryRefFromGeneration } from "../lib/library-refs";
 import { CopyPrompt } from "./CopyPrompt";
+import { Loader } from "./Loader";
 import { MediaDeleteGroup } from "./MediaDeleteGroup";
 
 export function LibraryPeek({
@@ -77,6 +79,8 @@ export function LibraryPeek({
               >
                 <img src={generation.resultUrl} alt={generation.prompt || "Library item"} />
               </button>
+            ) : isActiveGeneration(generation) ? (
+              <Loader size="md" label={generation.status} />
             ) : (
               <span className="library-peek-missing">
                 {generation.status === "succeeded" ? "Media unavailable" : generation.status}
