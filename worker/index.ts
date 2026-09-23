@@ -28,7 +28,6 @@ import {
   putMediaObject,
   verifyMediaSignature,
 } from "./media";
-import { deleteOxenGeneration } from "./oxen-delete";
 import { collectOxenRefs, resolveRefsForOxen } from "./oxen-refs";
 import {
   buildEnqueuePayload,
@@ -75,9 +74,11 @@ import { parseTagList } from "./tags";
 import { createImageThumbnail } from "./thumbs";
 import {
   backfillMissingThumbnails,
+  deleteAllUserMedia,
   deleteFailedGenerations,
-  deleteGenerationRecord,
   parseCleanupAction,
+  parseFromOxenFlag,
+  removeStudioGeneration,
 } from "./library";
 import { GENERATION_MODES } from "./model-modes";
 import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
@@ -1426,6 +1427,7 @@ app.put("/api/generations/:id/tags", async (c) => {
 app.delete("/api/generations/:id", async (c) => {
   const user = await requireUser(c);
   const id = c.req.param("id");
+  const fromOxen = parseFromOxenFlag(c.req.query("fromOxen"));
   const row = await c.env.DB.prepare(`SELECT * FROM generations WHERE id = ? AND user_id = ?`)
     .bind(id, user.id)
     .first<GenerationRow>();
@@ -1433,34 +1435,60 @@ app.delete("/api/generations/:id", async (c) => {
     throw new HTTPException(404, { message: "Generation not found" });
   }
   const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
-  if (apiKey && row.oxen_generation_id) {
-    try {
-      await deleteOxenGeneration(apiKey, row.oxen_generation_id, row.result_url);
-    } catch (err) {
-      console.error("oxen delete error", err);
-    }
-  }
-  await deleteGenerationRecord(c.env, user.id, row);
-  return c.json({ ok: true });
+  const result = await removeStudioGeneration(c.env, user.id, row, { apiKey, fromOxen });
+  return c.json({ ok: true, ...result });
 });
 
 app.post("/api/library/cleanup", async (c) => {
   const user = await requireUser(c);
-  const body = await c.req.json<{ action?: unknown }>().catch(() => ({ action: null }));
+  const body = await c.req.json<{ action?: unknown; fromOxen?: unknown }>().catch(() => ({
+    action: null,
+    fromOxen: null,
+  }));
   const action = parseCleanupAction(body.action);
   if (!action) {
     throw new HTTPException(400, { message: "Invalid cleanup action" });
   }
+  const fromOxen = parseFromOxenFlag(body.fromOxen);
   switch (action) {
     case "failed": {
       const deleted = await deleteFailedGenerations(c.env, user.id);
-      return c.json({ action, deleted, built: 0, remaining: false });
+      return c.json({
+        action,
+        deleted,
+        built: 0,
+        remaining: false,
+        oxenDeleted: 0,
+        oxenFailed: 0,
+      });
     }
     case "thumbs": {
       const result = await backfillMissingThumbnails(c.env, user.id, {
         rebuildOversized: true,
       });
-      return c.json({ action, deleted: 0, built: result.built, remaining: result.remaining });
+      return c.json({
+        action,
+        deleted: 0,
+        built: result.built,
+        remaining: result.remaining,
+        oxenDeleted: 0,
+        oxenFailed: 0,
+      });
+    }
+    case "all": {
+      const result = await deleteAllUserMedia(c.env, user.id, {
+        apiKey: await getOxenKey(user, c.env.ENCRYPTION_KEY),
+        fromOxen,
+      });
+      return c.json({
+        action,
+        deleted: result.deleted,
+        built: 0,
+        remaining: false,
+        r2Deleted: result.r2Deleted,
+        oxenDeleted: result.oxenDeleted,
+        oxenFailed: result.oxenFailed,
+      });
     }
     default: {
       const _never: never = action;

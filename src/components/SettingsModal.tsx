@@ -33,12 +33,14 @@ export function SettingsModal({
   settings,
   onSettingsChange,
   onFavoritesChange,
+  onLibraryCleanup,
 }: {
   onClose: () => void;
   favorites: OxenModel[];
   settings: StudioSettings | null;
   onSettingsChange: (settings: StudioSettings) => void;
   onFavoritesChange: () => Promise<void> | void;
+  onLibraryCleanup?: (action: "failed" | "thumbs" | "all") => void;
 }) {
   const { user, setHasOxenKey } = useAuth();
   const [pane, setPane] = useState<SettingsPane>("api-key");
@@ -60,6 +62,8 @@ export function SettingsModal({
   const [cleanupBusy, setCleanupBusy] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
   const [cleanupError, setCleanupError] = useState<string | null>(null);
+  const [nukeConfirm, setNukeConfirm] = useState(false);
+  const [nukeOxen, setNukeOxen] = useState(true);
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [notifyPermission, setNotifyPermission] = useState<
@@ -70,7 +74,6 @@ export function SettingsModal({
   const [notifyError, setNotifyError] = useState<string | null>(null);
   const [installReady, setInstallReady] = useState(() => canPromptInstall());
   const [installed, setInstalled] = useState(() => isStandaloneDisplay());
-
   async function loadAllowlist() {
     const data = await api.allowlist();
     setOrg(data.org);
@@ -117,6 +120,11 @@ export function SettingsModal({
     }, 300);
     return () => window.clearTimeout(handle);
   }, [modelSearch, user?.hasOxenKey]);
+
+  function selectPane(next: SettingsPane) {
+    setPane(next);
+    if (next !== "cleanup") setNukeConfirm(false);
+  }
 
   async function save() {
     setBusy(true);
@@ -262,25 +270,49 @@ export function SettingsModal({
     }
   }
 
-  async function runCleanup(action: "failed" | "thumbs") {
+  async function runCleanup(action: "failed" | "thumbs" | "all", fromOxen = false) {
     setCleanupBusy(true);
     setCleanupError(null);
     setCleanupMessage(null);
     try {
-      const result = await api.cleanupLibrary(action);
-      if (action === "failed") {
-        setCleanupMessage(
-          result.deleted === 0
-            ? "No failed or cancelled jobs to remove."
-            : `Removed ${result.deleted} job${result.deleted === 1 ? "" : "s"} from the library.`,
-        );
-      } else {
-        const more = result.remaining ? " Run again to continue." : "";
-        setCleanupMessage(
-          result.built === 0
-            ? "No missing thumbnails to build."
-            : `Built ${result.built} thumbnail${result.built === 1 ? "" : "s"}.${more}`,
-        );
+      const result = await api.cleanupLibrary(action, { fromOxen });
+      onLibraryCleanup?.(action);
+      switch (action) {
+        case "failed":
+          setCleanupMessage(
+            result.deleted === 0
+              ? "No failed or cancelled jobs to remove."
+              : `Removed ${result.deleted} job${result.deleted === 1 ? "" : "s"} from the library.`,
+          );
+          break;
+        case "thumbs": {
+          const more = result.remaining ? " Run again to continue." : "";
+          setCleanupMessage(
+            result.built === 0
+              ? "No missing thumbnails to build."
+              : `Built ${result.built} thumbnail${result.built === 1 ? "" : "s"}.${more}`,
+          );
+          break;
+        }
+        case "all": {
+          const oxenNote =
+            fromOxen && (result.oxenFailed ?? 0) > 0
+              ? ` ${result.oxenFailed} Oxen file${result.oxenFailed === 1 ? "" : "s"} could not be removed.`
+              : fromOxen
+                ? " Oxen playground copies were removed when a matching file URL existed."
+                : "";
+          setCleanupMessage(
+            result.deleted === 0
+              ? `Studio media is empty.${oxenNote}`
+              : `Removed ${result.deleted} job${result.deleted === 1 ? "" : "s"} from Studio.${oxenNote}`,
+          );
+          setNukeConfirm(false);
+          break;
+        }
+        default: {
+          const _exhaustive: never = action;
+          return _exhaustive;
+        }
       }
     } catch (err) {
       setCleanupError(err instanceof Error ? err.message : "Cleanup failed");
@@ -501,9 +533,9 @@ export function SettingsModal({
           <>
             <h3>Library cleanup</h3>
             <p>
-              Removes jobs from DS Studio and their files in R2. Deleting an item from the
-              canvas or library peek also cancels it on Oxen and removes the stored Oxen
-              file when we can find it. Billing is unchanged.
+              Removes jobs from DS Studio and their files in R2. Hover × in the library
+              removes Studio copies only. Oxen also deletes the matching playground file
+              when we can find it. Queue billing is unchanged.
               Thumbnails are 320px JPEGs for the library grid; full results stay for the canvas
               and downloads.
             </p>
@@ -524,6 +556,55 @@ export function SettingsModal({
               >
                 Build missing thumbnails
               </button>
+            </div>
+            <div className="settings-danger">
+              <h4>Delete all media</h4>
+              <p>
+                Permanently removes every generation for this account from D1 and R2, including
+                uploads. Optionally also deletes the matching files in your Oxen playground.
+                Queue billing is unchanged.
+              </p>
+              <label className="settings-check" htmlFor="nuke-oxen">
+                <input
+                  id="nuke-oxen"
+                  type="checkbox"
+                  checked={nukeOxen}
+                  onChange={(e) => setNukeOxen(e.target.checked)}
+                  disabled={cleanupBusy}
+                />
+                Also delete from Oxen
+              </label>
+              <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+                {nukeConfirm ? (
+                  <>
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      disabled={cleanupBusy}
+                      onClick={() => setNukeConfirm(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-btn danger-btn"
+                      disabled={cleanupBusy}
+                      onClick={() => void runCleanup("all", nukeOxen)}
+                    >
+                      Yes, delete everything
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="ghost-btn danger-btn"
+                    disabled={cleanupBusy}
+                    onClick={() => setNukeConfirm(true)}
+                  >
+                    Delete all media
+                  </button>
+                )}
+              </div>
             </div>
             {cleanupMessage ? <p className="settings-ok">{cleanupMessage}</p> : null}
             {cleanupError ? <p className="settings-bad">{cleanupError}</p> : null}
@@ -611,28 +692,28 @@ export function SettingsModal({
             <button
               type="button"
               className={`settings-nav-btn${pane === "api-key" ? " active" : ""}`}
-              onClick={() => setPane("api-key")}
+              onClick={() => selectPane("api-key")}
             >
               API key
             </button>
             <button
               type="button"
               className={`settings-nav-btn${pane === "models" ? " active" : ""}`}
-              onClick={() => setPane("models")}
+              onClick={() => selectPane("models")}
             >
               Models
             </button>
             <button
               type="button"
               className={`settings-nav-btn${pane === "notifications" ? " active" : ""}`}
-              onClick={() => setPane("notifications")}
+              onClick={() => selectPane("notifications")}
             >
               Notifications
             </button>
             <button
               type="button"
               className={`settings-nav-btn${pane === "cleanup" ? " active" : ""}`}
-              onClick={() => setPane("cleanup")}
+              onClick={() => selectPane("cleanup")}
             >
               Cleanup
             </button>
@@ -640,7 +721,7 @@ export function SettingsModal({
               <button
                 type="button"
                 className={`settings-nav-btn${pane === "allowlist" ? " active" : ""}`}
-                onClick={() => setPane("allowlist")}
+                onClick={() => selectPane("allowlist")}
               >
                 Allowlist
               </button>

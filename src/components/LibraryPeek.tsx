@@ -21,7 +21,7 @@ export function LibraryPeek({
   onAttach: (item: Generation) => void;
   onSelectVariant: (id: string) => void;
   onDownload?: () => void;
-  onRemove?: () => void;
+  onRemove?: (fromOxen?: boolean) => void;
 }) {
   const label = MODE_LABELS[generation.mode as GenerationMode] || generation.mode;
   const ready = Boolean(libraryRefFromGeneration(generation));
@@ -139,9 +139,18 @@ export function LibraryPeek({
               </button>
             ) : null}
             {onRemove ? (
-              <button type="button" className="ghost-btn library-peek-remove" onClick={onRemove}>
-                Delete
-              </button>
+              <>
+                <button type="button" className="ghost-btn library-peek-remove" onClick={() => onRemove()}>
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  className="ghost-btn library-peek-remove"
+                  onClick={() => onRemove(true)}
+                >
+                  Delete + Oxen
+                </button>
+              </>
             ) : null}
           </div>
         ) : null}

@@ -27,6 +27,7 @@ export function Sidebar({
   onSelect,
   onClose,
   onDownloadAll,
+  onDelete,
 }: {
   generations: Generation[];
   selectedId: string | null;
@@ -35,7 +36,7 @@ export function Sidebar({
   onSelect: (id: string) => void;
   onClose?: () => void;
   onDownloadAll?: () => void;
-  onDelete?: (ids: string[]) => void;
+  onDelete?: (ids: string[], fromOxen?: boolean) => void;
 }) {
   const [tagQuery, setTagQuery] = useState("");
   const allTags = useMemo(
@@ -148,6 +149,39 @@ export function Sidebar({
                       <span className="history-count" aria-label={`${batch.items.length} variations`}>
                         {batch.items.length}
                       </span>
+                    ) : null}
+                    {onDelete ? (
+                      <div className="media-delete-group">
+                        <button
+                          type="button"
+                          className="media-delete"
+                          aria-label="Remove from Studio"
+                          title="Remove from Studio"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onDelete(batch.items.map((item) => item.id));
+                          }}
+                        >
+                          ×
+                        </button>
+                        <button
+                          type="button"
+                          className="media-delete media-delete-oxen"
+                          aria-label="Remove from Studio and Oxen"
+                          title="Remove from Studio and Oxen"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onDelete(
+                              batch.items.map((item) => item.id),
+                              true,
+                            );
+                          }}
+                        >
+                          Oxen
+                        </button>
+                      </div>
                     ) : null}
                   </div>
                 </div>

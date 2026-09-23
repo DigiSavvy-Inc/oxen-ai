@@ -596,15 +596,18 @@ export default function App() {
     }
   }
 
-  function requestDeleteMedia(ids: string[]) {
+  function requestDeleteMedia(ids: string[], fromOxen = false) {
     if (ids.length === 0) return;
-    if (!window.confirm("Delete this media from DS Studio and Oxen? This cannot be undone.")) {
+    if (
+      fromOxen &&
+      !window.confirm("Delete this media from DS Studio and Oxen? This cannot be undone.")
+    ) {
       return;
     }
-    void onDeleteGenerations(ids);
+    void onDeleteGenerations(ids, fromOxen);
   }
 
-  async function onDeleteGenerations(ids: string[]) {
+  async function onDeleteGenerations(ids: string[], fromOxen = false) {
     if (ids.length === 0) return;
     const removing = new Set(ids);
     setGenerations((prev) => prev.filter((row) => !removing.has(row.id)));
@@ -612,10 +615,32 @@ export default function App() {
     setPeekId((prev) => (prev && removing.has(prev) ? null : prev));
     setError(null);
     try {
-      await Promise.all(ids.map((id) => api.deleteGeneration(id)));
+      await Promise.all(ids.map((id) => api.deleteGeneration(id, { fromOxen })));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete media");
       if (libraryOpen) void refreshLibrary();
+    }
+  }
+
+  function onLibraryCleanup(action: "failed" | "thumbs" | "all") {
+    switch (action) {
+      case "all":
+        setGenerations([]);
+        setSelectedId(null);
+        setPeekId(null);
+        return;
+      case "failed":
+        setGenerations((prev) =>
+          prev.filter((row) => row.status !== "failed" && row.status !== "cancelled"),
+        );
+        if (libraryOpen) void refreshLibrary();
+        return;
+      case "thumbs":
+        return;
+      default: {
+        const _exhaustive: never = action;
+        return _exhaustive;
+      }
     }
   }
 
@@ -733,7 +758,10 @@ export default function App() {
         onSelect={setPeekId}
         onClose={closeLibrary}
         onDownloadAll={() => void onDownloadAll()}
-        onDelete={(ids) => void onDeleteGenerations(ids)}
+        onDelete={(ids, fromOxen) => {
+          if (fromOxen) requestDeleteMedia(ids, true);
+          else void onDeleteGenerations(ids, false);
+        }}
       />
       {libraryOpen ? (
         <button
@@ -780,7 +808,7 @@ export default function App() {
             variants={selectedVariants}
             onSelect={setSelectedId}
             onTagsChange={(id, tags) => void onSaveTags(id, tags)}
-            onDelete={(id) => requestDeleteMedia([id])}
+            onDelete={(id) => requestDeleteMedia([id], true)}
           />
           {peek ? (
             <LibraryPeek
@@ -795,8 +823,11 @@ export default function App() {
                 if (!peek.resultUrl) return;
                 void downloadMedia(peek.resultUrl, downloadFilename(peek));
               }}
-              onRemove={() => requestDeleteMedia([peek.id])}
-            />
+              onRemove={(fromOxen) => {
+                const ids = peekVariants.map((item) => item.id);
+                if (fromOxen) requestDeleteMedia(ids, true);
+                else void onDeleteGenerations(ids, false);
+              }}            />
           ) : null}
         </div>
         <Composer
@@ -854,6 +885,7 @@ export default function App() {
           settings={settings}
           onSettingsChange={setSettings}
           onFavoritesChange={refreshFavorites}
+          onLibraryCleanup={onLibraryCleanup}
         />
       ) : null}
     </div>

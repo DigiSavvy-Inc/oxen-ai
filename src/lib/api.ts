@@ -254,17 +254,36 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tags }),
     }).then((r) => parseJson<{ generation: Generation }>(r)),
-  deleteGeneration: (id: string) =>
-    fetch(`/api/generations/${id}`, { method: "DELETE" }).then((r) => parseJson(r)),
-  cancelGeneration: (id: string) =>
-    fetch(`/api/generations/${id}`, { method: "DELETE" }).then((r) => parseJson(r)),
-  cleanupLibrary: (action: "failed" | "thumbs") =>
-    fetch("/api/library/cleanup", {
+  deleteGeneration: (id: string, options?: { fromOxen?: boolean }) => {
+    const params = new URLSearchParams();
+    if (options?.fromOxen) params.set("fromOxen", "1");
+    const query = params.toString();
+    return fetch(`/api/generations/${id}${query ? `?${query}` : ""}`, { method: "DELETE" }).then(
+      (r) => parseJson<{ ok: boolean; oxenDeleted?: number; oxenFailed?: number }>(r),
+    );
+  },
+  cancelGeneration: (id: string, options?: { fromOxen?: boolean }) => {
+    const params = new URLSearchParams();
+    if (options?.fromOxen) params.set("fromOxen", "1");
+    const query = params.toString();
+    return fetch(`/api/generations/${id}${query ? `?${query}` : ""}`, { method: "DELETE" }).then(
+      (r) => parseJson<{ ok: boolean; oxenDeleted?: number; oxenFailed?: number }>(r),
+    );
+  },
+  cleanupLibrary: (action: "failed" | "thumbs" | "all", options?: { fromOxen?: boolean }) =>    fetch("/api/library/cleanup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, fromOxen: options?.fromOxen === true }),
     }).then((r) =>
-      parseJson<{ action: string; deleted: number; built: number; remaining: boolean }>(r),
+      parseJson<{
+        action: string;
+        deleted: number;
+        built: number;
+        remaining: boolean;
+        r2Deleted?: number;
+        oxenDeleted?: number;
+        oxenFailed?: number;
+      }>(r),
     ),
   credits: () =>
     fetch("/api/billing/credits").then((r) => parseJson<CreditBalance>(r)),

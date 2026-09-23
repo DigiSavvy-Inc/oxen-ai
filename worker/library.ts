@@ -1,12 +1,20 @@
 import { createImageThumbnail, isRasterImage, THUMB_MAX_BYTES } from "./thumbs";
 import { putMediaObject } from "./media";
+import { cancelGeneration } from "./oxen";
+import { deleteOxenGeneration, deleteOxenResultUrls } from "./oxen-delete";
 import type { Env } from "./types";
 
-export type CleanupAction = "failed" | "thumbs";
+export type CleanupAction = "failed" | "thumbs" | "all";
+
+const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
 
 export function parseCleanupAction(raw: unknown): CleanupAction | null {
-  if (raw === "failed" || raw === "thumbs") return raw;
+  if (raw === "failed" || raw === "thumbs" || raw === "all") return raw;
   return null;
+}
+
+export function parseFromOxenFlag(raw: unknown): boolean {
+  return raw === true || raw === 1 || raw === "1" || raw === "true";
 }
 
 export type LibraryAssetRow = {
@@ -14,7 +22,8 @@ export type LibraryAssetRow = {
   status: string;
   result_key?: string | null;
   thumb_key?: string | null;
-  oxen_generation_id?: string;
+  oxen_generation_id?: string | null;
+  result_url?: string | null;
 };
 
 export async function deleteStoredMedia(
@@ -52,6 +61,119 @@ export async function deleteGenerationRecord(
   await env.DB.prepare(`DELETE FROM generations WHERE id = ? AND user_id = ?`)
     .bind(row.id, userId)
     .run();
+}
+
+async function cancelInFlightOxenJobs(
+  apiKey: string,
+  rows: LibraryAssetRow[],
+): Promise<void> {
+  for (const row of rows) {
+    if (!row.oxen_generation_id || TERMINAL_STATUSES.has(row.status)) continue;
+    try {
+      await cancelGeneration(apiKey, row.oxen_generation_id);
+    } catch {
+      /* already finished or missing on Oxen */
+    }
+  }
+}
+
+export async function removeStudioGeneration(
+  env: Env,
+  userId: string,
+  row: LibraryAssetRow,
+  options: { apiKey?: string | null; fromOxen?: boolean } = {},
+): Promise<{ oxenDeleted: number; oxenFailed: number }> {
+  const apiKey = options.apiKey ?? null;
+  let oxenDeleted = 0;
+  let oxenFailed = 0;
+  if (options.fromOxen) {
+    if (apiKey) {
+      if (row.oxen_generation_id) {
+        try {
+          await deleteOxenGeneration(apiKey, row.oxen_generation_id, row.result_url);
+          oxenDeleted = 1;
+        } catch {
+          oxenFailed = 1;
+        }
+      } else {
+        const result = await deleteOxenResultUrls(apiKey, [row.result_url]);
+        oxenDeleted = result.deleted;
+        oxenFailed = result.failed;
+      }
+    } else if (row.result_url) {
+      oxenFailed = 1;
+    }
+  } else if (apiKey) {
+    await cancelInFlightOxenJobs(apiKey, [row]);
+  }
+  await deleteGenerationRecord(env, userId, row);
+  return { oxenDeleted, oxenFailed };
+}
+
+export async function deleteUserR2Prefix(env: Env, userId: string): Promise<number> {
+  const prefix = `u/${userId}/`;
+  let deleted = 0;
+  let cursor: string | undefined;
+  do {
+    const listed = await env.MEDIA.list({ prefix, cursor, limit: 1000 });
+    const keys = listed.objects.map((object) => object.key);
+    if (keys.length > 0) {
+      await Promise.all(keys.map((key) => env.MEDIA.delete(key)));
+      deleted += keys.length;
+    }
+    cursor = listed.truncated ? listed.cursor : undefined;
+  } while (cursor);
+  return deleted;
+}
+
+export async function deleteAllUserMedia(
+  env: Env,
+  userId: string,
+  options: { apiKey?: string | null; fromOxen?: boolean } = {},
+): Promise<{
+  deleted: number;
+  r2Deleted: number;
+  oxenDeleted: number;
+  oxenFailed: number;
+}> {
+  const rows =
+    (
+      await env.DB.prepare(
+        `SELECT id, status, result_key, thumb_key, oxen_generation_id, result_url
+         FROM generations WHERE user_id = ?`,
+      )
+        .bind(userId)
+        .all<LibraryAssetRow>()
+    ).results ?? [];
+  const apiKey = options.apiKey ?? null;
+  let oxenDeleted = 0;
+  let oxenFailed = 0;
+  if (apiKey) await cancelInFlightOxenJobs(apiKey, rows);
+  if (options.fromOxen) {
+    if (apiKey) {
+      const result = await deleteOxenResultUrls(
+        apiKey,
+        rows.map((row) => row.result_url),
+      );
+      oxenDeleted = result.deleted;
+      oxenFailed = result.failed;
+    } else {
+      oxenFailed = rows.filter((row) => row.result_url).length;
+    }
+  }
+  try {
+    await env.DB.prepare(`DELETE FROM generation_tags WHERE user_id = ?`)
+      .bind(userId)
+      .run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes("generation_tags") && !message.includes("SQLITE_ERROR")) {
+      throw err;
+    }
+  }
+  await env.DB.prepare(`DELETE FROM generations WHERE user_id = ?`).bind(userId).run();
+  const r2Deleted = await deleteUserR2Prefix(env, userId);
+  return { deleted: rows.length, r2Deleted, oxenDeleted, oxenFailed };
 }
 
 export async function deleteFailedGenerations(

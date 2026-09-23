@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   deleteOxenGeneration,
   deleteOxenRepoMedia,
+  deleteOxenResultUrls,
   parseOxenRepoMediaUrl,
 } from "../worker/oxen-delete";
 
@@ -119,5 +120,19 @@ describe("deleteOxenGeneration", () => {
         path: "gone.png",
       }),
     ).resolves.toBe(true);
+  });
+
+  it("batches playground files from the same workspace", async () => {
+    const bodies: unknown[] = [];
+    globalThis.fetch = async (input, init) => {
+      if (typeof init?.body === "string") bodies.push(JSON.parse(init.body));
+      return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+    const result = await deleteOxenResultUrls("test-key", [
+      "https://hub.oxen.ai/api/repos/digisavvy/playground/workspaces/abc/files/a.png",
+      "https://hub.oxen.ai/api/repos/digisavvy/playground/workspaces/abc/files/b.png",
+    ]);
+    expect(result).toEqual({ deleted: 2, failed: 0 });
+    expect(bodies).toEqual([["files/a.png", "files/b.png"]]);
   });
 });

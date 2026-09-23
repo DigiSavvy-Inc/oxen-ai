@@ -66,6 +66,27 @@ export function createMockR2(): {
     async delete(key: string) {
       store.delete(key);
     },
+    async head(key: string) {
+      const obj = store.get(key);
+      if (!obj) return null;
+      return {
+        size: obj.body.byteLength,
+        httpMetadata: { contentType: obj.contentType },
+      };
+    },
+    async list(options?: { prefix?: string; cursor?: string; limit?: number }) {
+      const prefix = options?.prefix ?? "";
+      const keys = [...store.keys()].filter((key) => key.startsWith(prefix)).sort();
+      return {
+        objects: keys.map((key) => ({
+          key,
+          size: store.get(key)?.body.byteLength ?? 0,
+        })),
+        truncated: false,
+        cursor: undefined,
+        delimitedPrefixes: [],
+      };
+    },
   };
   return { store, bucket: bucket as unknown as R2Bucket };
 }

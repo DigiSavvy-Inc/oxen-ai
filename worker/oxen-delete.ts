@@ -72,14 +72,8 @@ export async function deleteOxenRepoMedia(
   ref: OxenRepoMediaRef,
 ): Promise<boolean> {
   switch (ref.kind) {
-    case "workspace": {
-      const res = await hubFetch(
-        encodeRepoPath(ref.namespace, ref.repo, "workspaces", ref.workspaceId, "files"),
-        apiKey,
-        { method: "DELETE", body: JSON.stringify([ref.path]) },
-      );
-      return res.ok || res.status === 404 || res.status === 410;
-    }
+    case "workspace":
+      return deleteWorkspacePaths(apiKey, ref, [ref.path]);
     case "file": {
       const form = new FormData();
       form.append("message", "Delete DS Studio generation");
@@ -96,6 +90,58 @@ export async function deleteOxenRepoMedia(
       throw new Error(`Unhandled Oxen media ref: ${JSON.stringify(_never)}`);
     }
   }
+}
+
+async function deleteWorkspacePaths(
+  apiKey: string,
+  ref: Extract<OxenRepoMediaRef, { kind: "workspace" }>,
+  paths: string[],
+): Promise<boolean> {
+  const unique = [...new Set(paths.filter(Boolean))];
+  if (unique.length === 0) return true;
+  const res = await hubFetch(
+    encodeRepoPath(ref.namespace, ref.repo, "workspaces", ref.workspaceId, "files"),
+    apiKey,
+    { method: "DELETE", body: JSON.stringify(unique) },
+  );
+  return res.ok || res.status === 206 || res.status === 404 || res.status === 410;
+}
+
+export async function deleteOxenResultUrls(
+  apiKey: string,
+  resultUrls: Array<string | null | undefined>,
+): Promise<{ deleted: number; failed: number }> {
+  let deleted = 0;
+  let failed = 0;
+  const workspaceGroups = new Map<
+    string,
+    { ref: Extract<OxenRepoMediaRef, { kind: "workspace" }>; paths: string[] }
+  >();
+  const files: Extract<OxenRepoMediaRef, { kind: "file" }>[] = [];
+  for (const url of resultUrls) {
+    const ref = parseOxenRepoMediaUrl(url);
+    if (!ref) continue;
+    if (ref.kind === "workspace") {
+      const key = `${ref.namespace}/${ref.repo}/${ref.workspaceId}`;
+      const group = workspaceGroups.get(key);
+      if (group) group.paths.push(ref.path);
+      else workspaceGroups.set(key, { ref, paths: [ref.path] });
+    } else {
+      files.push(ref);
+    }
+  }
+  for (const group of workspaceGroups.values()) {
+    const paths = [...new Set(group.paths)];
+    const ok = await deleteWorkspacePaths(apiKey, group.ref, paths);
+    if (ok) deleted += paths.length;
+    else failed += paths.length;
+  }
+  for (const ref of files) {
+    const ok = await deleteOxenRepoMedia(apiKey, ref);
+    if (ok) deleted += 1;
+    else failed += 1;
+  }
+  return { deleted, failed };
 }
 
 export async function deleteOxenGeneration(
