@@ -18,6 +18,7 @@ import {
   onInstallAvailable,
   promptInstall,
 } from "../lib/pwa";
+import { StatusWait } from "./StatusWait";
 
 type AllowRow = {
   github_login: string;
@@ -26,6 +27,22 @@ type AllowRow = {
 };
 
 type SettingsPane = "api-key" | "models" | "notifications" | "cleanup" | "allowlist";
+type CleanupAction = "failed" | "thumbs" | "all";
+
+function cleanupWaitLabel(action: CleanupAction): string {
+  switch (action) {
+    case "failed":
+      return "Deleting failed jobs";
+    case "thumbs":
+      return "Building missing thumbnails";
+    case "all":
+      return "Deleting all media";
+    default: {
+      const _exhaustive: never = action;
+      return _exhaustive;
+    }
+  }
+}
 
 export function SettingsModal({
   onClose,
@@ -59,9 +76,10 @@ export function SettingsModal({
   const [modelHits, setModelHits] = useState<OxenModel[]>([]);
   const [modelBusy, setModelBusy] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
-  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [cleanupRunning, setCleanupRunning] = useState<CleanupAction | null>(null);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
   const [cleanupError, setCleanupError] = useState<string | null>(null);
+  const cleanupBusy = cleanupRunning !== null;
   const [nukeConfirm, setNukeConfirm] = useState(false);
   const [nukeOxen, setNukeOxen] = useState(true);
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -270,8 +288,8 @@ export function SettingsModal({
     }
   }
 
-  async function runCleanup(action: "failed" | "thumbs" | "all", fromOxen = false) {
-    setCleanupBusy(true);
+  async function runCleanup(action: CleanupAction, fromOxen = false) {
+    setCleanupRunning(action);
     setCleanupError(null);
     setCleanupMessage(null);
     try {
@@ -317,7 +335,7 @@ export function SettingsModal({
     } catch (err) {
       setCleanupError(err instanceof Error ? err.message : "Cleanup failed");
     } finally {
-      setCleanupBusy(false);
+      setCleanupRunning(null);
     }
   }
 
@@ -546,7 +564,7 @@ export function SettingsModal({
                 disabled={cleanupBusy}
                 onClick={() => void runCleanup("failed")}
               >
-                Delete failed jobs
+                {cleanupRunning === "failed" ? "Deleting…" : "Delete failed jobs"}
               </button>
               <button
                 type="button"
@@ -554,9 +572,12 @@ export function SettingsModal({
                 disabled={cleanupBusy}
                 onClick={() => void runCleanup("thumbs")}
               >
-                Build missing thumbnails
+                {cleanupRunning === "thumbs" ? "Building…" : "Build missing thumbnails"}
               </button>
             </div>
+            {cleanupRunning ? <StatusWait label={cleanupWaitLabel(cleanupRunning)} /> : null}
+            {cleanupMessage ? <p className="settings-ok">{cleanupMessage}</p> : null}
+            {cleanupError ? <p className="settings-bad">{cleanupError}</p> : null}
             <div className="settings-danger">
               <h4>Delete all media</h4>
               <p>
@@ -606,8 +627,6 @@ export function SettingsModal({
                 )}
               </div>
             </div>
-            {cleanupMessage ? <p className="settings-ok">{cleanupMessage}</p> : null}
-            {cleanupError ? <p className="settings-bad">{cleanupError}</p> : null}
           </>
         );
       case "allowlist":

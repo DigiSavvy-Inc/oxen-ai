@@ -20,7 +20,7 @@ import {
   type OxenModel,
   type StudioSettings,
 } from "./lib/api";
-import { groupGenerationBatches, isActiveGeneration, mergeGenerations } from "./lib/batches";
+import { groupGenerationBatches, isActiveGeneration, mergeGenerations, siblingAfterRemoval } from "./lib/batches";
 import { notifyGenerationLocal } from "./lib/pwa";
 import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
 import { filesFromList, kindFromFile } from "./lib/files";
@@ -611,8 +611,8 @@ export default function App() {
     if (ids.length === 0) return;
     const removing = new Set(ids);
     setGenerations((prev) => prev.filter((row) => !removing.has(row.id)));
-    setSelectedId((prev) => (prev && removing.has(prev) ? null : prev));
-    setPeekId((prev) => (prev && removing.has(prev) ? null : prev));
+    setSelectedId((prev) => siblingAfterRemoval(prev, removing, generations));
+    setPeekId((prev) => siblingAfterRemoval(prev, removing, generations));
     setError(null);
     try {
       await Promise.all(ids.map((id) => api.deleteGeneration(id, { fromOxen })));
@@ -823,11 +823,11 @@ export default function App() {
                 if (!peek.resultUrl) return;
                 void downloadMedia(peek.resultUrl, downloadFilename(peek));
               }}
-              onRemove={(fromOxen) => {
-                const ids = peekVariants.map((item) => item.id);
+              onRemove={(ids, fromOxen) => {
                 if (fromOxen) requestDeleteMedia(ids, true);
                 else void onDeleteGenerations(ids, false);
-              }}            />
+              }}
+            />
           ) : null}
         </div>
         <Composer

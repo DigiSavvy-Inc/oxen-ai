@@ -1,6 +1,7 @@
 import { MODE_LABELS, type Generation, type GenerationMode } from "../lib/api";
 import { libraryRefFromGeneration } from "../lib/library-refs";
 import { CopyPrompt } from "./CopyPrompt";
+import { MediaDeleteGroup } from "./MediaDeleteGroup";
 
 export function LibraryPeek({
   generation,
@@ -21,7 +22,7 @@ export function LibraryPeek({
   onAttach: (item: Generation) => void;
   onSelectVariant: (id: string) => void;
   onDownload?: () => void;
-  onRemove?: (fromOxen?: boolean) => void;
+  onRemove?: (ids: string[], fromOxen?: boolean) => void;
 }) {
   const label = MODE_LABELS[generation.mode as GenerationMode] || generation.mode;
   const ready = Boolean(libraryRefFromGeneration(generation));
@@ -39,6 +40,10 @@ export function LibraryPeek({
     if (!libraryRefFromGeneration(item) || !attachSupported) return;
     onSelectVariant(item.id);
     onAttach(item);
+  }
+
+  function remove(item: Generation, fromOxen = false) {
+    onRemove?.([item.id], fromOxen);
   }
 
   return (
@@ -59,23 +64,31 @@ export function LibraryPeek({
       </div>
       <div className="library-peek-body">
         <div className={`library-peek-media${attached ? " is-attached" : ""}`}>
-          {generation.mediaType === "video" && generation.resultUrl ? (
-            <video src={generation.resultUrl} controls playsInline />
-          ) : generation.resultUrl ? (
-            <button
-              type="button"
-              className="library-peek-hit"
-              onClick={() => attach(generation)}
-              disabled={!canAttach}
-              title="Attach as reference"
-            >
-              <img src={generation.resultUrl} alt={generation.prompt || "Library item"} />
-            </button>
-          ) : (
-            <span className="library-peek-missing">
-              {generation.status === "succeeded" ? "Media unavailable" : generation.status}
-            </span>
-          )}
+          <div className="library-peek-frame">
+            {generation.mediaType === "video" && generation.resultUrl ? (
+              <video src={generation.resultUrl} controls playsInline />
+            ) : generation.resultUrl ? (
+              <button
+                type="button"
+                className="library-peek-hit"
+                onClick={() => attach(generation)}
+                disabled={!canAttach}
+                title="Attach as reference"
+              >
+                <img src={generation.resultUrl} alt={generation.prompt || "Library item"} />
+              </button>
+            ) : (
+              <span className="library-peek-missing">
+                {generation.status === "succeeded" ? "Media unavailable" : generation.status}
+              </span>
+            )}
+            {onRemove ? (
+              <MediaDeleteGroup
+                onStudio={() => remove(generation)}
+                onOxen={() => remove(generation, true)}
+              />
+            ) : null}
+          </div>
           {ready ? (
             <button
               type="button"
@@ -103,30 +116,40 @@ export function LibraryPeek({
               const isCurrent = item.id === generation.id;
               const isAttached = attachedIds.has(item.id);
               return (
-                <button
+                <div
                   key={item.id}
-                  type="button"
                   role="listitem"
                   className={`library-peek-thumb${isCurrent ? " active" : ""}${isAttached ? " is-attached" : ""}`}
-                  disabled={!variantReady}
-                  title={variantReady ? `Show variation ${index + 1}` : `Variation ${index + 1}`}
-                  aria-label={
-                    variantReady
-                      ? `Show variation ${index + 1}`
-                      : `Variation ${index + 1}, ${item.status}`
-                  }
-                  onClick={() => onSelectVariant(item.id)}
                 >
-                  {item.thumbUrl ? (
-                    <img src={item.thumbUrl} alt="" />
-                  ) : item.resultUrl && item.mediaType === "video" ? (
-                    <video src={item.resultUrl} muted playsInline preload="metadata" />
-                  ) : item.resultUrl ? (
-                    <img src={item.resultUrl} alt="" />
-                  ) : (
-                    <span>{index + 1}</span>
-                  )}
-                </button>
+                  <button
+                    type="button"
+                    className="library-peek-thumb-hit"
+                    disabled={!variantReady}
+                    title={variantReady ? `Show variation ${index + 1}` : `Variation ${index + 1}`}
+                    aria-label={
+                      variantReady
+                        ? `Show variation ${index + 1}`
+                        : `Variation ${index + 1}, ${item.status}`
+                    }
+                    onClick={() => onSelectVariant(item.id)}
+                  >
+                    {item.thumbUrl ? (
+                      <img src={item.thumbUrl} alt="" />
+                    ) : item.resultUrl && item.mediaType === "video" ? (
+                      <video src={item.resultUrl} muted playsInline preload="metadata" />
+                    ) : item.resultUrl ? (
+                      <img src={item.resultUrl} alt="" />
+                    ) : (
+                      <span>{index + 1}</span>
+                    )}
+                  </button>
+                  {onRemove ? (
+                    <MediaDeleteGroup
+                      onStudio={() => remove(item)}
+                      onOxen={() => remove(item, true)}
+                    />
+                  ) : null}
+                </div>
               );
             })}
           </div>
@@ -140,13 +163,17 @@ export function LibraryPeek({
             ) : null}
             {onRemove ? (
               <>
-                <button type="button" className="ghost-btn library-peek-remove" onClick={() => onRemove()}>
+                <button
+                  type="button"
+                  className="ghost-btn library-peek-remove"
+                  onClick={() => remove(generation)}
+                >
                   Delete
                 </button>
                 <button
                   type="button"
                   className="ghost-btn library-peek-remove"
-                  onClick={() => onRemove(true)}
+                  onClick={() => remove(generation, true)}
                 >
                   Delete + Oxen
                 </button>

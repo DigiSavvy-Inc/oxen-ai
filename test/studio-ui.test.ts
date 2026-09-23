@@ -9,6 +9,7 @@ import {
   groupGenerationBatches,
   isActiveGeneration,
   mergeGenerations,
+  siblingAfterRemoval,
 } from "../src/lib/batches";
 import {
   ALL_MODES,
@@ -80,6 +81,17 @@ describe("groupGenerationBatches", () => {
     expect(batches).toHaveLength(2);
     expect(batches[0]?.items.map((item) => item.id)).toEqual(["a", "b"]);
     expect(coverGeneration(batches[0]?.items ?? [])?.id).toBe("a");
+  });
+
+  it("keeps a remaining variation selected after deleting one", () => {
+    const rows = [
+      gen({ id: "a", batchId: "b1" }),
+      gen({ id: "b", batchId: "b1" }),
+      gen({ id: "c", batchId: "b2" }),
+    ];
+    expect(siblingAfterRemoval("a", new Set(["a"]), rows)).toBe("b");
+    expect(siblingAfterRemoval("c", new Set(["c"]), rows)).toBeNull();
+    expect(siblingAfterRemoval("a", new Set(["z"]), rows)).toBe("a");
   });
 
   it("puts the ready cover first in library tile previews", () => {
@@ -669,8 +681,24 @@ describe("copy prompt", () => {
     expect(canvas).toContain("Delete");
     expect(canvas).toContain("onDelete");
     expect(peek).toContain("Delete");
+    expect(peek).toContain("MediaDeleteGroup");
+    expect(peek).toContain("library-peek-thumb-hit");
     expect(app).toContain("requestDeleteMedia");
     expect(app).toContain("api.deleteGeneration");
+  });
+
+  it("shows stacking wait dots while library cleanup runs", () => {
+    const settings = readFileSync(
+      new URL("../src/components/SettingsModal.tsx", import.meta.url),
+      "utf8",
+    );
+    const wait = readFileSync(new URL("../src/components/StatusWait.tsx", import.meta.url), "utf8");
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    expect(settings).toContain("StatusWait");
+    expect(settings).toContain("Deleting failed jobs");
+    expect(settings).toContain("Building missing thumbnails");
+    expect(wait).toContain("status-dots");
+    expect(css).toContain("status-dot-stack");
   });
 
   it("puts a copy control next to saved prompts on the canvas and library peek", () => {
@@ -766,6 +794,19 @@ describe("thumbnail frames", () => {
     expect(css).not.toMatch(/\.variation-thumb\.active\s*\{[^}]*box-shadow/);
     expect(css).not.toMatch(/\.history-tile\.active \.history-tile-square\s*\{[^}]*box-shadow/);
     expect(css).not.toMatch(/\.library-peek-thumb\.active\s*\{[^}]*box-shadow/);
+  });
+});
+
+describe("app column", () => {
+  it("caps the shell and docks library panels to that column", () => {
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    expect(css).toContain("--app-max: 1440px");
+    expect(css).toContain("--app-gutter:");
+    expect(css).toMatch(/\.app-shell\s*\{[^}]*max-width:\s*var\(--app-max\)/);
+    expect(css).toMatch(/\.sidebar\s*\{[^}]*inset:\s*0 auto 0 var\(--app-gutter\)/);
+    expect(css).toMatch(/\.library-peek\s*\{[^}]*inset:\s*0 var\(--app-gutter\) 0 auto/);
+    expect(css).toMatch(/\.app-shell\.has-peek \.main\s*\{[^}]*padding-right:\s*var\(--panel-width\)/);
+    expect(css).toMatch(/\.app-shell\.library-open \.main\s*\{[^}]*padding-left:\s*var\(--panel-width\)/);
   });
 });
 

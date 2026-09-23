@@ -3,6 +3,7 @@ import { coverGeneration, groupGenerationBatches } from "../lib/batches";
 import type { Generation } from "../lib/api";
 import { completedMedia, tilePreviewUrl } from "../lib/download";
 import { collectUniqueTags, suggestTags, tagsMatchQuery } from "../lib/tags";
+import { MediaDeleteGroup } from "./MediaDeleteGroup";
 
 function tileSrc(item: Generation, allowFull = false): string | null {
   return tilePreviewUrl(item) || (allowFull ? item.resultUrl : null);
@@ -151,37 +152,10 @@ export function Sidebar({
                       </span>
                     ) : null}
                     {onDelete ? (
-                      <div className="media-delete-group">
-                        <button
-                          type="button"
-                          className="media-delete"
-                          aria-label="Remove from Studio"
-                          title="Remove from Studio"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            onDelete(batch.items.map((item) => item.id));
-                          }}
-                        >
-                          ×
-                        </button>
-                        <button
-                          type="button"
-                          className="media-delete media-delete-oxen"
-                          aria-label="Remove from Studio and Oxen"
-                          title="Remove from Studio and Oxen"
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            onDelete(
-                              batch.items.map((item) => item.id),
-                              true,
-                            );
-                          }}
-                        >
-                          Oxen
-                        </button>
-                      </div>
+                      <MediaDeleteGroup
+                        onStudio={() => onDelete(batch.items.map((item) => item.id))}
+                        onOxen={() => onDelete(batch.items.map((item) => item.id), true)}
+                      />
                     ) : null}
                   </div>
                 </div>

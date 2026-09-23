@@ -33,6 +33,19 @@ export function coverGeneration(items: Generation[]): Generation | undefined {
   );
 }
 
+export function siblingAfterRemoval(
+  id: string | null,
+  removing: Set<string>,
+  rows: Generation[],
+): string | null {
+  if (!id) return null;
+  if (!removing.has(id)) return id;
+  const current = rows.find((row) => row.id === id);
+  if (!current) return null;
+  const key = batchKey(current);
+  return rows.find((row) => !removing.has(row.id) && batchKey(row) === key)?.id ?? null;
+}
+
 export function batchPreviewItems(items: Generation[], max = 4): Generation[] {
   const cover = coverGeneration(items);
   if (!cover) return items.slice(0, max);
