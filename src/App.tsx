@@ -228,15 +228,28 @@ export default function App() {
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      if (peekId) {
-        event.preventDefault();
-        setPeekId(null);
+      if (event.key === "Escape") {
+        if (peekId) {
+          event.preventDefault();
+          setPeekId(null);
+          return;
+        }
+        if (libraryOpen) {
+          event.preventDefault();
+          closeLibrary();
+        }
         return;
       }
-      if (libraryOpen) {
+      if (event.repeat || event.altKey || !(event.metaKey || event.ctrlKey) || !event.shiftKey) return;
+      if (event.code === "KeyL") {
         event.preventDefault();
-        closeLibrary();
+        if (libraryOpen) closeLibrary();
+        else setLibraryOpen(true);
+        return;
+      }
+      if (event.code === "Comma") {
+        event.preventDefault();
+        setShowSettings(true);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -779,12 +792,19 @@ export default function App() {
               className={`ghost-btn${libraryOpen ? " active" : ""}`}
               aria-expanded={libraryOpen}
               aria-controls="media-library"
+              aria-keyshortcuts="Meta+Shift+L"
+              title="Library (⌘⇧L)"
               onClick={() => {
                 if (libraryOpen) closeLibrary();
                 else setLibraryOpen(true);
               }}
             >
               Library
+              <span className="nav-shortcut" aria-hidden>
+                <kbd>⌘</kbd>
+                <kbd>⇧</kbd>
+                <kbd>L</kbd>
+              </span>
             </button>
             <button type="button" className="ghost-btn" onClick={startNew}>
               New

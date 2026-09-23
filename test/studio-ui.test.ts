@@ -807,6 +807,19 @@ describe("app column", () => {
     expect(css).toMatch(/\.library-peek\s*\{[^}]*inset:\s*0 var\(--app-gutter\) 0 auto/);
     expect(css).toMatch(/\.app-shell\.has-peek \.main\s*\{[^}]*padding-right:\s*var\(--panel-width\)/);
     expect(css).toMatch(/\.app-shell\.library-open \.main\s*\{[^}]*padding-left:\s*var\(--panel-width\)/);
+    expect(css).toMatch(/\.main-top\s*\{[^}]*width:\s*min\(920px,/);
+  });
+});
+
+describe("nav shortcuts", () => {
+  it("toggles the library with Command Shift L and opens settings with Command Shift comma", () => {
+    const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+    const menu = readFileSync(new URL("../src/components/AccountMenu.tsx", import.meta.url), "utf8");
+    expect(app).toContain('event.code === "KeyL"');
+    expect(app).toContain('event.code === "Comma"');
+    expect(app).toContain("Meta+Shift+L");
+    expect(menu).toContain("Meta+Shift+Comma");
+    expect(menu).toContain("menu-shortcut");
   });
 });
 

@@ -42,6 +42,8 @@ export function AccountMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`Account menu for @${userLogin}`}
+        aria-keyshortcuts="Meta+Shift+Comma"
+        title="Settings (⌘⇧,)"
         onClick={() => setOpen((value) => !value)}
       >
         {avatarUrl ? <img src={avatarUrl} alt="" /> : <span className="account-menu-fallback">?</span>}
@@ -64,6 +66,11 @@ export function AccountMenu({
             }}
           >
             Settings
+            <span className="menu-shortcut" aria-hidden>
+              <kbd>⌘</kbd>
+              <kbd>⇧</kbd>
+              <kbd>,</kbd>
+            </span>
           </button>
           <button
             type="button"
