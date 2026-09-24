@@ -6,7 +6,7 @@ GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 
 # Comma-separated GitHub logins that can always sign in and manage the allowlist
-GITHUB_ADMINS=digisavvy
+GITHUB_ADMINS=your-github-login
 
 # 32+ byte secret used to encrypt Oxen API keys and sign media URLs
 ENCRYPTION_KEY=change-me-to-a-long-random-string

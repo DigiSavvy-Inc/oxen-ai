@@ -20,7 +20,7 @@ import {
   upsertUser,
   userHasAccess,
 } from "./auth";
-import { creditBalanceResponse, fetchOxenCredits } from "./credits";
+import { creditBalanceResponse, fetchOxenCredits, OXEN_BILLING_URL } from "./credits";
 import {
   buildReferenceMediaUrl,
   displayStoredMediaUrl,
@@ -765,8 +765,10 @@ app.get("/api/auth/me", async (c) => {
 
 app.get("/api/auth/config", (c) => {
   const oauth = oauthConfigured(c.env);
+  const org = c.env.GITHUB_ORG?.trim() || null;
   return c.json({
     mode: oauth ? "oauth" : "local",
+    org,
   });
 });
 
@@ -997,7 +999,9 @@ app.get("/api/billing/credits", async (c) => {
   const user = await requireUser(c);
   const apiKey = await requireOxenKey(user, c.env);
   const remaining = await fetchOxenCredits(apiKey);
-  return c.json(creditBalanceResponse(remaining));
+  return c.json(
+    creditBalanceResponse(remaining, c.env.OXEN_BILLING_URL || OXEN_BILLING_URL),
+  );
 });
 
 app.post("/api/upload", async (c) => {

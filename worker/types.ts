@@ -20,6 +20,8 @@ export type Env = {
   VAPID_PRIVATE_KEY?: string;
   /** Optional `mailto:` or HTTPS origin for VAPID. */
   VAPID_SUBJECT?: string;
+  /** Buy Credits link. Defaults to the DigiSavvy Oxen billing page. */
+  OXEN_BILLING_URL?: string;
 };
 
 export type UserRow = {

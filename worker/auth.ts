@@ -185,7 +185,10 @@ export async function userHasAccess(
     return { allowed: true };
   }
 
-  const org = env.GITHUB_ORG || "DigiSavvy-Inc";
+  const org = env.GITHUB_ORG?.trim();
+  if (!org) {
+    return { allowed: false, reason: "Not on the allowlist" };
+  }
   const membership = await fetch(
     `https://api.github.com/user/memberships/orgs/${encodeURIComponent(org)}`,
     {

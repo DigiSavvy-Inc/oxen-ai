@@ -5,11 +5,15 @@ import { Loader } from "./Loader";
 export function LoginPage() {
   const { loading } = useAuth();
   const [mode, setMode] = useState<"oauth" | "local" | null>(null);
+  const [org, setOrg] = useState<string | null>(null);
 
   useEffect(() => {
     void fetch("/api/auth/config")
-      .then((res) => res.json() as Promise<{ mode: "oauth" | "local" }>)
-      .then((data) => setMode(data.mode))
+      .then((res) => res.json() as Promise<{ mode: "oauth" | "local"; org?: string | null }>)
+      .then((data) => {
+        setMode(data.mode);
+        setOrg(data.org?.trim() || null);
+      })
       .catch(() => setMode("oauth"));
   }, []);
 
@@ -33,8 +37,15 @@ export function LoginPage() {
         </div>
         <h1>Sign in to generate</h1>
         <p>
-          Access is limited to <strong>DigiSavvy-Inc</strong> org members and
-          allowlisted GitHub users. Each account uses its own Oxen API key.
+          {org ? (
+            <>
+              Access is limited to <strong>{org}</strong> org members and allowlisted GitHub
+              users.
+            </>
+          ) : (
+            <>Access is limited to allowlisted GitHub users.</>
+          )}{" "}
+          Each account uses its own Oxen API key.
         </p>
         {mode === "local" ? (
           <p>

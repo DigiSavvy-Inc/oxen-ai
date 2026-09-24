@@ -36,7 +36,7 @@ export function vapidSubject(env: Pick<Env, "VAPID_SUBJECT" | "PUBLIC_BASE_URL">
   const subject = env.VAPID_SUBJECT?.trim();
   if (subject) return subject;
   if (env.PUBLIC_BASE_URL) return env.PUBLIC_BASE_URL.replace(/\/$/, "");
-  return "https://studio.digisavvy.dev";
+  return "https://oxen.ai";
 }
 
 export function parsePushSubscription(body: unknown): PushSubscriptionInput {

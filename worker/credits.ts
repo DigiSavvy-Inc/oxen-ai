@@ -119,10 +119,13 @@ export type CreditBalance = {
   billingUrl: string;
 };
 
-export function creditBalanceResponse(remaining: number | null): CreditBalance {
+export function creditBalanceResponse(
+  remaining: number | null,
+  billingUrl = OXEN_BILLING_URL,
+): CreditBalance {
   return {
     remaining,
     currency: "USD",
-    billingUrl: OXEN_BILLING_URL,
+    billingUrl: billingUrl.trim() || OXEN_BILLING_URL,
   };
 }

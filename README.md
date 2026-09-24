@@ -1,128 +1,110 @@
 # DS Studio
 
-Cursor-inspired media studio for [Oxen AI](https://docs.oxen.ai/inference-api/overview) image and video generation. Runs on Cloudflare Workers (Hono API + React SPA) with GitHub org/allowlist access and per-user Oxen API keys.
+A light web studio for [Oxen AI](https://docs.oxen.ai/inference-api/overview) image and video generation. You pick a mode and a model, write a prompt, attach references, and the app queues the job. Finished files are saved for you.
 
-Tracking: [DigiSavvy-Inc/oxen-ai#1](https://github.com/DigiSavvy-Inc/oxen-ai/issues/1)
+DigiSavvy runs a copy at **https://studio.digisavvy.dev**. This repository is the app. You can run your own.
 
-Production origin: **https://studio.digisavvy.dev**
+Each signed-in person keeps their own Oxen API key. The server encrypts it and talks to Oxen. The browser never sees the key again after it is saved.
 
-This repository does **not** auto-deploy. CI lints, tests, and typechecks; `wrangler deploy` is a manual human step after the checklist below.
+Image and video generation always go through Oxen’s async queue. There is no synchronous generate path.
 
-## Features
+## What it does
 
-- Text → Image, Image → Image, Text → Video, Reference → Video, Video → Video
-- Async Oxen queue with live polling
-- GitHub OAuth: DigiSavvy-Inc org members **or** D1 allowlist (admins manage it in Settings)
-- Per-user encrypted Oxen API keys
-- R2 uploads for reference media (data URI fallback locally)
-- Installable PWA (Add to Home Screen) with optional generation-complete notifications
+- Text → Image, Image → Image, Text → Video, Image → Video, Video → Video
+- Live model catalog, per-mode defaults, and Oxen favorites
+- `@Image` / `@Video` / `@Audio` mentions for models that take references
+- 1–4 outputs per prompt, group tags, and a library of past results
+- Estimated cost on Generate, and a Buy Credits link to Oxen billing
+- Optional installable app with a notification when a job finishes
 
-## Setup
+## Who can sign in
+
+GitHub only.
+
+- People in the GitHub organization named by `GITHUB_ORG`
+- GitHub logins on the in-app allowlist
+- Logins in `GITHUB_ADMINS`, who can also manage the allowlist
+
+Leave `GITHUB_ORG` empty if you only want the allowlist and admins.
+
+## Run it locally
+
+You need Node 22+, a Cloudflare account (Wrangler uses it for local D1 and R2), and the [GitHub CLI](https://cli.github.com/) logged in.
 
 ```bash
 cp .dev.vars.example .dev.vars
-# fill GITHUB_ADMINS, ENCRYPTION_KEY, SESSION_SECRET
-# leave GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET empty for local `gh` sign-in
-# paste `gh auth token` into GH_TOKEN (do not commit .dev.vars)
+```
+
+In `.dev.vars`:
+
+- Set `GITHUB_ADMINS` to your GitHub login.
+- Set `ENCRYPTION_KEY` and `SESSION_SECRET` to long random strings.
+- Leave `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` empty.
+- Set `GH_TOKEN` to the output of `gh auth token`.
+
+Do not commit `.dev.vars`.
+
+```bash
 npm install
 npm run db:migrate:local
 npm run dev
 ```
 
-### GitHub sign-in
+Open http://localhost:5173 and continue with this machine’s GitHub account. Then open Settings and paste an Oxen API key from your Oxen account.
 
-A GitHub OAuth app has **exactly one** callback URL. Do not reuse another app's callback, and do not add a `workers.dev` or localhost callback to the production app.
+Local uploads are sent as data URIs because `PUBLIC_BASE_URL` is empty. That is enough for most image references. Seedance face references need a public HTTPS URL, so use a deployed origin for those.
 
-Until a production OAuth app exists, local sign-in uses the GitHub account already logged in via `gh` (`GH_TOKEN` in `.dev.vars`). Leave `GITHUB_CLIENT_ID` empty. A placeholder client id is treated as unconfigured and **must not** send users to `https://github.com/login/oauth/authorize`.
+## Deploy your own
 
-Put your GitHub login in `GITHUB_ADMINS` (local `.dev.vars`) so you can sign in and manage the allowlist.
+CI lints, tests, and builds. It does not deploy. You deploy with Wrangler.
 
-### Oxen API key
-
-After signing in, open **Settings** and paste your Oxen API key from account settings. Keys are encrypted in D1 and never exposed to the browser after save.
-
-### Reference media (edit / ref-to-video / video-to-video)
-
-Oxen downloads `input_image` / `input_video` itself, so those values must be URLs Oxen can GET.
-
-- **Local:** leave `PUBLIC_BASE_URL` unset or empty in `.dev.vars`. `POST /api/upload` returns data URIs, which Oxen accepts.
-- **Production:** set `PUBLIC_BASE_URL=https://studio.digisavvy.dev` (no trailing slash). Uploads then return signed `https://studio.digisavvy.dev/api/media/...` URLs with `exp` and `sig`. Oxen fetches those over HTTPS without a session cookie or API key. Signatures last 12 hours so queued video jobs can still download reference files.
-
-Uploads stay session-authenticated. The browser never holds Oxen API keys.
-
-## Deploy (human steps — not CI)
-
-CI (`npm ci`, lint, `npm test`, `npm run build`) does **not** run `wrangler deploy` and does **not** create Cloudflare or GitHub OAuth resources.
-
-### 1. GitHub OAuth app (new app, production callback only)
-
-1. https://github.com/settings/developers → **New OAuth App** (do not reuse another app)
-2. Homepage URL: `https://studio.digisavvy.dev`
-3. Authorization callback URL (the only callback): `https://studio.digisavvy.dev/api/auth/callback`
-4. Copy the client id. You will set `GITHUB_CLIENT_ID` as a Worker var at deploy time. Local `.dev.vars` stays empty so `npm run dev` keeps using `GH_TOKEN`.
-
-### 2. D1 and R2 (paste real IDs; do not invent UUIDs)
+Create a new GitHub OAuth app. Give it one callback: `https://YOUR_DOMAIN/api/auth/callback`. Do not point that callback at `*.workers.dev`.
 
 ```bash
 npx wrangler d1 create oxen-studio
 npx wrangler r2 bucket create oxen-studio-media
-npx wrangler d1 migrations apply oxen-studio --remote
 ```
 
-Paste the printed D1 `database_id` into `wrangler.jsonc` (replace the all-zeros placeholder). R2 is bound by bucket name `oxen-studio-media` (no UUID).
-
-### 3. Secrets (never commit)
+Put the printed D1 `database_id` in `wrangler.jsonc` in place of the existing id, then:
 
 ```bash
+npx wrangler d1 migrations apply oxen-studio --remote
 npx wrangler secret put GITHUB_CLIENT_SECRET
 npx wrangler secret put ENCRYPTION_KEY
 npx wrangler secret put SESSION_SECRET
-npx wrangler secret put VAPID_PRIVATE_KEY
 ```
 
-Use long random values for `ENCRYPTION_KEY` and `SESSION_SECRET` (32+ bytes). Generate a P-256 VAPID pair once; store the private key as a secret and the public key as a deploy-time var. Never commit either key.
-
-### 4. Production vars
-
-Committed `wrangler.jsonc` vars are local/dev defaults (`GITHUB_ORG=DigiSavvy-Inc`, blank `GITHUB_ADMINS`). Set the production shape in the Cloudflare dashboard or at deploy time:
-
-```text
-GITHUB_ORG=DigiSavvy-Inc
-GITHUB_ADMINS=digisavvy
-GITHUB_CLIENT_ID=<id from the new OAuth app>
-PUBLIC_BASE_URL=https://studio.digisavvy.dev
-SESSION_TTL_SECONDS=604800
-VAPID_PUBLIC_KEY=<url-safe base64 P-256 public key>
-```
-
-Do not put `PUBLIC_BASE_URL` or a real `GITHUB_CLIENT_ID` in the committed jsonc — both would change local `npm run dev` (signed media URLs / OAuth redirects).
-
-### 5. Custom domain `studio.digisavvy.dev`
-
-`wrangler.jsonc` does **not** hard-code a `routes` entry so local `npm run dev` stays on loopback.
-
-After the Worker exists, attach the domain in the Cloudflare dashboard: **Workers & Pages → oxen-studio → Settings → Domains & Routes → Add** `studio.digisavvy.dev` (zone DNS on Cloudflare). Equivalent wrangler shape (only if you later choose to deploy with it; commented in `wrangler.jsonc`):
-
-```jsonc
-"routes": [{ "pattern": "studio.digisavvy.dev", "custom_domain": true }]
-```
-
-The OAuth callback is the custom domain only. A `*.workers.dev` URL will not complete GitHub sign-in.
-
-### 6. Deploy (manual)
+Attach your domain to the Worker in the Cloudflare dashboard. Then deploy with every variable you intend to keep. Omitting a variable on a later deploy can clear it. `--keep-vars` retains variables you do not pass this time.
 
 ```bash
-npm run deploy
+npm run build && npx wrangler deploy --keep-vars \
+  --var GITHUB_ORG:your-org \
+  --var GITHUB_ADMINS:your-github-login \
+  --var GITHUB_CLIENT_ID:your-oauth-client-id \
+  --var PUBLIC_BASE_URL:https://YOUR_DOMAIN \
+  --var OXEN_BILLING_URL:https://www.oxen.ai/your-namespace/settings/billing \
+  --var SESSION_TTL_SECONDS:604800
 ```
+
+`PUBLIC_BASE_URL` must be the HTTPS origin Oxen can fetch. Signed media URLs last 12 hours.
+
+`OXEN_BILLING_URL` is where Buy Credits goes. If you omit it, the link points at DigiSavvy’s Oxen billing page.
+
+Notifications are optional. Generate a VAPID key pair, store the private key with `wrangler secret put VAPID_PRIVATE_KEY`, and pass `VAPID_PUBLIC_KEY` as a variable. `VAPID_SUBJECT` can be a `mailto:` address or your origin.
+
+The committed `wrangler.jsonc` is safe for local development: no production OAuth client id and no `PUBLIC_BASE_URL`. The D1 id in that file is DigiSavvy’s production database. Replace it before you deploy your own.
 
 ## Scripts
 
 | Command | Description |
 | --- | --- |
-| `npm run dev` | Vite + Workers local runtime |
-| `npm run build` | Production build (`tsc -b` + Vite) |
+| `npm run dev` | Vite and the Worker locally |
+| `npm run build` | Typecheck and production build |
 | `npm run lint` | oxlint |
-| `npm test` | Worker unit tests (Vitest; no live Oxen / R2) |
-| `npm run preview` | Preview build in workerd |
-| `npm run deploy` | Build and deploy to Cloudflare (manual; not in CI) |
+| `npm test` | Unit tests. No live Oxen or R2 calls |
 | `npm run db:migrate:local` | Apply D1 migrations locally |
+| `npm run deploy` | Build and `wrangler deploy` with whatever vars are already on the Worker |
+
+## License
+
+[MIT](LICENSE) © DigiSavvy, Inc.
