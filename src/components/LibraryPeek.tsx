@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { MODE_LABELS, type Generation, type GenerationMode } from "../lib/api";
 import { isActiveGeneration } from "../lib/batches";
 import { libraryRefFromGeneration } from "../lib/library-refs";
 import { CopyPrompt } from "./CopyPrompt";
+import { ExpandCorners, FullSizeMedia } from "./FullSizeMedia";
 import { Loader } from "./Loader";
 import { MediaDeleteGroup } from "./MediaDeleteGroup";
 
@@ -31,6 +33,7 @@ export function LibraryPeek({
   const canAttach = ready && attachSupported;
   const attached = attachedIds.has(generation.id);
   const showStrip = variants.length > 1;
+  const [fullSize, setFullSize] = useState<Generation | null>(null);
   const kindLabel =
     generation.mediaType === "video"
       ? "video"
@@ -73,11 +76,12 @@ export function LibraryPeek({
               <button
                 type="button"
                 className="library-peek-hit"
-                onClick={() => attach(generation)}
-                disabled={!canAttach}
-                title="Attach as reference"
+                onClick={() => setFullSize(generation)}
+                title="View full size"
+                aria-label="View full size"
               >
                 <img src={generation.resultUrl} alt={generation.prompt || "Library item"} />
+                <ExpandCorners />
               </button>
             ) : isActiveGeneration(generation) ? (
               <Loader size="md" label={generation.status} />
@@ -129,13 +133,24 @@ export function LibraryPeek({
                     type="button"
                     className="library-peek-thumb-hit"
                     disabled={!variantReady}
-                    title={variantReady ? `Show variation ${index + 1}` : `Variation ${index + 1}`}
-                    aria-label={
-                      variantReady
-                        ? `Show variation ${index + 1}`
-                        : `Variation ${index + 1}, ${item.status}`
+                    title={
+                      variantReady && item.mediaType !== "video"
+                        ? `View variation ${index + 1} full size`
+                        : variantReady
+                          ? `Show variation ${index + 1}`
+                          : `Variation ${index + 1}`
                     }
-                    onClick={() => onSelectVariant(item.id)}
+                    aria-label={
+                      variantReady && item.mediaType !== "video"
+                        ? `View variation ${index + 1} full size`
+                        : variantReady
+                          ? `Show variation ${index + 1}`
+                          : `Variation ${index + 1}, ${item.status}`
+                    }
+                    onClick={() => {
+                      onSelectVariant(item.id);
+                      if (item.mediaType !== "video" && item.resultUrl) setFullSize(item);
+                    }}
                   >
                     {item.thumbUrl ? (
                       <img src={item.thumbUrl} alt="" />
@@ -154,6 +169,13 @@ export function LibraryPeek({
               );
             })}
           </div>
+        ) : null}
+        {fullSize?.resultUrl ? (
+          <FullSizeMedia
+            src={fullSize.resultUrl}
+            alt={fullSize.prompt || "Library item"}
+            onClose={() => setFullSize(null)}
+          />
         ) : null}
         {onDownload || onRemove ? (
           <div className="library-peek-tools">

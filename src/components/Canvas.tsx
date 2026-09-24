@@ -12,6 +12,7 @@ import { estimateGenerationWait } from "../lib/progress";
 import { MAX_TAGS_PER_MEDIA, parseTagList } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
 import { DownloadButton } from "./DownloadButton";
+import { ExpandCorners, FullSizeMedia } from "./FullSizeMedia";
 import { Loader } from "./Loader";
 
 function MediaPreview({
@@ -21,16 +22,27 @@ function MediaPreview({
   generation: Generation;
   className?: string;
 }) {
+  const [fullSize, setFullSize] = useState(false);
   if (generation.status === "succeeded" && generation.resultUrl) {
     if (generation.mediaType === "video") {
       return <video className={className} src={generation.resultUrl} controls autoPlay loop />;
     }
+    const alt = generation.prompt || "Generated";
     return (
-      <img
-        className={className}
-        src={generation.resultUrl}
-        alt={generation.prompt || "Generated"}
-      />
+      <>
+        <button
+          type="button"
+          className="result-expand"
+          aria-label="View full size"
+          onClick={() => setFullSize(true)}
+        >
+          <img className={className} src={generation.resultUrl} alt={alt} />
+          <ExpandCorners />
+        </button>
+        {fullSize ? (
+          <FullSizeMedia src={generation.resultUrl} alt={alt} onClose={() => setFullSize(false)} />
+        ) : null}
+      </>
     );
   }
   if (generation.status === "succeeded") {

@@ -188,12 +188,13 @@ a {
 }
 
 .library-peek-hit {
+  position: relative;
   display: block;
   width: 100%;
   padding: 0;
   border: 0;
   background: transparent;
-  cursor: pointer;
+  cursor: zoom-in;
 }
 
 .library-peek-media img,
@@ -223,6 +224,10 @@ a {
   padding: 8px;
   font-size: 12px;
   cursor: pointer;
+}
+
+.library-peek-action:hover:not(:disabled) {
+  background: var(--bg-hover);
 }
 
 .library-peek-action:disabled {
@@ -1511,6 +1516,78 @@ a {
   display: block;
   max-width: 100%;
   max-height: min(70vh, 720px);
+}
+
+.result-expand {
+  position: relative;
+  z-index: 1;
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+
+.expand-corners {
+  position: absolute;
+  inset: 10px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.library-peek-hit:hover .expand-corners,
+.library-peek-hit:focus-visible .expand-corners,
+.result-expand:hover .expand-corners,
+.result-expand:focus-visible .expand-corners {
+  opacity: 0.85;
+}
+
+.expand-corner {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 0 solid #fff;
+  filter: drop-shadow(0 0 1px rgba(28, 27, 25, 0.55));
+}
+
+.expand-corner-tr {
+  top: 0;
+  right: 0;
+  border-top-width: 2px;
+  border-right-width: 2px;
+}
+
+.expand-corner-bl {
+  bottom: 0;
+  left: 0;
+  border-bottom-width: 2px;
+  border-left-width: 2px;
+}
+
+.fullsize-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: rgba(246, 245, 242, 0.94);
+}
+
+.fullsize-backdrop img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: var(--shadow);
+}
+
+.fullsize-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: #fff;
 }
 
 .media-actions {
