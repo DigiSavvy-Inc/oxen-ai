@@ -89,14 +89,23 @@ a {
   min-height: 0;
   overflow: hidden;
   overscroll-behavior: contain;
-  transform: translateX(-110%);
-  transition: transform 0.22s ease;
+  transform: translateX(calc(-100% - var(--app-gutter) - 24px));
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 0.22s ease,
+    visibility 0s linear 0.22s;
   padding-bottom: env(safe-area-inset-bottom);
 }
 
 .app-shell.library-open .sidebar {
   transform: translateX(0);
+  visibility: visible;
+  pointer-events: auto;
   box-shadow: var(--shadow);
+  transition:
+    transform 0.22s ease,
+    visibility 0s linear 0s;
 }
 
 .library-backdrop {
@@ -2464,7 +2473,8 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .main {
+  .main,
+  .sidebar {
     transition: none;
   }
 }
