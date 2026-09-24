@@ -119,7 +119,11 @@ export async function resolveRefsForOxen(
   keepHttps?: boolean[],
 ): Promise<string[]> {
   const rewritten = await rewriteRefsToOxenSources(db, userId, urls);
-  return inlineStudioMediaRefs(bucket, rewritten, { images, keepHttps });
+  // Hub file URLs make the model provider download hub.oxen.ai. Seedream has
+  // timed out on that. Only face slots need a fetchable https URL; everything
+  // else is inlined from the Studio copy.
+  const forInline = rewritten.map((url, index) => (keepHttps?.[index] ? url : urls[index] ?? url));
+  return inlineStudioMediaRefs(bucket, forInline, { images, keepHttps });
 }
 
 export type OxenRefGroup = {

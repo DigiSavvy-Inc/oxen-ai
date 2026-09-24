@@ -153,14 +153,26 @@ describe("collectOxenRefs", () => {
 });
 
 describe("resolveRefsForOxen", () => {
-  it("prefers the stored Oxen result URL over inlining a library copy", async () => {
+  it("inlines a library copy so image models do not download hub.oxen.ai", async () => {
+    const { bucket } = createMockR2();
+    const bytes = new Uint8Array([137, 80, 78, 71]);
+    await bucket.put(KEY, bytes.buffer, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const db = dbWithOxenSource("user-1", KEY, OXEN_URL);
+    await expect(resolveRefsForOxen(db, bucket, "user-1", [STUDIO_URL])).resolves.toEqual([
+      `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`,
+    ]);
+  });
+
+  it("keeps the stored Oxen URL when the slot must stay https", async () => {
     const { bucket } = createMockR2();
     await bucket.put(KEY, new Uint8Array([9]).buffer, {
       httpMetadata: { contentType: "image/png" },
     });
     const db = dbWithOxenSource("user-1", KEY, OXEN_URL);
-    await expect(resolveRefsForOxen(db, bucket, "user-1", [STUDIO_URL])).resolves.toEqual([
-      OXEN_URL,
-    ]);
+    await expect(
+      resolveRefsForOxen(db, bucket, "user-1", [STUDIO_URL], undefined, [true]),
+    ).resolves.toEqual([OXEN_URL]);
   });
 });
