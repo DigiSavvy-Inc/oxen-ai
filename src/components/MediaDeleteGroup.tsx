@@ -1,9 +1,11 @@
 export function MediaDeleteGroup({
   onStudio,
   onOxen,
+  oxen = true,
 }: {
   onStudio: () => void;
-  onOxen: () => void;
+  onOxen?: () => void;
+  oxen?: boolean;
 }) {
   return (
     <div
@@ -26,19 +28,21 @@ export function MediaDeleteGroup({
       >
         ×
       </button>
-      <button
-        type="button"
-        className="media-delete media-delete-oxen"
-        aria-label="Remove from Studio and Oxen"
-        title="Remove from Studio and Oxen"
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onOxen();
-        }}
-      >
-        Oxen
-      </button>
+      {oxen && onOxen ? (
+        <button
+          type="button"
+          className="media-delete media-delete-oxen"
+          aria-label="Remove from Studio and Oxen"
+          title="Remove from Studio and Oxen"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onOxen();
+          }}
+        >
+          Oxen
+        </button>
+      ) : null}
     </div>
   );
 }

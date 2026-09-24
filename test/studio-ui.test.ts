@@ -683,6 +683,7 @@ describe("copy prompt", () => {
     expect(peek).toContain("Delete");
     expect(peek).toContain("MediaDeleteGroup");
     expect(peek).toContain("library-peek-thumb-hit");
+    expect(peek).toContain("oxen={false}");
     expect(app).toContain("requestDeleteMedia");
     expect(app).toContain("api.deleteGeneration");
   });

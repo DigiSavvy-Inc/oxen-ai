@@ -1615,6 +1615,7 @@ a {
   .media-delete,
   .media-delete-group {
     opacity: 0;
+    pointer-events: none;
   }
 
   .history-tile:hover .media-download,
@@ -1628,6 +1629,7 @@ a {
   .media-delete:focus-visible,
   .media-delete-group:focus-within {
     opacity: 1;
+    pointer-events: auto;
   }
 }
 

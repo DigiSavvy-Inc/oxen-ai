@@ -148,10 +148,7 @@ export function LibraryPeek({
                     )}
                   </button>
                   {onRemove ? (
-                    <MediaDeleteGroup
-                      onStudio={() => remove(item)}
-                      onOxen={() => remove(item, true)}
-                    />
+                    <MediaDeleteGroup oxen={false} onStudio={() => remove(item)} />
                   ) : null}
                 </div>
               );
