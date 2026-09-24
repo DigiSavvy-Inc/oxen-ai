@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export function ExpandCorners() {
   return (
@@ -18,6 +18,12 @@ export function FullSizeMedia({
   alt: string;
   onClose: () => void;
 }) {
+  const [actualSize, setActualSize] = useState(false);
+
+  useEffect(() => {
+    setActualSize(false);
+  }, [src]);
+
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
@@ -31,7 +37,7 @@ export function FullSizeMedia({
 
   return (
     <div
-      className="fullsize-backdrop"
+      className={`fullsize-backdrop${actualSize ? " is-actual" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-label={alt}
@@ -40,7 +46,15 @@ export function FullSizeMedia({
       <button type="button" className="icon-btn fullsize-close" aria-label="Close" onClick={onClose}>
         ×
       </button>
-      <img src={src} alt={alt} onClick={(event) => event.stopPropagation()} />
+      <img
+        src={src}
+        alt={alt}
+        title={actualSize ? "Fit to the window" : "Actual size"}
+        onClick={(event) => {
+          event.stopPropagation();
+          setActualSize((value) => !value);
+        }}
+      />
     </div>
   );
 }

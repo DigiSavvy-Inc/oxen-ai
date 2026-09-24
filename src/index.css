@@ -1571,22 +1571,33 @@ a {
   inset: 0;
   z-index: 60;
   display: grid;
-  place-items: center;
+  place-items: safe center;
+  overflow: auto;
   padding: 28px;
   background: rgba(246, 245, 242, 0.94);
 }
 
 .fullsize-backdrop img {
   max-width: 100%;
-  max-height: 100%;
+  max-height: calc(100dvh - 56px);
   object-fit: contain;
   box-shadow: var(--shadow);
+  cursor: zoom-in;
+}
+
+.fullsize-backdrop.is-actual img {
+  max-width: none;
+  max-height: none;
+  width: auto;
+  height: auto;
+  cursor: zoom-out;
 }
 
 .fullsize-close {
-  position: absolute;
+  position: fixed;
   top: 12px;
   right: 12px;
+  z-index: 1;
   background: #fff;
 }
 
