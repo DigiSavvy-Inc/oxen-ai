@@ -630,10 +630,6 @@ a {
   padding-right: var(--panel-width);
 }
 
-.app-shell.library-open .main {
-  padding-left: var(--panel-width);
-}
-
 .main-top {
   display: flex;
   align-items: center;
@@ -1223,9 +1219,7 @@ a {
 }
 
 @media (max-width: 860px) {
-  .app-shell.has-peek .main,
-  .app-shell.library-open .main {
-    padding-left: 0;
+  .app-shell.has-peek .main {
     padding-right: 0;
   }
 

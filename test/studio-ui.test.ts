@@ -813,7 +813,7 @@ describe("app column", () => {
     );
     expect(css).toMatch(/\.library-peek\s*\{[^}]*inset:\s*0 var\(--app-gutter\) 0 auto/);
     expect(css).toMatch(/\.app-shell\.has-peek \.main\s*\{[^}]*padding-right:\s*var\(--panel-width\)/);
-    expect(css).toMatch(/\.app-shell\.library-open \.main\s*\{[^}]*padding-left:\s*var\(--panel-width\)/);
+    expect(css).not.toMatch(/\.app-shell\.library-open \.main\s*\{[^}]*padding-left:\s*var\(--panel-width\)/);
     expect(css).toMatch(/\.main-top\s*\{[^}]*width:\s*min\(920px,/);
   });
 });
