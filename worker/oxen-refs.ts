@@ -1,4 +1,9 @@
-import { arrayBufferToDataUri, guessMediaContentType } from "./media";
+import {
+  arrayBufferToDataUri,
+  createSignedMediaUrl,
+  guessMediaContentType,
+  resolvePublicBaseUrl,
+} from "./media";
 import { encodeImageForOxen } from "./thumbs";
 
 const MEDIA_PATH_PREFIX = "/api/media/";
@@ -110,20 +115,32 @@ export async function inlineStudioMediaRefs(
   return out;
 }
 
+async function freshStudioHttps(
+  url: string,
+  signing?: { publicBaseUrl?: string | null; secret: string },
+): Promise<string> {
+  if (!signing?.secret) return url;
+  const key = studioMediaKeyFromUrl(url);
+  if (!key) return url;
+  const origin = resolvePublicBaseUrl(signing.publicBaseUrl);
+  if (!origin) return url;
+  return createSignedMediaUrl(origin, key, signing.secret);
+}
+
 export async function resolveRefsForOxen(
-  db: D1Database,
   bucket: R2Bucket,
-  userId: string,
   urls: string[],
   images?: ImagesBinding,
   keepHttps?: boolean[],
+  signing?: { publicBaseUrl?: string | null; secret: string },
 ): Promise<string[]> {
-  const rewritten = await rewriteRefsToOxenSources(db, userId, urls);
-  // Hub file URLs make the model provider download hub.oxen.ai. Seedream has
-  // timed out on that. Only face slots need a fetchable https URL; everything
-  // else is inlined from the Studio copy.
-  const forInline = rewritten.map((url, index) => (keepHttps?.[index] ? url : urls[index] ?? url));
-  return inlineStudioMediaRefs(bucket, forInline, { images, keepHttps });
+  // Face slots must stay https — Seedance rejects data URIs — but hub.oxen.ai
+  // file URLs time out in ByteDance CreateAsset. Keep a Studio signed URL.
+  // Everything else is inlined from R2 so the provider does not download hub.
+  const prepared = await Promise.all(
+    urls.map((url, index) => (keepHttps?.[index] ? freshStudioHttps(url, signing) : Promise.resolve(url))),
+  );
+  return inlineStudioMediaRefs(bucket, prepared, { images, keepHttps });
 }
 
 export type OxenRefGroup = {

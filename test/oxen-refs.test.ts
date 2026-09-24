@@ -159,20 +159,22 @@ describe("resolveRefsForOxen", () => {
     await bucket.put(KEY, bytes.buffer, {
       httpMetadata: { contentType: "image/png" },
     });
-    const db = dbWithOxenSource("user-1", KEY, OXEN_URL);
-    await expect(resolveRefsForOxen(db, bucket, "user-1", [STUDIO_URL])).resolves.toEqual([
+    await expect(resolveRefsForOxen(bucket, [STUDIO_URL])).resolves.toEqual([
       `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`,
     ]);
   });
 
-  it("keeps the stored Oxen URL when the slot must stay https", async () => {
+  it("keeps a Studio https URL for face slots instead of the hub file URL", async () => {
     const { bucket } = createMockR2();
     await bucket.put(KEY, new Uint8Array([9]).buffer, {
       httpMetadata: { contentType: "image/png" },
     });
-    const db = dbWithOxenSource("user-1", KEY, OXEN_URL);
-    await expect(
-      resolveRefsForOxen(db, bucket, "user-1", [STUDIO_URL], undefined, [true]),
-    ).resolves.toEqual([OXEN_URL]);
+    const [url] = await resolveRefsForOxen(bucket, [STUDIO_URL], undefined, [true], {
+      publicBaseUrl: "https://studio.digisavvy.dev",
+      secret: "test-secret",
+    });
+    expect(url.startsWith("data:")).toBe(false);
+    expect(isOxenHostedMediaUrl(url)).toBe(false);
+    expect(studioMediaKeyFromUrl(url)).toBe(KEY);
   });
 });

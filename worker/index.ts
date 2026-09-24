@@ -1135,26 +1135,26 @@ app.post("/api/generate", async (c) => {
     { urls: body.input_videos ?? [] },
     { urls: body.input_face_videos ?? [], face: true },
   ]);
+  const signing = {
+    publicBaseUrl: c.env.PUBLIC_BASE_URL,
+    secret: c.env.ENCRYPTION_KEY || c.env.SESSION_SECRET,
+  };
   const imageUrls = await resolveRefsForOxen(
-    c.env.DB,
     c.env.MEDIA,
-    user.id,
     imageRefs.urls,
     c.env.IMAGES,
     imageRefs.keepHttps,
+    signing,
   );
   const videoUrls = await resolveRefsForOxen(
-    c.env.DB,
     c.env.MEDIA,
-    user.id,
     videoRefs.urls,
     c.env.IMAGES,
     videoRefs.keepHttps,
+    signing,
   );
   const audioUrls = await resolveRefsForOxen(
-    c.env.DB,
     c.env.MEDIA,
-    user.id,
     [...(body.audios ?? []), ...(body.input_audios ?? [])].filter((url) => url.trim()),
     c.env.IMAGES,
   );
