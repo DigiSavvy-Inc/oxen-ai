@@ -133,24 +133,14 @@ export function LibraryPeek({
                     type="button"
                     className="library-peek-thumb-hit"
                     disabled={!variantReady}
-                    title={
-                      variantReady && item.mediaType !== "video"
-                        ? `View variation ${index + 1} full size`
-                        : variantReady
-                          ? `Show variation ${index + 1}`
-                          : `Variation ${index + 1}`
-                    }
+                    title={variantReady ? `Show variation ${index + 1}` : `Variation ${index + 1}`}
                     aria-label={
-                      variantReady && item.mediaType !== "video"
-                        ? `View variation ${index + 1} full size`
-                        : variantReady
-                          ? `Show variation ${index + 1}`
-                          : `Variation ${index + 1}, ${item.status}`
+                      variantReady
+                        ? `Show variation ${index + 1}`
+                        : `Variation ${index + 1}, ${item.status}`
                     }
-                    onClick={() => {
-                      onSelectVariant(item.id);
-                      if (item.mediaType !== "video" && item.resultUrl) setFullSize(item);
-                    }}
+                    aria-current={isCurrent ? "true" : undefined}
+                    onClick={() => onSelectVariant(item.id)}
                   >
                     {item.thumbUrl ? (
                       <img src={item.thumbUrl} alt="" />

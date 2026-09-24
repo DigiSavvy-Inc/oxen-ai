@@ -804,6 +804,22 @@ describe("prompt box chrome", () => {
   });
 });
 
+describe("library peek variations", () => {
+  it("swaps the large preview from a thumbnail and leaves full size to the large image", () => {
+    const peek = readFileSync(new URL("../src/components/LibraryPeek.tsx", import.meta.url), "utf8");
+    const thumbStart = peek.indexOf('className="library-peek-thumb-hit"');
+    const thumbEnd = peek.indexOf("</button>", thumbStart);
+    const thumb = peek.slice(thumbStart, thumbEnd);
+    expect(thumb).toContain("onSelectVariant(item.id)");
+    expect(thumb).not.toContain("setFullSize");
+    expect(thumb).not.toContain("full size");
+    const hitStart = peek.indexOf('className="library-peek-hit"');
+    const hit = peek.slice(hitStart, peek.indexOf("</button>", hitStart));
+    expect(hit).toContain("setFullSize(generation)");
+    expect(peek).toContain("Click to attach");
+  });
+});
+
 describe("thumbnail frames", () => {
   it("uses a 1px border on every side without a second ring", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
