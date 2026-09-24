@@ -35,13 +35,14 @@ export function defaultModelChoices<T extends { id: string }>(
   catalog: T[],
   preferred: { id: string }[],
   currentId: string | undefined,
-): { preferred: T[]; rest: T[] } {
-  const grouped = groupPreferredModels(catalog, preferred);
-  if (!currentId || catalog.some((model) => model.id === currentId)) return grouped;
-  return {
-    preferred: grouped.preferred,
-    rest: [...grouped.rest, { id: currentId } as T],
-  };
+): { preferred: T[]; rest: Array<T | { id: string }> } {
+  const preferredIds = new Set(preferred.map((model) => model.id));
+  const starred = catalog.filter((model) => preferredIds.has(model.id));
+  const rest: Array<T | { id: string }> = catalog.filter((model) => !preferredIds.has(model.id));
+  if (currentId && !catalog.some((model) => model.id === currentId)) {
+    rest.push({ id: currentId });
+  }
+  return { preferred: starred, rest };
 }
 
 export function generationCountForModelChange(
