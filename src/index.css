@@ -82,14 +82,14 @@ a {
   flex-direction: column;
   position: fixed;
   z-index: 40;
-  inset: 0 auto 0 var(--app-gutter);
-  width: min(var(--panel-width), 100vw);
+  inset: 0 auto 0 0;
+  width: min(100vw, calc(var(--app-gutter) + var(--panel-width)));
   background: var(--bg-panel);
   border-right: 1px solid var(--border);
   min-height: 0;
   overflow: hidden;
   overscroll-behavior: contain;
-  transform: translateX(calc(-100% - var(--app-gutter) - 24px));
+  transform: translateX(calc(-100% - 24px));
   visibility: hidden;
   pointer-events: none;
   transition:

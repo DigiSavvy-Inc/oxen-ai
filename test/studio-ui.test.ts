@@ -807,10 +807,11 @@ describe("app column", () => {
     expect(css).toContain("--app-max: 1440px");
     expect(css).toContain("--app-gutter:");
     expect(css).toMatch(/\.app-shell\s*\{[^}]*max-width:\s*var\(--app-max\)/);
-    expect(css).toMatch(/\.sidebar\s*\{[^}]*inset:\s*0 auto 0 var\(--app-gutter\)/);
+    expect(css).toMatch(/\.sidebar\s*\{[^}]*inset:\s*0 auto 0 0/);
     expect(css).toMatch(
-      /\.sidebar\s*\{[^}]*transform:\s*translateX\(calc\(-100% - var\(--app-gutter\) - 24px\)\)/,
+      /\.sidebar\s*\{[^}]*width:\s*min\(100vw,\s*calc\(var\(--app-gutter\) \+ var\(--panel-width\)\)\)/,
     );
+    expect(css).toMatch(/\.sidebar\s*\{[^}]*transform:\s*translateX\(calc\(-100% - 24px\)\)/);
     expect(css).toMatch(/\.library-peek\s*\{[^}]*inset:\s*0 var\(--app-gutter\) 0 auto/);
     expect(css).toMatch(/\.app-shell\.has-peek \.main\s*\{[^}]*padding-right:\s*var\(--panel-width\)/);
     expect(css).not.toMatch(/\.app-shell\.library-open \.main\s*\{[^}]*padding-left:\s*var\(--panel-width\)/);
