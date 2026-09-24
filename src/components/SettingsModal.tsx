@@ -8,6 +8,7 @@ import {
   type OxenModel,
   type StudioSettings,
 } from "../lib/api";
+import { defaultModelChoices, modelLabel } from "../lib/model-menu";
 import {
   canPromptInstall,
   canUseNotifications,
@@ -75,6 +76,10 @@ export function SettingsModal({
   const [allowError, setAllowError] = useState<string | null>(null);
   const [modelSearch, setModelSearch] = useState("");
   const [modelHits, setModelHits] = useState<OxenModel[]>([]);
+  const [catalogByMode, setCatalogByMode] = useState<
+    Partial<Record<GenerationMode, OxenModel[]>>
+  >({});
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [modelBusy, setModelBusy] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
   const [cleanupRunning, setCleanupRunning] = useState<CleanupAction | null>(null);
@@ -123,6 +128,35 @@ export function SettingsModal({
         setNotifyError(err instanceof Error ? err.message : "Failed to load notification settings"),
       );
   }, [pane]);
+
+  useEffect(() => {
+    if (pane !== "models" || !user?.hasOxenKey) return;
+    let cancelled = false;
+    setCatalogLoading(true);
+    void Promise.all(
+      ALL_MODES.map(async (mode) => {
+        const data = await api.models(mode);
+        return [mode, data.models] as const;
+      }),
+    )
+      .then((entries) => {
+        if (cancelled) return;
+        const next: Partial<Record<GenerationMode, OxenModel[]>> = {};
+        for (const [mode, models] of entries) next[mode] = models;
+        setCatalogByMode(next);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setModelError(err instanceof Error ? err.message : "Failed to load models");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCatalogLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pane, user?.hasOxenKey]);
 
   useEffect(() => {
     if (!user?.hasOxenKey || !modelSearch.trim()) {
@@ -390,37 +424,54 @@ export function SettingsModal({
             <h3>Models</h3>
             <p>
               Stars are stored on your Oxen account. Optional defaults are per
-              Studio user and start empty.
+              Studio user and start empty. Each menu lists models that support
+              that mode.
             </p>
             {!user?.hasOxenKey ? (
               <p className="settings-bad">Add an Oxen API key first.</p>
             ) : (
               <>
-                {ALL_MODES.map((mode) => (
-                  <label key={mode} htmlFor={`default-${mode}`}>
-                    Default · {MODE_LABELS[mode]}
-                    <select
-                      id={`default-${mode}`}
-                      className="field"
-                      disabled={modelBusy}
-                      value={settings?.defaultModelByMode[mode] || ""}
-                      onChange={(e) => void setModeDefault(mode, e.target.value)}
-                    >
-                      <option value="">None</option>
-                      {favorites.map((item) => (
-                        <option key={`${mode}-${item.id}`} value={item.id}>
-                          {item.display_name || item.id}
-                        </option>
-                      ))}
-                      {settings?.defaultModelByMode[mode] &&
-                      !favorites.some((item) => item.id === settings.defaultModelByMode[mode]) ? (
-                        <option value={settings.defaultModelByMode[mode]}>
-                          {settings.defaultModelByMode[mode]}
-                        </option>
-                      ) : null}
-                    </select>
-                  </label>
-                ))}
+                {catalogLoading ? <StatusWait label="Loading models" /> : null}
+                {ALL_MODES.map((mode) => {
+                  const current = settings?.defaultModelByMode[mode];
+                  const choices = defaultModelChoices(
+                    catalogByMode[mode] ?? [],
+                    favorites,
+                    current,
+                  );
+                  return (
+                    <label key={mode} htmlFor={`default-${mode}`}>
+                      Default · {MODE_LABELS[mode]}
+                      <select
+                        id={`default-${mode}`}
+                        className="field"
+                        disabled={modelBusy || catalogLoading}
+                        value={current || ""}
+                        onChange={(e) => void setModeDefault(mode, e.target.value)}
+                      >
+                        <option value="">None</option>
+                        {choices.preferred.length > 0 ? (
+                          <optgroup label="Preferred">
+                            {choices.preferred.map((item) => (
+                              <option key={`${mode}-pref-${item.id}`} value={item.id}>
+                                {modelLabel(item)}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
+                        {choices.rest.length > 0 ? (
+                          <optgroup label="All">
+                            {choices.rest.map((item) => (
+                              <option key={`${mode}-all-${item.id}`} value={item.id}>
+                                {modelLabel(item)}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ) : null}
+                      </select>
+                    </label>
+                  );
+                })}
                 <h3>Preferred</h3>
                 <div className="allow-list">
                   {favorites.length === 0 ? (

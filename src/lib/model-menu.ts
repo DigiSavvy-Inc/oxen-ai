@@ -30,6 +30,20 @@ export function groupPreferredModels<T extends { id: string }>(
   };
 }
 
+/** Mode defaults list every catalog model for that mode. A saved id stays selectable. */
+export function defaultModelChoices<T extends { id: string }>(
+  catalog: T[],
+  preferred: { id: string }[],
+  currentId: string | undefined,
+): { preferred: T[]; rest: T[] } {
+  const grouped = groupPreferredModels(catalog, preferred);
+  if (!currentId || catalog.some((model) => model.id === currentId)) return grouped;
+  return {
+    preferred: grouped.preferred,
+    rest: [...grouped.rest, { id: currentId } as T],
+  };
+}
+
 export function generationCountForModelChange(
   previousModel: string,
   nextModel: string,

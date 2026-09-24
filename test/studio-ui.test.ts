@@ -45,7 +45,7 @@ import {
   tokenForItem,
   promptHighlightParts,
 } from "../src/lib/mentions";
-import { filterModels, generationCountForModelChange, groupPreferredModels, modelLabel, pickModel } from "../src/lib/model-menu";
+import { defaultModelChoices, filterModels, generationCountForModelChange, groupPreferredModels, modelLabel, pickModel } from "../src/lib/model-menu";
 import {
   aspectCatalog,
   aspectSelectOptions,
@@ -545,6 +545,20 @@ describe("model menu filter", () => {
 
   it("returns the full list when the query is blank", () => {
     expect(filterModels([flux, kling], "   ")).toEqual([flux, kling]);
+  });
+
+  it("lists every catalog model for a mode default, with stars first", () => {
+    const catalog = [flux, kling, seedream];
+    expect(defaultModelChoices(catalog, [kling], undefined)).toEqual({
+      preferred: [kling],
+      rest: [flux, seedream],
+    });
+    expect(defaultModelChoices(catalog, [], "retired-model").rest.map((item) => item.id)).toEqual([
+      flux.id,
+      kling.id,
+      seedream.id,
+      "retired-model",
+    ]);
   });
 
   it("keeps preferred models first after filtering", () => {
