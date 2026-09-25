@@ -816,7 +816,26 @@ describe("library peek variations", () => {
     const hitStart = peek.indexOf('className="library-peek-hit"');
     const hit = peek.slice(hitStart, peek.indexOf("</button>", hitStart));
     expect(hit).toContain("setFullSize(generation)");
+    expect(hit).toContain("<PeekStill");
+    expect(peek).toContain("generation.thumbUrl");
+    expect(peek).toContain("decoding={staged ? \"sync\" : \"async\"}");
+    expect(peek).toContain("library-peek-sharp");
     expect(peek).toContain("Click to attach");
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.library-peek-sharp\s*\{[^}]*opacity:\s*0/);
+    expect(css).toMatch(/\.library-peek-sharp\.is-ready\s*\{[^}]*opacity:\s*1/);
+  });
+
+  it("stacks the enlarged image above the canvas and the settings palette", () => {
+    const media = readFileSync(new URL("../src/components/FullSizeMedia.tsx", import.meta.url), "utf8");
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    expect(media).toContain("createPortal");
+    expect(media).toContain("document.body");
+    const full = Number(css.match(/\.fullsize-backdrop\s*\{[^}]*z-index:\s*(\d+)/)?.[1]);
+    const modal = Number(css.match(/\.modal-backdrop\s*\{[^}]*z-index:\s*(\d+)/)?.[1]);
+    const peek = Number(css.match(/\.library-peek\s*\{[^}]*z-index:\s*(\d+)/)?.[1]);
+    expect(full).toBeGreaterThan(modal);
+    expect(full).toBeGreaterThan(peek);
   });
 });
 
@@ -833,7 +852,7 @@ describe("thumbnail frames", () => {
 });
 
 describe("app column", () => {
-  it("caps the shell and docks library panels to that column", () => {
+  it("caps the shell, keeps the library flush left, and runs the attach peek to the right edge", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
     expect(css).toContain("--app-max: 1440px");
     expect(css).toContain("--app-gutter:");
@@ -843,7 +862,10 @@ describe("app column", () => {
       /\.sidebar\s*\{[^}]*width:\s*min\(100vw,\s*calc\(var\(--app-gutter\) \+ var\(--panel-width\)\)\)/,
     );
     expect(css).toMatch(/\.sidebar\s*\{[^}]*transform:\s*translateX\(calc\(-100% - 24px\)\)/);
-    expect(css).toMatch(/\.library-peek\s*\{[^}]*inset:\s*0 var\(--app-gutter\) 0 auto/);
+    expect(css).toMatch(/\.library-peek\s*\{[^}]*inset:\s*0 0 0 auto/);
+    expect(css).toMatch(
+      /\.library-peek\s*\{[^}]*width:\s*min\(100vw,\s*calc\(var\(--app-gutter\) \+ var\(--panel-width\)\)\)/,
+    );
     expect(css).toMatch(/\.app-shell\.has-peek \.main\s*\{[^}]*padding-right:\s*var\(--panel-width\)/);
     expect(css).not.toMatch(/\.app-shell\.library-open \.main\s*\{[^}]*padding-left:\s*var\(--panel-width\)/);
     expect(css).toMatch(/\.main-top\s*\{[^}]*width:\s*min\(920px,/);

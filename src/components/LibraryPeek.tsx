@@ -7,6 +7,34 @@ import { ExpandCorners, FullSizeMedia } from "./FullSizeMedia";
 import { Loader } from "./Loader";
 import { MediaDeleteGroup } from "./MediaDeleteGroup";
 
+function PeekStill({ generation }: { generation: Generation }) {
+  const thumb = generation.thumbUrl || null;
+  const full = generation.resultUrl || "";
+  const [sharp, setSharp] = useState(false);
+  const staged = Boolean(thumb && thumb !== full);
+
+  return (
+    <>
+      <img
+        src={staged ? thumb! : full}
+        alt={generation.prompt || "Library item"}
+        decoding={staged ? "sync" : "async"}
+      />
+      {staged ? (
+        <img
+          key={generation.id}
+          className={`library-peek-sharp${sharp ? " is-ready" : ""}`}
+          src={full}
+          alt=""
+          aria-hidden
+          decoding="async"
+          onLoad={() => setSharp(true)}
+        />
+      ) : null}
+    </>
+  );
+}
+
 export function LibraryPeek({
   generation,
   variants,
@@ -80,7 +108,7 @@ export function LibraryPeek({
                 title="View full size"
                 aria-label="View full size"
               >
-                <img src={generation.resultUrl} alt={generation.prompt || "Library item"} />
+                <PeekStill key={generation.id} generation={generation} />
                 <ExpandCorners />
               </button>
             ) : isActiveGeneration(generation) ? (

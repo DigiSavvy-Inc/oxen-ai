@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 export function ExpandCorners() {
   return (
@@ -35,7 +36,7 @@ export function FullSizeMedia({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       className={`fullsize-backdrop${actualSize ? " is-actual" : ""}`}
       role="dialog"
@@ -55,6 +56,7 @@ export function FullSizeMedia({
           setActualSize((value) => !value);
         }}
       />
-    </div>
+    </div>,
+    document.body,
   );
 }
