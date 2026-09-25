@@ -37,6 +37,7 @@ import {
   deleteMentionToken,
   filterMentionItems,
   indexAfterInsertBefore,
+  insertAttachMentions,
   insertMentionToken,
   mentionAtCaret,
   mentionAtOffset,
@@ -166,6 +167,21 @@ describe("mentions and cost", () => {
       });
       expect(mentionAtCaret(result?.next ?? "", result?.caret ?? 0)).toBeNull();
     }
+  });
+
+  it("inserts an attach mention at the caret and keeps surrounding whitespace", () => {
+    const middle = insertAttachMentions("alpha beta", 5, ["@Image1"]);
+    expect(middle).toEqual({ next: "alpha @Image1 beta", caret: "alpha @Image1 ".length });
+    expect(middle.caret).not.toBe(middle.next.length);
+    const broken = insertAttachMentions("hello\nworld", 5, ["@Image1"]);
+    expect(broken.next).toBe("hello @Image1 \nworld");
+    expect(broken.caret).toBe("hello @Image1 ".length);
+    const end = insertAttachMentions("hello\n", null, ["@Image1"]);
+    expect(end).toEqual({ next: "hello\n@Image1 ", caret: "hello\n@Image1 ".length });
+    expect(insertAttachMentions("see @Image1", null, ["@Image1"])).toEqual({
+      next: "see @Image1",
+      caret: "see @Image1".length,
+    });
   });
 
   it("keeps an existing space and the following lines without doubling the space", () => {
@@ -815,7 +831,8 @@ describe("library peek variations", () => {
     expect(thumb).not.toContain("full size");
     const hitStart = peek.indexOf('className="library-peek-hit"');
     const hit = peek.slice(hitStart, peek.indexOf("</button>", hitStart));
-    expect(hit).toContain("setFullSize(generation)");
+    expect(hit).toContain("setFitOpen(true)");
+    expect(hit).not.toContain("setFullSize");
     expect(hit).toContain("<PeekStill");
     expect(peek).toContain("generation.thumbUrl");
     expect(peek).toContain("decoding={staged ? \"sync\" : \"async\"}");
@@ -824,6 +841,14 @@ describe("library peek variations", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
     expect(css).toMatch(/\.library-peek-sharp\s*\{[^}]*opacity:\s*0/);
     expect(css).toMatch(/\.library-peek-sharp\.is-ready\s*\{[^}]*opacity:\s*1/);
+    const media = readFileSync(new URL("../src/components/FullSizeMedia.tsx", import.meta.url), "utf8");
+    const canvas = readFileSync(new URL("../src/components/Canvas.tsx", import.meta.url), "utf8");
+    expect(media).toContain("canCycle");
+    expect(media).toContain("fullsize-nav");
+    expect(media).toContain("!actualSize && slides.length > 1");
+    expect(canvas).toContain("slides={slides}");
+    expect(peek).toContain("slides={slides}");
+    expect(peek).toContain("onMouseDown={(event) => event.preventDefault()}");
   });
 
   it("stacks the enlarged image above the canvas and the settings palette", () => {

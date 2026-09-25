@@ -1,4 +1,12 @@
-import { useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent, type ReactNode } from "react";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type PointerEvent,
+  type ReactNode,
+} from "react";
 import {
   ALL_MODES,
   MODE_LABELS,
@@ -65,6 +73,11 @@ function isFileDrag(event: DragEvent) {
   return Array.from(event.dataTransfer.types).includes("Files");
 }
 
+export type PromptField = {
+  element: HTMLTextAreaElement | null;
+  place: (caret: number, prompt: string) => void;
+};
+
 type Props = {
   mode: GenerationMode | null;
   onModeChange: (mode: GenerationMode) => void;
@@ -79,6 +92,7 @@ type Props = {
   controls: ModelControls | null;
   prompt: string;
   onPromptChange: (value: string) => void;
+  onPromptField?: (field: PromptField | null) => void;
   aspectRatio: string;
   onAspectRatioChange: (value: string) => void;
   duration: string;
@@ -214,6 +228,10 @@ export function Composer(props: Props) {
   }
 
   useLayoutEffect(() => {
+    props.onPromptField?.({
+      element: promptRef.current,
+      place: placeCaret,
+    });
     const pending = pendingCaret.current;
     const el = promptRef.current;
     if (!pending || !el || el.value !== pending.prompt) return;

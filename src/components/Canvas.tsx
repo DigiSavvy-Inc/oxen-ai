@@ -12,17 +12,28 @@ import { estimateGenerationWait } from "../lib/progress";
 import { MAX_TAGS_PER_MEDIA, parseTagList } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
 import { DownloadButton } from "./DownloadButton";
-import { ExpandCorners, FullSizeMedia } from "./FullSizeMedia";
+import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
+
+function fitSlides(variants: Generation[]): FitSlide[] {
+  return variants.flatMap((item) => {
+    if (item.mediaType !== "image" || item.status !== "succeeded" || !item.resultUrl) return [];
+    return [{ id: item.id, src: item.resultUrl, alt: item.prompt || "Generated" }];
+  });
+}
 
 function MediaPreview({
   generation,
   className,
+  slides,
+  onSlide,
 }: {
   generation: Generation;
   className?: string;
+  slides: FitSlide[];
+  onSlide?: (id: string) => void;
 }) {
-  const [fullSize, setFullSize] = useState(false);
+  const [fitOpen, setFitOpen] = useState(false);
   if (generation.status === "succeeded" && generation.resultUrl) {
     if (generation.mediaType === "video") {
       return <video className={className} src={generation.resultUrl} controls autoPlay loop />;
@@ -34,13 +45,20 @@ function MediaPreview({
           type="button"
           className="result-expand"
           aria-label="View full size"
-          onClick={() => setFullSize(true)}
+          onClick={() => setFitOpen(true)}
         >
           <img className={className} src={generation.resultUrl} alt={alt} />
           <ExpandCorners />
         </button>
-        {fullSize ? (
-          <FullSizeMedia src={generation.resultUrl} alt={alt} onClose={() => setFullSize(false)} />
+        {fitOpen ? (
+          <FullSizeMedia
+            src={generation.resultUrl}
+            alt={alt}
+            onClose={() => setFitOpen(false)}
+            slides={slides}
+            activeId={generation.id}
+            onSlide={onSlide}
+          />
         ) : null}
       </>
     );
@@ -205,6 +223,7 @@ export function Canvas({
   const label = MODE_LABELS[generation.mode as GenerationMode] || generation.mode;
   const showStrip = variants.length > 1;
   const readyVariants = completedMedia(variants);
+  const slides = fitSlides(variants);
   const canDownload = Boolean(generation.status === "succeeded" && generation.resultUrl);
   const washUrl = canvasWashUrl(generation);
 
@@ -231,7 +250,12 @@ export function Canvas({
             {washUrl ? (
               <img className="result-media-wash" src={washUrl} alt="" aria-hidden />
             ) : null}
-            <MediaPreview generation={generation} className="result-preview" />
+            <MediaPreview
+              generation={generation}
+              className="result-preview"
+              slides={slides}
+              onSlide={onSelect}
+            />
             {canDownload && generation.resultUrl ? (
               <div className="media-actions">
                 <DownloadButton

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "./auth/AuthContext";
 import { AccountMenu } from "./components/AccountMenu";
 import { Canvas } from "./components/Canvas";
-import { Composer } from "./components/Composer";
+import { Composer, type PromptField } from "./components/Composer";
 import { CreditMeter } from "./components/CreditMeter";
 import { LibraryPeek } from "./components/LibraryPeek";
 import { LoginPage } from "./components/LoginPage";
@@ -12,6 +12,7 @@ import { Sidebar } from "./components/Sidebar";
 import {
   api,
   firstSupportedMode,
+  mentionToken,
   modelSupportsMode,
   slotRequired,
   type CreditBalance,
@@ -26,14 +27,13 @@ import { notifyGenerationLocal } from "./lib/pwa";
 import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
 import { filesFromList, kindFromFile } from "./lib/files";
 import {
-  appendAttachMention,
   kindFromMediaType,
   libraryRefFromGeneration,
   mediaKindCap,
   mergeLibraryRefs,
   releasePreview,
 } from "./lib/library-refs";
-import { moveItem } from "./lib/mentions";
+import { insertAttachMentions, moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 import { preferredAspectRatio, takeStagedOfKind } from "./lib/params";
 
@@ -89,6 +89,8 @@ export default function App() {
   const [downloadingAll, setDownloadingAll] = useState(false);
   const hydratedParamsUserId = useRef<string | null>(null);
   const paramsTouched = useRef(false);
+  const promptField = useRef<PromptField | null>(null);
+  const attachDraft = useRef<{ text: string; caret: number } | null>(null);
 
   function rememberParam<T>(setter: (value: T) => void) {
     return (value: T) => {
@@ -275,6 +277,10 @@ export default function App() {
     };
   }, [user, libraryOpen, refreshLibrary]);
 
+  useLayoutEffect(() => {
+    attachDraft.current = null;
+  }, [prompt]);
+
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -446,7 +452,19 @@ export default function App() {
 
   function appendMentionTokens(kind: "image" | "video" | "audio", existingCount: number, addedCount: number) {
     if (addedCount <= 0) return;
-    setPrompt((current) => appendAttachMention(current, kind, existingCount, addedCount));
+    const tokens: string[] = [];
+    for (let offset = 0; offset < addedCount; offset += 1) {
+      tokens.push(mentionToken(kind, existingCount + offset));
+    }
+    const field = promptField.current;
+    const el = field?.element ?? null;
+    const liveCaret = el && document.activeElement === el ? el.selectionStart : null;
+    const base = attachDraft.current?.text ?? prompt;
+    const caret = attachDraft.current ? attachDraft.current.caret : liveCaret;
+    const result = insertAttachMentions(base, caret, tokens);
+    attachDraft.current = { text: result.next, caret: result.caret };
+    setPrompt(result.next);
+    field?.place(result.caret, result.next);
   }
 
   function addFilesOfKind(kind: "image" | "video" | "audio", incoming: File[]) {
@@ -869,6 +887,9 @@ export default function App() {
           controls={controls}
           prompt={prompt}
           onPromptChange={setPrompt}
+          onPromptField={(field) => {
+            promptField.current = field;
+          }}
           aspectRatio={aspectRatio}
           onAspectRatioChange={rememberParam(setAspectRatio)}
           duration={duration}

@@ -1615,6 +1615,30 @@ a {
   background: #fff;
 }
 
+.fullsize-nav {
+  position: fixed;
+  top: 50%;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  margin-top: -18px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1;
+  box-shadow: var(--shadow);
+}
+
+.fullsize-nav.is-prev {
+  left: 16px;
+}
+
+.fullsize-nav.is-next {
+  right: 16px;
+}
+
 .media-actions {
   position: absolute;
   top: 10px;

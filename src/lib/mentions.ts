@@ -171,6 +171,66 @@ export function tokenForItem<T extends MentionItem>(attachments: T[], item: T, i
   return mentionToken(item.kind, kindIndex >= 0 ? kindIndex : index);
 }
 
+/**
+ * Insert attach tokens at the caret. `caret === null` means the prompt is not
+ * focused, so the tokens go at the end. Existing whitespace stays; a separating
+ * space is added only where the mention would otherwise stick to a word.
+ * The returned caret sits just after the new mention, not at the end of the prompt.
+ */
+export function insertAttachMentions(
+  text: string,
+  caret: number | null,
+  tokens: string[],
+): { next: string; caret: number } {
+  const at = caret == null ? text.length : Math.max(0, Math.min(caret, text.length));
+  let next = text;
+  let cursor = at;
+  let inserted = false;
+  for (const token of tokens) {
+    if (!token || next.includes(token)) continue;
+    const placed = placeAttachToken(next, cursor, token);
+    next = placed.next;
+    cursor = placed.caret;
+    inserted = true;
+  }
+  if (!inserted) return { next: text, caret: at };
+  return { next, caret: cursor };
+}
+
+function placeAttachToken(
+  text: string,
+  at: number,
+  token: string,
+): { next: string; caret: number } {
+  const before = text.slice(0, at);
+  const after = text.slice(at);
+  const lead = before.length > 0 && !/\s$/.test(before) ? " " : "";
+  const boundary = after[0];
+  if (boundary == null) {
+    const inserted = `${lead}${token} `;
+    return { next: `${before}${inserted}`, caret: before.length + inserted.length };
+  }
+  if (boundary === " " || boundary === "\t") {
+    const inserted = `${lead}${token}`;
+    return {
+      next: `${before}${inserted}${after}`,
+      caret: before.length + inserted.length + 1,
+    };
+  }
+  if (boundary === "\n" || boundary === "\r") {
+    const inserted = `${lead}${token} `;
+    return {
+      next: `${before}${inserted}${after}`,
+      caret: before.length + inserted.length,
+    };
+  }
+  const inserted = `${lead}${token} `;
+  return {
+    next: `${before}${inserted}${after}`,
+    caret: before.length + inserted.length,
+  };
+}
+
 export function insertMentionToken(
   text: string,
   caret: number,

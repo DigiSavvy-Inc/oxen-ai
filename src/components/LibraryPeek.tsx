@@ -3,9 +3,16 @@ import { MODE_LABELS, type Generation, type GenerationMode } from "../lib/api";
 import { isActiveGeneration } from "../lib/batches";
 import { libraryRefFromGeneration } from "../lib/library-refs";
 import { CopyPrompt } from "./CopyPrompt";
-import { ExpandCorners, FullSizeMedia } from "./FullSizeMedia";
+import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
 import { MediaDeleteGroup } from "./MediaDeleteGroup";
+
+function fitSlides(variants: Generation[]): FitSlide[] {
+  return variants.flatMap((item) => {
+    if (item.mediaType !== "image" || item.status !== "succeeded" || !item.resultUrl) return [];
+    return [{ id: item.id, src: item.resultUrl, alt: item.prompt || "Library item" }];
+  });
+}
 
 function PeekStill({ generation }: { generation: Generation }) {
   const thumb = generation.thumbUrl || null;
@@ -61,7 +68,8 @@ export function LibraryPeek({
   const canAttach = ready && attachSupported;
   const attached = attachedIds.has(generation.id);
   const showStrip = variants.length > 1;
-  const [fullSize, setFullSize] = useState<Generation | null>(null);
+  const [fitOpen, setFitOpen] = useState(false);
+  const slides = fitSlides(variants);
   const kindLabel =
     generation.mediaType === "video"
       ? "video"
@@ -104,7 +112,7 @@ export function LibraryPeek({
               <button
                 type="button"
                 className="library-peek-hit"
-                onClick={() => setFullSize(generation)}
+                onClick={() => setFitOpen(true)}
                 title="View full size"
                 aria-label="View full size"
               >
@@ -129,6 +137,7 @@ export function LibraryPeek({
             <button
               type="button"
               className="library-peek-action"
+              onMouseDown={(event) => event.preventDefault()}
               onClick={() => attach(generation)}
               disabled={!canAttach}
               title={
@@ -188,11 +197,14 @@ export function LibraryPeek({
             })}
           </div>
         ) : null}
-        {fullSize?.resultUrl ? (
+        {fitOpen && generation.resultUrl && generation.mediaType !== "video" ? (
           <FullSizeMedia
-            src={fullSize.resultUrl}
-            alt={fullSize.prompt || "Library item"}
-            onClose={() => setFullSize(null)}
+            src={generation.resultUrl}
+            alt={generation.prompt || "Library item"}
+            onClose={() => setFitOpen(false)}
+            slides={slides}
+            activeId={generation.id}
+            onSlide={onSelectVariant}
           />
         ) : null}
         {onDownload || onRemove ? (
