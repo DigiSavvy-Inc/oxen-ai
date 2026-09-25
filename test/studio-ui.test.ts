@@ -919,3 +919,98 @@ describe("canvas media wash", () => {
     expect(css).toMatch(/\.result-media-wash\s*\{[^}]*filter:\s*blur\(/);
   });
 });
+
+describe("get last frame control", () => {
+  const base = {
+    onModeChange: () => undefined,
+    preferred: [],
+    onModelChange: () => undefined,
+    modelQuery: "",
+    onModelQueryChange: () => undefined,
+    isFavorite: false,
+    onToggleFavorite: () => undefined,
+    prompt: "",
+    onPromptChange: () => undefined,
+    aspectRatio: "1:1",
+    onAspectRatioChange: () => undefined,
+    duration: "",
+    onDurationChange: () => undefined,
+    seed: "",
+    onSeedChange: () => undefined,
+    numGenerations: 1,
+    onNumGenerationsChange: () => undefined,
+    generateAudio: false,
+    onGenerateAudioChange: () => undefined,
+    quality: "",
+    onQualityChange: () => undefined,
+    resolution: "",
+    onResolutionChange: () => undefined,
+    outputFormat: "",
+    onOutputFormatChange: () => undefined,
+    background: "",
+    onBackgroundChange: () => undefined,
+    attachments: [],
+    onAddFiles: () => undefined,
+    onClearAttachment: () => undefined,
+    onToggleAttachmentRole: () => undefined,
+    onReorderAttachments: () => undefined,
+    busy: false,
+    error: null,
+    onGenerate: () => undefined,
+    canGenerate: false,
+  };
+
+  function markup(props: {
+    mode: "text-to-image" | "reference-to-video" | "video-to-video" | null;
+    model: string;
+    showLastFrame: boolean;
+    getLastFrame?: boolean;
+  }) {
+    return renderToStaticMarkup(
+      createElement(Composer, {
+        ...base,
+        mode: props.mode,
+        models: [{ id: props.model }],
+        model: props.model,
+        controls: {
+          modelId: props.model,
+          aspectRatios: null,
+          duration: null,
+          seed: true,
+          generateAudio: false,
+          quality: null,
+          resolution: null,
+          outputFormat: null,
+          background: null,
+          slots: [],
+          mentions: false,
+          lastFrameField: props.showLastFrame ? "return_last_frame" : null,
+          pricing: null,
+        },
+        showLastFrame: props.showLastFrame,
+        getLastFrame: props.getLastFrame ?? false,
+      }),
+    );
+  }
+
+  it("is absent for text-to-image and present unchecked when the schema exposes the flag", () => {
+    expect(markup({ mode: "text-to-image", model: "bytedance-seedream-5-pro", showLastFrame: false })).not.toContain(
+      "Get last frame",
+    );
+    const seedance = markup({
+      mode: null,
+      model: "bytedance-seedance-2-5-text-to-video",
+      showLastFrame: true,
+    });
+    expect(seedance).toContain("Get last frame");
+    expect(seedance).not.toContain('checked=""');
+    const video = markup({
+      mode: "video-to-video",
+      model: "kling-video-o3-pro-video-to-video-edit",
+      showLastFrame: true,
+      getLastFrame: true,
+    });
+    expect(video).toContain("Get last frame");
+    expect(video).toContain("checked");
+  });
+});

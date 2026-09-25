@@ -1111,6 +1111,98 @@ a {
   overflow: auto;
 }
 
+.prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 2px;
+}
+
+.prompt-action {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.prompt-action:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.prompt-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.saved-prompts {
+  position: relative;
+}
+
+.saved-prompts-menu {
+  position: absolute;
+  z-index: 30;
+  left: 0;
+  bottom: calc(100% + 4px);
+  width: min(360px, 72vw);
+  max-height: 220px;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 4px;
+}
+
+.saved-prompts-empty {
+  margin: 0;
+  padding: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.saved-prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.saved-prompt-load {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  padding: 7px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.saved-prompt-load:hover,
+.saved-prompt-load:focus-visible {
+  background: var(--bg-active);
+}
+
+.saved-prompt-delete {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+
+.saved-prompt-delete:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
 .prompt-resize {
   display: flex;
   align-items: center;

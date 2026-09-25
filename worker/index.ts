@@ -63,6 +63,7 @@ import {
   imageSlotRequired,
   mapMediaUrls,
   parseGenerationListScope,
+  lastFrameEnqueuePatch,
   parseModelControls,
   pickCompatible,
   resolveEnqueueAspectRatio,
@@ -70,6 +71,7 @@ import {
   videoSlotRequired,
   type GenerationListScope,
 } from "./schema";
+import { deleteSavedPrompt, listSavedPrompts, saveSavedPrompt } from "./saved-prompts";
 import { parseTagList } from "./tags";
 import { createImageThumbnail } from "./thumbs";
 import {
@@ -925,6 +927,31 @@ app.put("/api/settings/studio", async (c) => {
   return c.json(settings);
 });
 
+app.get("/api/prompts", async (c) => {
+  const user = await requireUser(c);
+  const prompts = await listSavedPrompts(c.env.DB, user.id);
+  return c.json({ prompts });
+});
+
+app.post("/api/prompts", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ body?: unknown }>();
+  const prompt = await saveSavedPrompt(c.env.DB, user.id, body.body);
+  if (!prompt) {
+    throw new HTTPException(400, { message: "Prompt is empty" });
+  }
+  return c.json({ prompt });
+});
+
+app.delete("/api/prompts/:id", async (c) => {
+  const user = await requireUser(c);
+  const removed = await deleteSavedPrompt(c.env.DB, user.id, c.req.param("id"));
+  if (!removed) {
+    throw new HTTPException(404, { message: "Saved prompt not found" });
+  }
+  return c.json({ ok: true });
+});
+
 app.get("/api/models/favorites", async (c) => {
   const user = await requireUser(c);
   const apiKey = await requireOxenKey(user, c.env);
@@ -1091,6 +1118,7 @@ app.post("/api/generate", async (c) => {
     image_roles?: ("character" | "scene")[];
     video_roles?: ("character" | "scene")[];
     generate_audio?: boolean;
+    get_last_frame?: boolean;
     num_generations?: number;
     quality?: string;
     resolution?: string;
@@ -1112,9 +1140,11 @@ app.post("/api/generate", async (c) => {
 
   const meta = MODE_META[mode];
   let controls = parseModelControls({ id: body.model.trim() });
+  let displayName: string | null = null;
   try {
     const detail = await getModel(apiKey, body.model.trim());
     controls = parseModelControls(detail);
+    displayName = detail.display_name ?? null;
   } catch (err) {
     console.error("model schema error", err);
   }
@@ -1234,6 +1264,16 @@ app.post("/api/generate", async (c) => {
       asStringList(mapped.input_audio) ??
       (useFallback && audioUrls.length > 0 ? audioUrls : undefined),
   });
+  Object.assign(
+    payload,
+    lastFrameEnqueuePatch(
+      body.model.trim(),
+      mode,
+      controls,
+      body.get_last_frame,
+      displayName,
+    ),
+  );
 
   const generations = await enqueueGeneration(apiKey, payload);
   const now = Math.floor(Date.now() / 1000);

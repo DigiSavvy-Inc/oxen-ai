@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -17,6 +18,7 @@ import {
   type GenerationMode,
   type ModelControls,
   type OxenModel,
+  type SavedPrompt,
 } from "../lib/api";
 import {
   attachmentForMention,
@@ -103,6 +105,12 @@ type Props = {
   onNumGenerationsChange: (value: number) => void;
   generateAudio: boolean;
   onGenerateAudioChange: (value: boolean) => void;
+  showLastFrame?: boolean;
+  getLastFrame?: boolean;
+  onGetLastFrameChange?: (value: boolean) => void;
+  savedPrompts?: SavedPrompt[];
+  onSavePrompt?: () => Promise<void> | void;
+  onDeleteSavedPrompt?: (id: string) => Promise<void> | void;
   quality: string;
   onQualityChange: (value: string) => void;
   resolution: string;
@@ -140,6 +148,9 @@ export function Composer(props: Props) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropInsertBefore, setDropInsertBefore] = useState<number | null>(null);
   const [promptHeight, setPromptHeight] = useState(96);
+  const [savedOpen, setSavedOpen] = useState(false);
+  const [savingPrompt, setSavingPrompt] = useState(false);
+  const savedMenuRef = useRef<HTMLDivElement>(null);
   const pendingCaret = useRef<{ caret: number; prompt: string } | null>(null);
 
   const imageMax = mediaKindCap(props.controls, props.mode, "image");
@@ -226,6 +237,45 @@ export function Composer(props: Props) {
     pendingCaret.current = { caret: nextCaret, prompt };
     setCaret(nextCaret);
   }
+
+  function loadSavedPrompt(body: string) {
+    setMentionOpen(false);
+    setSavedOpen(false);
+    props.onPromptChange(body);
+    placeCaret(body.length, body);
+  }
+
+  async function saveCurrentPrompt() {
+    if (!props.prompt.trim() || !props.onSavePrompt || savingPrompt) return;
+    setSavingPrompt(true);
+    try {
+      await props.onSavePrompt();
+      setSavedOpen(true);
+    } catch {
+      /* App surfaces the error */
+    } finally {
+      setSavingPrompt(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!savedOpen) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setSavedOpen(false);
+    }
+    function onPointer(event: globalThis.PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (savedMenuRef.current?.contains(target)) return;
+      setSavedOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer);
+    };
+  }, [savedOpen]);
 
   useLayoutEffect(() => {
     props.onPromptField?.({
@@ -485,6 +535,57 @@ export function Composer(props: Props) {
                 }
               }}
             />
+          </div>
+          <div className="prompt-actions" ref={savedMenuRef}>
+            <button
+              type="button"
+              className="prompt-action"
+              disabled={!props.prompt.trim() || savingPrompt || !props.onSavePrompt}
+              onClick={() => void saveCurrentPrompt()}
+            >
+              {savingPrompt ? "Saving…" : "Save prompt"}
+            </button>
+            <div className="saved-prompts">
+              <button
+                type="button"
+                className="prompt-action"
+                aria-expanded={savedOpen}
+                aria-haspopup="listbox"
+                onClick={() => setSavedOpen((open) => !open)}
+              >
+                Saved
+              </button>
+              {savedOpen ? (
+                <div className="saved-prompts-menu" role="listbox" aria-label="Saved prompts">
+                  {(props.savedPrompts ?? []).length === 0 ? (
+                    <p className="saved-prompts-empty">No saved prompts yet</p>
+                  ) : (
+                    (props.savedPrompts ?? []).map((item) => (
+                      <div key={item.id} className="saved-prompt-row">
+                        <button
+                          type="button"
+                          className="saved-prompt-load"
+                          role="option"
+                          onClick={() => loadSavedPrompt(item.body)}
+                        >
+                          {item.body}
+                        </button>
+                        {props.onDeleteSavedPrompt ? (
+                          <button
+                            type="button"
+                            className="saved-prompt-delete"
+                            aria-label="Delete saved prompt"
+                            onClick={() => void props.onDeleteSavedPrompt?.(item.id)}
+                          >
+                            ×
+                          </button>
+                        ) : null}
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
           </div>
           <div
             className="prompt-resize"
@@ -842,6 +943,17 @@ export function Composer(props: Props) {
                 onChange={(e) => props.onGenerateAudioChange(e.target.checked)}
               />
               Audio
+            </label>
+          ) : null}
+
+          {props.showLastFrame ? (
+            <label className="ghost-btn audio-toggle">
+              <input
+                type="checkbox"
+                checked={props.getLastFrame === true}
+                onChange={(e) => props.onGetLastFrameChange?.(e.target.checked)}
+              />
+              Get last frame
             </label>
           ) : null}
 

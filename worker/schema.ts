@@ -1,3 +1,4 @@
+import type { GenerationMode } from "./model-modes";
 import type { OxenModel, OxenPricing } from "./oxen";
 import { controlOptionsFromPricing, parseOxenPricing } from "./pricing";
 
@@ -59,6 +60,8 @@ export type ModelControls = {
   background: string[] | null;
   slots: MediaSlot[];
   mentions: boolean;
+  /** Schema property that asks the model to return the generated clip's last frame. */
+  lastFrameField: string | null;
   pricing: OxenPricing | null;
 };
 
@@ -305,6 +308,73 @@ function presetSizeTokens(schema: JsonSchema | undefined): string[] {
   return found;
 }
 
+function isBooleanSchema(schema: JsonSchema): boolean {
+  if (typeList(schema).includes("boolean")) return true;
+  return [...(schema.anyOf ?? []), ...(schema.oneOf ?? [])].some((option) => isBooleanSchema(option));
+}
+
+/** Real boolean request fields that return the generated clip's last frame. */
+const RETURN_LAST_FRAME_NAME =
+  /^(?:return|get|include|output|save)_(?:the_)?(?:last|end|final)_frame$/i;
+
+function describesReturnedLastFrame(prop: JsonSchema): boolean {
+  const description = typeof prop.description === "string" ? prop.description : "";
+  return /return(?:s|ing)?\s+(?:the\s+)?(?:last|end|final)\s+frame\b/i.test(description);
+}
+
+/** The catalog property name for returning a last frame, or null when the model has none. */
+export function lastFrameReturnField(schema: JsonSchema): string | null {
+  const props = schema.properties ?? {};
+  const named: string[] = [];
+  const described: string[] = [];
+  for (const [name, prop] of Object.entries(props)) {
+    if (!isBooleanSchema(prop)) continue;
+    if (RETURN_LAST_FRAME_NAME.test(name)) named.push(name);
+    else if (describesReturnedLastFrame(prop)) described.push(name);
+  }
+  return named[0] ?? described[0] ?? null;
+}
+
+export function isSeedanceModel(modelId: string, displayName?: string | null): boolean {
+  return /seedance/i.test(`${modelId} ${displayName ?? ""}`);
+}
+
+/** Image → Video is the `reference-to-video` mode. */
+export function showGetLastFrame(input: {
+  modelId: string;
+  displayName?: string | null;
+  mode: GenerationMode | null;
+  lastFrameField: string | null | undefined;
+}): boolean {
+  if (!input.lastFrameField) return false;
+  if (isSeedanceModel(input.modelId, input.displayName)) return true;
+  return input.mode === "reference-to-video" || input.mode === "video-to-video";
+}
+
+/** Include the schema's own field only when the control is visible and checked. */
+export function lastFrameEnqueuePatch(
+  modelId: string,
+  mode: GenerationMode | null,
+  controls: Pick<ModelControls, "lastFrameField">,
+  requested: boolean | undefined,
+  displayName?: string | null,
+): Record<string, true> {
+  if (requested !== true) return {};
+  const field = controls.lastFrameField;
+  if (!field) return {};
+  if (
+    !showGetLastFrame({
+      modelId,
+      displayName,
+      mode,
+      lastFrameField: field,
+    })
+  ) {
+    return {};
+  }
+  return { [field]: true };
+}
+
 export function parseModelControls(model: OxenModel): ModelControls {
   const root = asObjectSchema(model.request_schema) ?? {};
   const slots: MediaSlot[] = [];
@@ -404,6 +474,7 @@ export function parseModelControls(model: OxenModel): ModelControls {
     background: background.length > 0 ? background : null,
     slots: nextSlots,
     mentions,
+    lastFrameField: lastFrameReturnField(root),
     pricing,
   };
 }

@@ -20,6 +20,7 @@ import {
   type GenerationMode,
   type ModelControls,
   type OxenModel,
+  type SavedPrompt,
   type StudioSettings,
 } from "./lib/api";
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations, siblingAfterRemoval } from "./lib/batches";
@@ -35,7 +36,7 @@ import {
 } from "./lib/library-refs";
 import { insertAttachMentions, moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
-import { preferredAspectRatio, takeStagedOfKind } from "./lib/params";
+import { preferredAspectRatio, showGetLastFrame, takeStagedOfKind } from "./lib/params";
 
 type StagedMedia = {
   file?: File;
@@ -72,6 +73,8 @@ export default function App() {
   const [seed, setSeed] = useState("");
   const [numGenerations, setNumGenerations] = useState(1);
   const [generateAudio, setGenerateAudio] = useState(false);
+  const [getLastFrame, setGetLastFrame] = useState(false);
+  const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
   const [quality, setQuality] = useState("");
   const [resolution, setResolution] = useState("");
   const [outputFormat, setOutputFormat] = useState("");
@@ -212,6 +215,25 @@ export default function App() {
     void refreshFavorites();
     void refreshCredits();
   }, [user, refreshActive, refreshFavorites, refreshCredits]);
+
+  useEffect(() => {
+    if (!user) {
+      setSavedPrompts([]);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .savedPrompts()
+      .then((data) => {
+        if (!cancelled) setSavedPrompts(data.prompts);
+      })
+      .catch(() => {
+        if (!cancelled) setSavedPrompts([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!user?.hasOxenKey) return;
@@ -577,6 +599,14 @@ export default function App() {
   const peekAttachSupported = peekKind ? capForKind(peekKind) > 0 : false;
   const readyMedia = useMemo(() => completedMedia(generations), [generations]);
 
+  const selectedModel = models.find((item) => item.id === model);
+  const lastFrameVisible = showGetLastFrame({
+    modelId: model,
+    displayName: selectedModel?.display_name,
+    mode,
+    lastFrameField: controls?.lastFrameField,
+  });
+
   const canGenerate = Boolean(
     user?.hasOxenKey &&
       prompt.trim() &&
@@ -585,6 +615,28 @@ export default function App() {
       (!slotRequired(controls, "image", mode) || imageCount > 0) &&
       (!slotRequired(controls, "video", mode) || videoCount > 0),
   );
+
+  async function onSavePrompt() {
+    try {
+      const saved = await api.savePrompt(prompt);
+      setSavedPrompts((prev) => [
+        saved.prompt,
+        ...prev.filter((item) => item.id !== saved.prompt.id),
+      ]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save prompt");
+      throw err;
+    }
+  }
+
+  async function onDeleteSavedPrompt(id: string) {
+    try {
+      await api.deleteSavedPrompt(id);
+      setSavedPrompts((prev) => prev.filter((item) => item.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete prompt");
+    }
+  }
 
   async function onToggleFavorite() {
     if (!model) return;
@@ -602,11 +654,24 @@ export default function App() {
     const selected = models.find((item) => item.id === model);
     if (selected && !modelSupportsMode(selected, next)) {
       setModel("");
+      setGetLastFrame(false);
+      return;
+    }
+    if (
+      !showGetLastFrame({
+        modelId: selected ? model : "",
+        displayName: selected?.display_name,
+        mode: next,
+        lastFrameField: controls?.lastFrameField,
+      })
+    ) {
+      setGetLastFrame(false);
     }
   }
 
   function handleModelChange(next: string) {
     setNumGenerations((count) => generationCountForModelChange(model, next, count));
+    setGetLastFrame(false);
     setModel(next);
     const selected = models.find((item) => item.id === next);
     if (!selected) return;
@@ -745,6 +810,7 @@ export default function App() {
       }
       if (seed.trim()) payload.seed = Number(seed);
       if (controls?.generateAudio) payload.generate_audio = generateAudio;
+      if (lastFrameVisible && getLastFrame) payload.get_last_frame = true;
       if (quality) payload.quality = quality;
       if (resolution) payload.resolution = resolution;
       if (outputFormat) payload.output_format = outputFormat;
@@ -900,6 +966,12 @@ export default function App() {
           onNumGenerationsChange={setNumGenerations}
           generateAudio={generateAudio}
           onGenerateAudioChange={rememberParam(setGenerateAudio)}
+          showLastFrame={lastFrameVisible}
+          getLastFrame={getLastFrame}
+          onGetLastFrameChange={setGetLastFrame}
+          savedPrompts={savedPrompts}
+          onSavePrompt={onSavePrompt}
+          onDeleteSavedPrompt={onDeleteSavedPrompt}
           quality={quality}
           onQualityChange={rememberParam(setQuality)}
           resolution={resolution}

@@ -56,6 +56,7 @@ export type ModelControls = {
   background: string[] | null;
   slots: MediaSlot[];
   mentions: boolean;
+  lastFrameField?: string | null;
   pricing: OxenPricing | null;
 };
 
@@ -96,6 +97,12 @@ export type Generation = {
   progress?: number | null;
   typicalSeconds?: number | null;
   tags?: string[];
+};
+
+export type SavedPrompt = {
+  id: string;
+  body: string;
+  createdAt: number;
 };
 
 export type CreditBalance = {
@@ -284,6 +291,18 @@ export const api = {
         oxenDeleted?: number;
         oxenFailed?: number;
       }>(r),
+    ),
+  savedPrompts: () =>
+    fetch("/api/prompts").then((r) => parseJson<{ prompts: SavedPrompt[] }>(r)),
+  savePrompt: (body: string) =>
+    fetch("/api/prompts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    }).then((r) => parseJson<{ prompt: SavedPrompt }>(r)),
+  deleteSavedPrompt: (id: string) =>
+    fetch(`/api/prompts/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
+      parseJson<{ ok: boolean }>(r),
     ),
   credits: () =>
     fetch("/api/billing/credits").then((r) => parseJson<CreditBalance>(r)),
