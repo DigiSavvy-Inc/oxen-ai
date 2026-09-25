@@ -144,12 +144,13 @@ export function filterMentionItems<T extends MentionItem>(query: string, items: 
       const hit = pool[n - 1];
       return hit ? [hit] : [];
     }
+    const hits: T[] = [];
     for (const fallback of ["image", "video", "audio"] as const) {
       const ofKind = items.filter((item) => item.kind === fallback);
       const hit = ofKind[n - 1];
-      if (hit) return [hit];
+      if (hit) hits.push(hit);
     }
-    return [];
+    return hits;
   }
   if ("image".startsWith(q) || q.startsWith("im")) {
     return items.filter((item) => item.kind === "image");

@@ -120,11 +120,13 @@ export function paramsJsonForStorage(payload: Record<string, unknown>): string {
   json = JSON.stringify(slim);
   if (utf8Bytes(json) <= D1_MAX_TEXT_BYTES) return json;
   const prompt = typeof payload.prompt === "string" ? payload.prompt.slice(0, 20_000) : "";
-  return JSON.stringify({
+  const slimmed: Record<string, unknown> = {
     model: payload.model,
     prompt,
     media_omitted: true,
-  });
+  };
+  if (payload.capture_last_frame === true) slimmed.capture_last_frame = true;
+  return JSON.stringify(slimmed);
 }
 
 export function oxenErrorText(data: OxenErrorBody, fallback: string): string {

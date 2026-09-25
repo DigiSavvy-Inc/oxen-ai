@@ -47,7 +47,6 @@ import {
   listQueue,
   mergeMissingFeaturedModels,
   notePollFailure,
-  paramsJsonForStorage,
   pollErrorMessage,
   resetPollFailures,
   searchModels,
@@ -63,14 +62,20 @@ import {
   imageSlotRequired,
   mapMediaUrls,
   parseGenerationListScope,
-  lastFrameEnqueuePatch,
   parseModelControls,
+  showGetLastFrame,
   pickCompatible,
   resolveEnqueueAspectRatio,
   resolutionPayloadFields,
   videoSlotRequired,
   type GenerationListScope,
 } from "./schema";
+import {
+  captureLastFrameRequested,
+  generationParamsForStorage,
+  rejectLastFrameUpload,
+  sniffImageContentType,
+} from "./last-frame";
 import { deleteSavedPrompt, listSavedPrompts, saveSavedPrompt } from "./saved-prompts";
 import { parseTagList } from "./tags";
 import { createImageThumbnail } from "./thumbs";
@@ -78,6 +83,7 @@ import {
   backfillMissingThumbnails,
   deleteAllUserMedia,
   deleteFailedGenerations,
+  deleteStoredMedia,
   parseCleanupAction,
   parseFromOxenFlag,
   removeStudioGeneration,
@@ -419,6 +425,8 @@ type GenerationRow = {
   result_url: string | null;
   result_key?: string | null;
   thumb_key?: string | null;
+  last_frame_key?: string | null;
+  params_json?: string | null;
   error_message: string | null;
   batch_id?: string | null;
   created_at: number;
@@ -447,6 +455,7 @@ function toGenerationJson(
     typicalSeconds?: number | null;
     tags?: string[];
     thumbUrl?: string | null;
+    lastFrameUrl?: string | null;
   },
 ) {
   return {
@@ -459,6 +468,8 @@ function toGenerationJson(
     mediaType: row.media_type,
     resultUrl,
     thumbUrl: extras?.thumbUrl ?? null,
+    captureLastFrame: captureLastFrameRequested(row.params_json),
+    lastFrameUrl: extras?.lastFrameUrl ?? null,
     errorMessage: extras?.errorMessage === undefined ? row.error_message : extras.errorMessage,
     batchId: row.batch_id ?? null,
     createdAt: row.created_at,
@@ -736,9 +747,10 @@ async function syncGenerationRow(
     });
   }
 
-  const [displayUrl, thumbUrl] = await Promise.all([
+  const [displayUrl, thumbUrl, lastFrameUrl] = await Promise.all([
     displayResultUrl(env, resultKey, resultUrl),
     displayStoredMediaUrl(env, thumbKey, null),
+    displayStoredMediaUrl(env, row.last_frame_key, null),
   ]);
   return toGenerationJson(row, displayUrl, {
     status,
@@ -751,6 +763,7 @@ async function syncGenerationRow(
     typicalSeconds: options.typicalSeconds ?? null,
     tags: options.tags ?? [],
     thumbUrl,
+    lastFrameUrl,
   });
 }
 
@@ -1264,16 +1277,14 @@ app.post("/api/generate", async (c) => {
       asStringList(mapped.input_audio) ??
       (useFallback && audioUrls.length > 0 ? audioUrls : undefined),
   });
-  Object.assign(
-    payload,
-    lastFrameEnqueuePatch(
-      body.model.trim(),
-      mode,
-      controls,
-      body.get_last_frame,
+  const captureLastFrame =
+    body.get_last_frame === true &&
+    meta.mediaType === "video" &&
+    showGetLastFrame({
+      modelId: body.model.trim(),
       displayName,
-    ),
-  );
+      mode,
+    });
 
   const generations = await enqueueGeneration(apiKey, payload);
   const now = Math.floor(Date.now() / 1000);
@@ -1291,7 +1302,7 @@ app.post("/api/generate", async (c) => {
       body.prompt.trim(),
       gen.status || "queued",
       meta.mediaType,
-      paramsJsonForStorage(payload),
+      generationParamsForStorage(payload, captureLastFrame),
       batchId,
       now,
       now,
@@ -1320,7 +1331,7 @@ app.post("/api/generate", async (c) => {
           body.prompt.trim(),
           gen.status || "queued",
           meta.mediaType,
-          "{}",
+          generationParamsForStorage({}, captureLastFrame),
           batchId,
           now,
           now,
@@ -1337,6 +1348,8 @@ app.post("/api/generate", async (c) => {
       mediaType: meta.mediaType,
       resultUrl: null as string | null,
       thumbUrl: null as string | null,
+      captureLastFrame,
+      lastFrameUrl: null as string | null,
       errorMessage: null as string | null,
       batchId,
       createdAt: now,
@@ -1412,6 +1425,51 @@ app.get("/api/generations", async (c) => {
   );
 
   return c.json({ generations });
+});
+
+app.post("/api/generations/:id/last-frame", async (c) => {
+  const user = await requireUser(c);
+  const id = c.req.param("id");
+  const row = await c.env.DB.prepare(`SELECT * FROM generations WHERE id = ? AND user_id = ?`)
+    .bind(id, user.id)
+    .first<GenerationRow>();
+  if (!row) {
+    throw new HTTPException(404, { message: "Generation not found" });
+  }
+  const form = await c.req.formData();
+  const file = form.get("file");
+  if (!(file instanceof File)) {
+    throw new HTTPException(400, { message: "file is required" });
+  }
+  const bytes = await file.arrayBuffer();
+  const contentType = sniffImageContentType(new Uint8Array(bytes.slice(0, 12)), file.type || "");
+  const reason = rejectLastFrameUpload({
+    mediaType: row.media_type,
+    status: row.status,
+    paramsJson: row.params_json ?? null,
+    contentType,
+    size: bytes.byteLength,
+  });
+  if (reason || !contentType) {
+    throw new HTTPException(400, { message: reason || "Last frame must be an image" });
+  }
+  const stored = await putMediaObject(
+    c.env.MEDIA,
+    bytes,
+    contentType,
+    `u/${user.id}/last-frames`,
+  );
+  const now = Math.floor(Date.now() / 1000);
+  await c.env.DB.prepare(
+    `UPDATE generations SET last_frame_key = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
+  )
+    .bind(stored.key, now, id, user.id)
+    .run();
+  if (row.last_frame_key && row.last_frame_key !== stored.key) {
+    await deleteStoredMedia(c.env, [row.last_frame_key]);
+  }
+  const lastFrameUrl = await displayStoredMediaUrl(c.env, stored.key, null);
+  return c.json({ lastFrameUrl, updatedAt: now });
 });
 
 app.get("/api/generations/:id", async (c) => {

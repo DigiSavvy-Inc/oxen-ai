@@ -36,6 +36,7 @@ import {
 } from "./lib/library-refs";
 import { insertAttachMentions, moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
+import { captureVideoLastFrame } from "./lib/last-frame";
 import { preferredAspectRatio, showGetLastFrame, takeStagedOfKind } from "./lib/params";
 
 type StagedMedia = {
@@ -94,6 +95,7 @@ export default function App() {
   const paramsTouched = useRef(false);
   const promptField = useRef<PromptField | null>(null);
   const attachDraft = useRef<{ text: string; caret: number } | null>(null);
+  const lastFrameAttempted = useRef(new Set<string>());
 
   function rememberParam<T>(setter: (value: T) => void) {
     return (value: T) => {
@@ -298,6 +300,52 @@ export default function App() {
       cancelled = true;
     };
   }, [user, libraryOpen, refreshLibrary]);
+
+  const pendingLastFrameKey = generations
+    .filter(
+      (item) =>
+        item.captureLastFrame === true &&
+        item.mediaType === "video" &&
+        item.status === "succeeded" &&
+        Boolean(item.resultUrl) &&
+        !item.lastFrameUrl,
+    )
+    .map((item) => `${item.id}\t${item.resultUrl}`)
+    .join("\n");
+
+  useEffect(() => {
+    if (!pendingLastFrameKey) return;
+    let cancelled = false;
+    for (const line of pendingLastFrameKey.split("\n")) {
+      const tab = line.indexOf("\t");
+      if (tab <= 0) continue;
+      const id = line.slice(0, tab);
+      const src = line.slice(tab + 1);
+      if (!src || lastFrameAttempted.current.has(id)) continue;
+      lastFrameAttempted.current.add(id);
+      void captureVideoLastFrame(src)
+        .then((blob) => api.saveLastFrame(id, blob))
+        .then((saved) => {
+          if (cancelled || !saved.lastFrameUrl) return;
+          setGenerations((prev) =>
+            prev.map((row) =>
+              row.id === id
+                ? { ...row, lastFrameUrl: saved.lastFrameUrl, updatedAt: saved.updatedAt }
+                : row,
+            ),
+          );
+        })
+        .catch((err) => {
+          lastFrameAttempted.current.delete(id);
+          if (!cancelled) {
+            setError(err instanceof Error ? err.message : "Could not save the last frame");
+          }
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingLastFrameKey]);
 
   useLayoutEffect(() => {
     attachDraft.current = null;
@@ -604,7 +652,6 @@ export default function App() {
     modelId: model,
     displayName: selectedModel?.display_name,
     mode,
-    lastFrameField: controls?.lastFrameField,
   });
 
   const canGenerate = Boolean(
@@ -662,7 +709,6 @@ export default function App() {
         modelId: selected ? model : "",
         displayName: selected?.display_name,
         mode: next,
-        lastFrameField: controls?.lastFrameField,
       })
     ) {
       setGetLastFrame(false);

@@ -12,6 +12,7 @@ import { estimateGenerationWait } from "../lib/progress";
 import { MAX_TAGS_PER_MEDIA, parseTagList } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
 import { DownloadButton } from "./DownloadButton";
+import { LastFrameStill } from "./LastFrameStill";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
 
@@ -36,7 +37,12 @@ function MediaPreview({
   const [fitOpen, setFitOpen] = useState(false);
   if (generation.status === "succeeded" && generation.resultUrl) {
     if (generation.mediaType === "video") {
-      return <video className={className} src={generation.resultUrl} controls autoPlay loop />;
+      return (
+        <div className="last-frame-pair">
+          {generation.lastFrameUrl ? <LastFrameStill src={generation.lastFrameUrl} /> : null}
+          <video className={className} src={generation.resultUrl} controls autoPlay loop />
+        </div>
+      );
     }
     const alt = generation.prompt || "Generated";
     return (

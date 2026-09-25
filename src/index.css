@@ -187,6 +187,49 @@ a {
   position: relative;
 }
 
+.last-frame-pair {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.last-frame {
+  flex: 0 0 88px;
+  width: 88px;
+  margin: 0;
+}
+
+.last-frame-hit {
+  display: block;
+  width: 88px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+  cursor: zoom-in;
+}
+
+.library-peek-media .last-frame img,
+.result-media .last-frame img {
+  display: block;
+  width: 88px;
+  max-width: 88px;
+  height: 88px;
+  max-height: 88px;
+  object-fit: cover;
+  background: #fff;
+}
+
+.library-peek-media .last-frame-pair video {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: calc(100% - 96px);
+}
+
 .library-peek-hit {
   position: relative;
   display: block;
@@ -1611,6 +1654,7 @@ a {
 }
 
 .result-media .result-preview,
+.result-media .last-frame-pair,
 .result-media .wait-panel,
 .result-media .status-block {
   position: relative;

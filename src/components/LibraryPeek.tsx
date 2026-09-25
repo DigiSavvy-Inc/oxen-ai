@@ -4,6 +4,7 @@ import { isActiveGeneration } from "../lib/batches";
 import { libraryRefFromGeneration } from "../lib/library-refs";
 import { CopyPrompt } from "./CopyPrompt";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
+import { LastFrameStill } from "./LastFrameStill";
 import { Loader } from "./Loader";
 import { MediaDeleteGroup } from "./MediaDeleteGroup";
 
@@ -107,7 +108,10 @@ export function LibraryPeek({
         <div className={`library-peek-media${attached ? " is-attached" : ""}`}>
           <div className="library-peek-frame">
             {generation.mediaType === "video" && generation.resultUrl ? (
-              <video src={generation.resultUrl} controls playsInline />
+              <div className="last-frame-pair">
+                {generation.lastFrameUrl ? <LastFrameStill src={generation.lastFrameUrl} /> : null}
+                <video src={generation.resultUrl} controls playsInline />
+              </div>
             ) : generation.resultUrl ? (
               <button
                 type="button"

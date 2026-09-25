@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { Canvas } from "../src/components/Canvas";
 import { Composer } from "../src/components/Composer";
+import { LibraryPeek } from "../src/components/LibraryPeek";
 import {
   batchPreviewItems,
   coverGeneration,
@@ -210,6 +212,28 @@ describe("mentions and cost", () => {
     expect(filterMentionItems("4", items).map((item) => item.name)).toEqual(["e.png"]);
     expect(filterMentionItems("video1", items).map((item) => item.name)).toEqual(["b.mp4"]);
     expect(filterMentionItems("image9", items)).toEqual([]);
+    const dozen = [
+      ...Array.from({ length: 12 }, (_, index) => ({ name: `img-${index + 1}.png`, kind: "image" as const })),
+      ...Array.from({ length: 12 }, (_, index) => ({ name: `vid-${index + 1}.mp4`, kind: "video" as const })),
+      ...Array.from({ length: 12 }, (_, index) => ({ name: `aud-${index + 1}.mp3`, kind: "audio" as const })),
+    ];
+    for (const n of [1, 2, 5, 12]) {
+      expect(filterMentionItems(String(n), dozen).map((item) => item.name)).toEqual([
+        `img-${n}.png`,
+        `vid-${n}.mp4`,
+        `aud-${n}.mp3`,
+      ]);
+      expect(filterMentionItems(`image${n}`, dozen).map((item) => item.name)).toEqual([`img-${n}.png`]);
+      expect(filterMentionItems(`video${n}`, dozen).map((item) => item.name)).toEqual([`vid-${n}.mp4`]);
+      expect(filterMentionItems(`audio${n}`, dozen).map((item) => item.name)).toEqual([`aud-${n}.mp3`]);
+    }
+    const confirmed = insertMentionToken("keep\n@5 tail", 7, "@Audio5");
+    expect(confirmed).toEqual({ next: "keep\n@Audio5 tail", caret: "keep\n@Audio5 ".length });
+    expect(confirmed?.caret).not.toBe(confirmed?.next.length);
+    const twelfth = insertMentionToken("keep\n@12 tail", 8, "@Audio12");
+    expect(twelfth).toEqual({ next: "keep\n@Audio12 tail", caret: "keep\n@Audio12 ".length });
+    expect(twelfth?.next.startsWith("keep\n")).toBe(true);
+    expect(twelfth?.next.endsWith(" tail")).toBe(true);
     const picked = insertMentionToken("use @image4", 11, "@Image4");
     expect(picked).toEqual({ next: "use @Image4 ", caret: 12 });
   });
@@ -984,7 +1008,6 @@ describe("get last frame control", () => {
           background: null,
           slots: [],
           mentions: false,
-          lastFrameField: props.showLastFrame ? "return_last_frame" : null,
           pricing: null,
         },
         showLastFrame: props.showLastFrame,
@@ -1012,5 +1035,60 @@ describe("get last frame control", () => {
     });
     expect(video).toContain("Get last frame");
     expect(video).toContain("checked");
+  });
+});
+
+describe("last frame beside the video", () => {
+  const video = gen({
+    id: "clip",
+    mode: "reference-to-video",
+    mediaType: "video",
+    status: "succeeded",
+    resultUrl: "https://studio.example/clip.mp4",
+    lastFrameUrl: "https://studio.example/last.jpg",
+    captureLastFrame: true,
+  });
+
+  it("shows the still in the main view and the library peek", () => {
+    const canvas = renderToStaticMarkup(
+      createElement(Canvas, {
+        generation: video,
+        variants: [video],
+        onSelect: () => undefined,
+        onTagsChange: () => undefined,
+      }),
+    );
+    const peek = renderToStaticMarkup(
+      createElement(LibraryPeek, {
+        generation: video,
+        variants: [video],
+        attachedIds: new Set<string>(),
+        attachSupported: false,
+        onClose: () => undefined,
+        onAttach: () => undefined,
+        onSelectVariant: () => undefined,
+      }),
+    );
+    expect(canvas).toContain("https://studio.example/clip.mp4");
+    expect(canvas).toContain('alt="Last frame"');
+    expect(canvas).toContain("https://studio.example/last.jpg");
+    expect(peek).toContain("https://studio.example/clip.mp4");
+    expect(peek).toContain('alt="Last frame"');
+    expect(peek).toContain("https://studio.example/last.jpg");
+    expect(libraryRefFromGeneration(video)?.url).toBe("https://studio.example/clip.mp4");
+  });
+
+  it("leaves the video alone when no last frame was stored", () => {
+    const plain = { ...video, lastFrameUrl: null };
+    const canvas = renderToStaticMarkup(
+      createElement(Canvas, {
+        generation: plain,
+        variants: [plain],
+        onSelect: () => undefined,
+        onTagsChange: () => undefined,
+      }),
+    );
+    expect(canvas).toContain("https://studio.example/clip.mp4");
+    expect(canvas).not.toContain("Last frame");
   });
 });

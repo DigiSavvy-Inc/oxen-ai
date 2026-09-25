@@ -22,6 +22,7 @@ export type LibraryAssetRow = {
   status: string;
   result_key?: string | null;
   thumb_key?: string | null;
+  last_frame_key?: string | null;
   oxen_generation_id?: string | null;
   result_url?: string | null;
 };
@@ -45,7 +46,7 @@ export async function deleteGenerationRecord(
   userId: string,
   row: LibraryAssetRow,
 ): Promise<void> {
-  await deleteStoredMedia(env, [row.result_key, row.thumb_key]);
+  await deleteStoredMedia(env, [row.result_key, row.thumb_key, row.last_frame_key]);
   try {
     await env.DB.prepare(
       `DELETE FROM generation_tags WHERE user_id = ? AND generation_id = ?`,
@@ -139,7 +140,7 @@ export async function deleteAllUserMedia(
   const rows =
     (
       await env.DB.prepare(
-        `SELECT id, status, result_key, thumb_key, oxen_generation_id, result_url
+        `SELECT id, status, result_key, thumb_key, last_frame_key, oxen_generation_id, result_url
          FROM generations WHERE user_id = ?`,
       )
         .bind(userId)
@@ -181,7 +182,7 @@ export async function deleteFailedGenerations(
   userId: string,
 ): Promise<number> {
   const rows = await env.DB.prepare(
-    `SELECT id, status, result_key, thumb_key FROM generations
+    `SELECT id, status, result_key, thumb_key, last_frame_key FROM generations
      WHERE user_id = ? AND status IN ('failed', 'cancelled')`,
   )
     .bind(userId)

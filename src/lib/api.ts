@@ -56,7 +56,6 @@ export type ModelControls = {
   background: string[] | null;
   slots: MediaSlot[];
   mentions: boolean;
-  lastFrameField?: string | null;
   pricing: OxenPricing | null;
 };
 
@@ -87,6 +86,8 @@ export type Generation = {
   mediaType: string | null;
   resultUrl: string | null;
   thumbUrl?: string | null;
+  captureLastFrame?: boolean;
+  lastFrameUrl?: string | null;
   errorMessage: string | null;
   batchId: string | null;
   createdAt: number;
@@ -255,6 +256,13 @@ export const api = {
     fetch(`/api/generations/${id}`).then((r) =>
       parseJson<{ generation: Generation }>(r),
     ),
+  saveLastFrame: (id: string, file: Blob) => {
+    const form = new FormData();
+    form.append("file", file, "last-frame.jpg");
+    return fetch(`/api/generations/${id}/last-frame`, { method: "POST", body: form }).then((r) =>
+      parseJson<{ lastFrameUrl: string | null; updatedAt: number }>(r),
+    );
+  },
   updateGenerationTags: (id: string, tags: string[]) =>
     fetch(`/api/generations/${id}/tags`, {
       method: "PUT",

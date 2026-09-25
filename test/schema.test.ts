@@ -3,7 +3,6 @@ import {
   clampDuration,
   mapMediaUrls,
   parseGenerationListScope,
-  lastFrameEnqueuePatch,
   parseModelControls,
   preferredAspectRatio,
   resolveEnqueueAspectRatio,
@@ -329,124 +328,40 @@ describe("parseModelControls", () => {
 });
 
 describe("get last frame", () => {
-  it("uses the schema boolean that returns the last frame and ignores end-frame inputs", () => {
-    const seedance = parseModelControls({
-      id: "bytedance-seedance-2-5-text-to-video",
-      request_schema: {
-        type: "object",
-        properties: {
-          prompt: { type: "string" },
-          return_last_frame: {
-            type: "boolean",
-            description: "Return the last frame of the generated video.",
-          },
-          tail_image_url: { type: "string", description: "Optional URL of the end-frame image." },
-        },
-      },
-    });
-    expect(seedance.lastFrameField).toBe("return_last_frame");
+  it("shows the control for Seedance and for image-to-video or video-to-video", () => {
     expect(
       showGetLastFrame({
-        modelId: seedance.modelId,
+        modelId: "bytedance-seedance-2-5-text-to-video",
+        displayName: "Seedance 2.5",
         mode: null,
-        lastFrameField: seedance.lastFrameField,
       }),
     ).toBe(true);
     expect(
-      lastFrameEnqueuePatch(seedance.modelId, "text-to-video", seedance, true),
-    ).toEqual({ return_last_frame: true });
-    expect(lastFrameEnqueuePatch(seedance.modelId, "text-to-video", seedance, false)).toEqual({});
-    expect(lastFrameEnqueuePatch(seedance.modelId, "text-to-video", seedance, undefined)).toEqual(
-      {},
-    );
-  });
-
-  it("maps a different real boolean name on image-to-video and video-to-video models", () => {
-    const kling = parseModelControls({
-      id: "kling-video-v2-6-pro-image-to-video",
-      request_schema: {
-        type: "object",
-        properties: {
-          prompt: { type: "string" },
-          include_last_frame: { type: "boolean", default: false },
-        },
-      },
-    });
-    expect(kling.lastFrameField).toBe("include_last_frame");
-    expect(
       showGetLastFrame({
-        modelId: kling.modelId,
+        modelId: "kling-video-v2-6-pro-image-to-video",
         mode: "reference-to-video",
-        lastFrameField: kling.lastFrameField,
       }),
     ).toBe(true);
     expect(
       showGetLastFrame({
-        modelId: kling.modelId,
+        modelId: "kling-video-o3-pro-video-to-video-edit",
         mode: "video-to-video",
-        lastFrameField: kling.lastFrameField,
       }),
     ).toBe(true);
     expect(
-      lastFrameEnqueuePatch(kling.modelId, "reference-to-video", kling, true),
-    ).toEqual({ include_last_frame: true });
-    expect(
       showGetLastFrame({
-        modelId: kling.modelId,
-        mode: "text-to-image",
-        lastFrameField: kling.lastFrameField,
-      }),
-    ).toBe(false);
-    expect(lastFrameEnqueuePatch(kling.modelId, "text-to-image", kling, true)).toEqual({});
-    expect(
-      showGetLastFrame({
-        modelId: kling.modelId,
-        mode: null,
-        lastFrameField: kling.lastFrameField,
-      }),
-    ).toBe(false);
-  });
-
-  it("hides the control when the catalog schema has no return-last-frame boolean", () => {
-    const image = parseModelControls({
-      id: "bytedance-seedream-5-pro",
-      display_name: "Seedream 5.0 Pro",
-      request_schema: {
-        type: "object",
-        properties: {
-          prompt: { type: "string" },
-          size: { type: "string", enum: ["2K", "3K"] },
-        },
-      },
-    });
-    expect(image.lastFrameField).toBeNull();
-    expect(
-      showGetLastFrame({
-        modelId: image.modelId,
+        modelId: "bytedance-seedream-5-pro",
         displayName: "Seedream 5.0 Pro",
         mode: "text-to-image",
-        lastFrameField: image.lastFrameField,
       }),
     ).toBe(false);
-    const seedanceWithoutFlag = parseModelControls({
-      id: "bytedance-seedance-2-5-image-to-video",
-      request_schema: {
-        type: "object",
-        properties: {
-          prompt: { type: "string" },
-          tail_image_url: { type: "string" },
-          tail_image_url_has_face: { type: "boolean", default: false },
-        },
-      },
-    });
-    expect(seedanceWithoutFlag.lastFrameField).toBeNull();
     expect(
       showGetLastFrame({
-        modelId: seedanceWithoutFlag.modelId,
-        mode: "reference-to-video",
-        lastFrameField: seedanceWithoutFlag.lastFrameField,
+        modelId: "kling-video-v2-6-pro",
+        mode: "text-to-video",
       }),
     ).toBe(false);
+    expect(showGetLastFrame({ modelId: "", mode: null })).toBe(false);
   });
 });
 
