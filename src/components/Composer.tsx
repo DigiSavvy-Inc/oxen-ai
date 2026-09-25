@@ -36,7 +36,9 @@ import {
 import { shortenFileName } from "../lib/files";
 import { mediaKindCap } from "../lib/library-refs";
 import { aspectCatalog, aspectSelectOptions } from "../lib/params";
+import type { GallerySummary } from "../lib/api";
 import { AudioAttachControl, ExpandMediaButton } from "./MediaLightbox";
+import { GalleryDrawer, type GalleryDraftItem } from "./GalleryDrawer";
 import { Loader } from "./Loader";
 import { ModelMenu } from "./ModelMenu";
 
@@ -111,6 +113,19 @@ type Props = {
   savedPrompts?: SavedPrompt[];
   onSavePrompt?: () => Promise<void> | void;
   onDeleteSavedPrompt?: (id: string) => Promise<void> | void;
+  galleryName?: string;
+  onGalleryNameChange?: (value: string) => void;
+  galleryItems?: GalleryDraftItem[];
+  gallerySummaries?: GallerySummary[];
+  gallerySaving?: boolean;
+  galleryAdding?: boolean;
+  galleryStatus?: string | null;
+  onGalleryAddFiles?: (files: FileList | File[] | null) => void;
+  onGalleryRemove?: (index: number) => void;
+  onGalleryReorder?: (from: number, to: number) => void;
+  onGallerySave?: () => Promise<void> | void;
+  onGalleryLoad?: (id: string) => Promise<void> | void;
+  onGalleryAttach?: () => string[];
   quality: string;
   onQualityChange: (value: string) => void;
   resolution: string;
@@ -150,6 +165,8 @@ export function Composer(props: Props) {
   const [promptHeight, setPromptHeight] = useState(96);
   const [savedOpen, setSavedOpen] = useState(false);
   const [savingPrompt, setSavingPrompt] = useState(false);
+  const [galleryForMode, setGalleryForMode] = useState<GenerationMode | null>(null);
+  const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
   const savedMenuRef = useRef<HTMLDivElement>(null);
   const pendingCaret = useRef<{ caret: number; prompt: string } | null>(null);
 
@@ -157,6 +174,8 @@ export function Composer(props: Props) {
   const videoMax = mediaKindCap(props.controls, props.mode, "video");
   const audioMax = mediaKindCap(props.controls, props.mode, "audio");
   const audioCount = props.attachments.filter((item) => item.kind === "audio").length;
+  const galleryAvailable = Boolean(props.mode && modeIsVideo(props.mode));
+  const galleryOpen = galleryAvailable && galleryForMode === props.mode;
   const showDropzone =
     imageMax > 0 ||
     videoMax > 0 ||
@@ -414,8 +433,14 @@ export function Composer(props: Props) {
     setHoveredMention(null);
   }
 
+  function attachGallery() {
+    const skipped = props.onGalleryAttach?.() ?? [];
+    setGallerySkipped(skipped);
+  }
+
   return (
     <div className="composer">
+      <div className="composer-layout">
       <div
         className={`composer-inner${dragging ? " is-drop-target" : ""}`}
         onDragEnter={onFileDragEnter}
@@ -443,6 +468,19 @@ export function Composer(props: Props) {
               </button>
             );
           })}
+          {galleryAvailable ? (
+            <button
+              type="button"
+              className={`gallery-toggle${galleryOpen ? " active" : ""}`}
+              aria-expanded={galleryOpen}
+              aria-controls="gallery-drawer"
+              onClick={() =>
+                setGalleryForMode((current) => (current === props.mode ? null : props.mode))
+              }
+            >
+              Gallery
+            </button>
+          ) : null}
         </div>
 
         <div className="prompt-drop">
@@ -1012,6 +1050,26 @@ export function Composer(props: Props) {
             Drop media to attach
           </div>
         ) : null}
+      </div>
+      {galleryAvailable && galleryOpen ? (
+        <GalleryDrawer
+          name={props.galleryName ?? ""}
+          onNameChange={(value) => props.onGalleryNameChange?.(value)}
+          items={props.galleryItems ?? []}
+          summaries={props.gallerySummaries ?? []}
+          saving={props.gallerySaving === true}
+          adding={props.galleryAdding === true}
+          status={props.galleryStatus ?? null}
+          skipped={gallerySkipped}
+          onAddFiles={(files) => props.onGalleryAddFiles?.(files)}
+          onRemove={(index) => props.onGalleryRemove?.(index)}
+          onReorder={(from, to) => props.onGalleryReorder?.(from, to)}
+          onSave={() => void props.onGallerySave?.()}
+          onLoad={(id) => void props.onGalleryLoad?.(id)}
+          onAttach={attachGallery}
+          onClose={() => setGalleryForMode(null)}
+        />
+      ) : null}
       </div>
       {hoveredMention ? (
         <div

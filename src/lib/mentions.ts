@@ -172,6 +172,13 @@ export function tokenForItem<T extends MentionItem>(attachments: T[], item: T, i
   return mentionToken(item.kind, kindIndex >= 0 ? kindIndex : index);
 }
 
+/** True when `token` is already a mention, so `@Image1` does not match inside `@Image10`. */
+export function promptContainsToken(text: string, token: string): boolean {
+  if (!token) return false;
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[^A-Za-z0-9])${escaped}(?!\\d)`).test(text);
+}
+
 /**
  * Insert attach tokens at the caret. `caret === null` means the prompt is not
  * focused, so the tokens go at the end. Existing whitespace stays; a separating
@@ -188,7 +195,7 @@ export function insertAttachMentions(
   let cursor = at;
   let inserted = false;
   for (const token of tokens) {
-    if (!token || next.includes(token)) continue;
+    if (!token || promptContainsToken(next, token)) continue;
     const placed = placeAttachToken(next, cursor, token);
     next = placed.next;
     cursor = placed.caret;

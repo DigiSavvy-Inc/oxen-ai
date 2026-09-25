@@ -76,6 +76,13 @@ import {
   rejectLastFrameUpload,
   sniffImageContentType,
 } from "./last-frame";
+import {
+  acceptGalleryItems,
+  acceptGalleryName,
+  getGallery,
+  listGalleries,
+  saveGallery,
+} from "./galleries";
 import { deleteSavedPrompt, listSavedPrompts, saveSavedPrompt } from "./saved-prompts";
 import { parseTagList } from "./tags";
 import { createImageThumbnail } from "./thumbs";
@@ -965,6 +972,57 @@ app.delete("/api/prompts/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+async function galleryResponse(
+  env: Env,
+  gallery: NonNullable<Awaited<ReturnType<typeof getGallery>>>,
+) {
+  const items = await Promise.all(
+    gallery.items.map(async (item) => ({
+      id: item.id,
+      kind: item.kind,
+      name: item.name,
+      key: item.key,
+      url: (await displayStoredMediaUrl(env, item.key, null)) ?? "",
+    })),
+  );
+  return { id: gallery.id, name: gallery.name, updatedAt: gallery.updatedAt, items };
+}
+
+app.get("/api/galleries", async (c) => {
+  const user = await requireUser(c);
+  const galleries = await listGalleries(c.env.DB, user.id, c.req.query("q") || "");
+  return c.json({ galleries });
+});
+
+app.get("/api/galleries/:id", async (c) => {
+  const user = await requireUser(c);
+  const gallery = await getGallery(c.env.DB, user.id, c.req.param("id"));
+  if (!gallery) {
+    throw new HTTPException(404, { message: "Gallery not found" });
+  }
+  return c.json({ gallery: await galleryResponse(c.env, gallery) });
+});
+
+app.post("/api/galleries", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ id?: unknown; name?: unknown; items?: unknown }>();
+  const id = typeof body.id === "string" ? body.id : null;
+  const gallery = await saveGallery(c.env.DB, user.id, {
+    id,
+    name: body.name,
+    items: body.items,
+  });
+  if (!gallery) {
+    const named = acceptGalleryName(body.name);
+    const items = acceptGalleryItems(user.id, body.items);
+    if (id && named && items) {
+      throw new HTTPException(404, { message: "Gallery not found" });
+    }
+    throw new HTTPException(400, { message: "Gallery needs a name and media that belong to you" });
+  }
+  return c.json({ gallery: await galleryResponse(c.env, gallery) });
+});
+
 app.get("/api/models/favorites", async (c) => {
   const user = await requireUser(c);
   const apiKey = await requireOxenKey(user, c.env);
@@ -1057,7 +1115,9 @@ app.post("/api/upload", async (c) => {
 
   const buffer = await file.arrayBuffer();
   const contentType = file.type || "application/octet-stream";
-  const { key } = await putMediaObject(c.env.MEDIA, buffer, contentType, `u/${user.id}`);
+  const folder = form.get("folder");
+  const prefix = folder === "galleries" ? `u/${user.id}/galleries` : `u/${user.id}`;
+  const { key } = await putMediaObject(c.env.MEDIA, buffer, contentType, prefix);
   const secret = c.env.ENCRYPTION_KEY || c.env.SESSION_SECRET;
   const { url } = await buildReferenceMediaUrl({
     publicBaseUrl: c.env.PUBLIC_BASE_URL,

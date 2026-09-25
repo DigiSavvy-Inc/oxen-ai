@@ -106,6 +106,27 @@ export type SavedPrompt = {
   createdAt: number;
 };
 
+export type GallerySummary = {
+  id: string;
+  name: string;
+  updatedAt: number;
+};
+
+export type GalleryItem = {
+  id: string;
+  kind: "image" | "video" | "audio";
+  name: string;
+  key: string;
+  url: string;
+};
+
+export type Gallery = {
+  id: string;
+  name: string;
+  updatedAt: number;
+  items: GalleryItem[];
+};
+
 export type CreditBalance = {
   remaining: number | null;
   currency: string;
@@ -233,9 +254,10 @@ export const api = {
     fetch(`/api/models/${encodeURIComponent(id)}/favorite`, { method: "DELETE" }).then(
       (r) => parseJson<{ ok: boolean }>(r),
     ),
-  upload: async (file: File) => {
+  upload: async (file: File, options?: { folder?: "galleries" }) => {
     const form = new FormData();
     form.append("file", file);
+    if (options?.folder === "galleries") form.append("folder", "galleries");
     return fetch("/api/upload", { method: "POST", body: form }).then((r) =>
       parseJson<{ key: string; url: string; contentType: string; name: string }>(r),
     );
@@ -312,6 +334,28 @@ export const api = {
     fetch(`/api/prompts/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
       parseJson<{ ok: boolean }>(r),
     ),
+  galleries: (query = "") => {
+    const params = new URLSearchParams();
+    if (query.trim()) params.set("q", query.trim());
+    const suffix = params.toString();
+    return fetch(`/api/galleries${suffix ? `?${suffix}` : ""}`).then((r) =>
+      parseJson<{ galleries: GallerySummary[] }>(r),
+    );
+  },
+  gallery: (id: string) =>
+    fetch(`/api/galleries/${encodeURIComponent(id)}`).then((r) =>
+      parseJson<{ gallery: Gallery }>(r),
+    ),
+  saveGallery: (body: {
+    id?: string | null;
+    name: string;
+    items: { kind: GalleryItem["kind"]; name: string; key: string }[];
+  }) =>
+    fetch("/api/galleries", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => parseJson<{ gallery: Gallery }>(r)),
   credits: () =>
     fetch("/api/billing/credits").then((r) => parseJson<CreditBalance>(r)),
   pushConfig: () =>

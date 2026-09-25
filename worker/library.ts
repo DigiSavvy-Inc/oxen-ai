@@ -173,6 +173,15 @@ export async function deleteAllUserMedia(
     }
   }
   await env.DB.prepare(`DELETE FROM generations WHERE user_id = ?`).bind(userId).run();
+  try {
+    await env.DB.prepare(`DELETE FROM gallery_items WHERE user_id = ?`).bind(userId).run();
+    await env.DB.prepare(`DELETE FROM galleries WHERE user_id = ?`).bind(userId).run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes("galleries") && !message.includes("SQLITE_ERROR")) {
+      throw err;
+    }
+  }
   const r2Deleted = await deleteUserR2Prefix(env, userId);
   return { deleted: rows.length, r2Deleted, oxenDeleted, oxenFailed };
 }

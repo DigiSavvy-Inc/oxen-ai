@@ -78,6 +78,21 @@ describe("POST /api/upload", () => {
     const bytes = new Uint8Array(await mediaRes.arrayBuffer());
     expect(Array.from(bytes)).toEqual(Array.from(PNG_BYTES));
   });
+
+  it("stores gallery uploads under the signed-in user's gallery prefix", async () => {
+    const env = createEnv();
+    const form = new FormData();
+    form.append("file", new File([PNG_BYTES], "hero.png", { type: "image/png" }));
+    form.append("folder", "galleries");
+    const res = await app.request(
+      "https://studio.digisavvy.dev/api/upload",
+      { method: "POST", body: form, headers: { Cookie: cookieHeader() } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { key: string };
+    expect(body.key.startsWith("u/user-1/galleries/")).toBe(true);
+  });
 });
 
 describe("GET /api/media/*", () => {

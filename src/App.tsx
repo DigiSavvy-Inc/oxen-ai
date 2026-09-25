@@ -3,6 +3,7 @@ import { useAuth } from "./auth/AuthContext";
 import { AccountMenu } from "./components/AccountMenu";
 import { Canvas } from "./components/Canvas";
 import { Composer, type PromptField } from "./components/Composer";
+import type { GalleryDraftItem } from "./components/GalleryDrawer";
 import { CreditMeter } from "./components/CreditMeter";
 import { LibraryPeek } from "./components/LibraryPeek";
 import { LoginPage } from "./components/LoginPage";
@@ -20,6 +21,7 @@ import {
   type GenerationMode,
   type ModelControls,
   type OxenModel,
+  type GallerySummary,
   type SavedPrompt,
   type StudioSettings,
 } from "./lib/api";
@@ -34,6 +36,7 @@ import {
   mergeLibraryRefs,
   releasePreview,
 } from "./lib/library-refs";
+import { planGalleryAttach } from "./lib/gallery-attach";
 import { insertAttachMentions, moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 import { captureVideoLastFrame } from "./lib/last-frame";
@@ -45,9 +48,12 @@ type StagedMedia = {
   kind: "image" | "video" | "audio";
   name: string;
   url?: string;
+  key?: string;
   generationId?: string;
   role?: "character" | "scene";
 };
+
+const GALLERY_ITEM_CAP = 24;
 
 function initialLibraryOpen(): boolean {
   if (typeof window === "undefined") return false;
@@ -76,6 +82,13 @@ export default function App() {
   const [generateAudio, setGenerateAudio] = useState(false);
   const [getLastFrame, setGetLastFrame] = useState(false);
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
+  const [gallerySummaries, setGallerySummaries] = useState<GallerySummary[]>([]);
+  const [galleryId, setGalleryId] = useState<string | null>(null);
+  const [galleryName, setGalleryName] = useState("");
+  const [galleryItems, setGalleryItems] = useState<GalleryDraftItem[]>([]);
+  const [gallerySaving, setGallerySaving] = useState(false);
+  const [galleryAdding, setGalleryAdding] = useState(false);
+  const [galleryStatus, setGalleryStatus] = useState<string | null>(null);
   const [quality, setQuality] = useState("");
   const [resolution, setResolution] = useState("");
   const [outputFormat, setOutputFormat] = useState("");
@@ -238,6 +251,25 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
+    if (!user) {
+      setGallerySummaries([]);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .galleries()
+      .then((data) => {
+        if (!cancelled) setGallerySummaries(data.galleries);
+      })
+      .catch(() => {
+        if (!cancelled) setGallerySummaries([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
     if (!user?.hasOxenKey) return;
     const timer = window.setInterval(() => {
       void refreshCredits();
@@ -256,6 +288,8 @@ export default function App() {
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        const target = event.target;
+        if (target instanceof Element && target.closest("#gallery-drawer")) return;
         if (peekId) {
           event.preventDefault();
           setPeekId(null);
@@ -685,6 +719,141 @@ export default function App() {
     }
   }
 
+  async function onGalleryAddFiles(list: FileList | File[] | null) {
+    const incoming = filesFromList(list);
+    const accepted = incoming.flatMap((file) => {
+      const kind = kindFromFile(file);
+      return kind ? [{ file, kind }] : [];
+    });
+    if (accepted.length === 0) return;
+    const room = Math.max(0, GALLERY_ITEM_CAP - galleryItems.length);
+    if (room === 0) {
+      setGalleryStatus(`A gallery holds ${GALLERY_ITEM_CAP} items`);
+      return;
+    }
+    setGalleryAdding(true);
+    setGalleryStatus(null);
+    try {
+      const added: GalleryDraftItem[] = [];
+      for (const item of accepted.slice(0, room)) {
+        const uploaded = await api.upload(item.file, { folder: "galleries" });
+        added.push({
+          id: crypto.randomUUID(),
+          kind: item.kind,
+          name: item.file.name || uploaded.name,
+          preview: uploaded.url,
+          key: uploaded.key,
+          url: uploaded.url,
+        });
+      }
+      setGalleryItems((prev) => [...prev, ...added].slice(0, GALLERY_ITEM_CAP));
+    } catch (err) {
+      setGalleryStatus(err instanceof Error ? err.message : "Couldn’t add that file");
+    } finally {
+      setGalleryAdding(false);
+    }
+  }
+
+  async function onGallerySave() {
+    const name = galleryName.trim();
+    if (!name || gallerySaving) return;
+    setGallerySaving(true);
+    setGalleryStatus(null);
+    try {
+      const saved = await api.saveGallery({
+        id: galleryId,
+        name,
+        items: galleryItems.map((item) => ({
+          kind: item.kind,
+          name: item.name,
+          key: item.key,
+        })),
+      });
+      setGalleryId(saved.gallery.id);
+      setGalleryName(saved.gallery.name);
+      setGalleryItems(
+        saved.gallery.items.map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          name: item.name,
+          preview: item.url,
+          key: item.key,
+          url: item.url,
+        })),
+      );
+      setGallerySummaries((prev) => [
+        { id: saved.gallery.id, name: saved.gallery.name, updatedAt: saved.gallery.updatedAt },
+        ...prev.filter((item) => item.id !== saved.gallery.id),
+      ]);
+    } catch (err) {
+      setGalleryStatus(err instanceof Error ? err.message : "Couldn’t save the gallery");
+    } finally {
+      setGallerySaving(false);
+    }
+  }
+
+  async function onGalleryLoad(id: string) {
+    setGalleryStatus(null);
+    try {
+      const { gallery } = await api.gallery(id);
+      setGalleryId(gallery.id);
+      setGalleryName(gallery.name);
+      setGalleryItems(
+        gallery.items.map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          name: item.name,
+          preview: item.url,
+          key: item.key,
+          url: item.url,
+        })),
+      );
+    } catch (err) {
+      setGalleryStatus(err instanceof Error ? err.message : "Couldn’t load that gallery");
+    }
+  }
+
+  function onGalleryAttach(): string[] {
+    const faceFirst = Boolean(
+      controls?.slots.some(
+        (slot) => slot.field === "input_face_images" || slot.field === "input_face_videos",
+      ),
+    );
+    const plan = planGalleryAttach({
+      items: galleryItems,
+      staged,
+      caps: {
+        image: capForKind("image"),
+        video: capForKind("video"),
+        audio: capForKind("audio"),
+      },
+      prompt,
+      faceFirst,
+    });
+    if (plan.add.length > 0) {
+      setStaged((prev) => [
+        ...prev,
+        ...plan.add.map((item) => ({
+          kind: item.kind,
+          name: item.name,
+          preview: item.url || item.preview,
+          url: item.url,
+          key: item.key,
+          role: item.kind === "audio" ? undefined : ("character" as const),
+        })),
+      ]);
+    }
+    if (plan.tokens.length > 0) {
+      const field = promptField.current;
+      const el = field?.element ?? null;
+      const liveCaret = el && document.activeElement === el ? el.selectionStart : null;
+      const result = insertAttachMentions(prompt, liveCaret, plan.tokens);
+      setPrompt(result.next);
+      field?.place(result.caret, result.next);
+    }
+    return plan.skipped.map((item) => item.name);
+  }
+
   async function onToggleFavorite() {
     if (!model) return;
     try {
@@ -1018,6 +1187,19 @@ export default function App() {
           savedPrompts={savedPrompts}
           onSavePrompt={onSavePrompt}
           onDeleteSavedPrompt={onDeleteSavedPrompt}
+          galleryName={galleryName}
+          onGalleryNameChange={setGalleryName}
+          galleryItems={galleryItems}
+          gallerySummaries={gallerySummaries}
+          gallerySaving={gallerySaving}
+          galleryAdding={galleryAdding}
+          galleryStatus={galleryStatus}
+          onGalleryAddFiles={(files) => void onGalleryAddFiles(files)}
+          onGalleryRemove={(index) => setGalleryItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
+          onGalleryReorder={(from, to) => setGalleryItems((prev) => moveItem(prev, from, to))}
+          onGallerySave={onGallerySave}
+          onGalleryLoad={onGalleryLoad}
+          onGalleryAttach={onGalleryAttach}
           quality={quality}
           onQualityChange={rememberParam(setQuality)}
           resolution={resolution}

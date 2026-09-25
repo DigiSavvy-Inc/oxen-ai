@@ -1017,15 +1017,16 @@ describe("get last frame control", () => {
   }
 
   it("is absent for text-to-image and present unchecked when the schema exposes the flag", () => {
-    expect(markup({ mode: "text-to-image", model: "bytedance-seedream-5-pro", showLastFrame: false })).not.toContain(
-      "Get last frame",
-    );
+    const still = markup({ mode: "text-to-image", model: "bytedance-seedream-5-pro", showLastFrame: false });
+    expect(still).not.toContain("Get last frame");
+    expect(still).not.toContain("Gallery");
     const seedance = markup({
       mode: null,
       model: "bytedance-seedance-2-5-text-to-video",
       showLastFrame: true,
     });
     expect(seedance).toContain("Get last frame");
+    expect(seedance).not.toContain("Gallery");
     expect(seedance).not.toContain('checked=""');
     const video = markup({
       mode: "video-to-video",
@@ -1035,6 +1036,18 @@ describe("get last frame control", () => {
     });
     expect(video).toContain("Get last frame");
     expect(video).toContain("checked");
+    expect(video).toContain("Gallery");
+  });
+});
+
+describe("gallery drawer", () => {
+  it("is a side drawer on desktop and a full-screen sheet on a phone", () => {
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*position:\s*absolute/);
+    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*left:\s*calc\(100% \+ 12px\)/);
+    expect(css).toMatch(
+      /@media \(max-width: 860px\) \{[\s\S]*\.gallery-drawer\.is-sheet\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0/,
+    );
   });
 });
 
