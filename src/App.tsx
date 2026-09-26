@@ -697,9 +697,9 @@ export default function App() {
       (!slotRequired(controls, "video", mode) || videoCount > 0),
   );
 
-  async function onSavePrompt() {
+  async function onSavePrompt(name: string, body: string) {
     try {
-      const saved = await api.savePrompt(prompt);
+      const saved = await api.savePrompt(name, body);
       setSavedPrompts((prev) => [
         saved.prompt,
         ...prev.filter((item) => item.id !== saved.prompt.id),
@@ -708,6 +708,25 @@ export default function App() {
       setError(err instanceof Error ? err.message : "Failed to save prompt");
       throw err;
     }
+  }
+
+  async function onUpdateSavedPrompt(id: string, name: string, body: string) {
+    try {
+      const saved = await api.updateSavedPrompt(id, name, body);
+      setSavedPrompts((prev) =>
+        prev.map((item) => (item.id === saved.prompt.id ? saved.prompt : item)),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update prompt");
+      throw err;
+    }
+  }
+
+  function onGalleryNew() {
+    setGalleryId(null);
+    setGalleryName("");
+    setGalleryItems([]);
+    setGalleryStatus(null);
   }
 
   async function onDeleteSavedPrompt(id: string) {
@@ -1186,6 +1205,7 @@ export default function App() {
           onGetLastFrameChange={setGetLastFrame}
           savedPrompts={savedPrompts}
           onSavePrompt={onSavePrompt}
+          onUpdateSavedPrompt={onUpdateSavedPrompt}
           onDeleteSavedPrompt={onDeleteSavedPrompt}
           galleryName={galleryName}
           onGalleryNameChange={setGalleryName}
@@ -1198,6 +1218,7 @@ export default function App() {
           onGalleryRemove={(index) => setGalleryItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
           onGalleryReorder={(from, to) => setGalleryItems((prev) => moveItem(prev, from, to))}
           onGallerySave={onGallerySave}
+          onGalleryNew={onGalleryNew}
           onGalleryLoad={onGalleryLoad}
           onGalleryAttach={onGalleryAttach}
           quality={quality}

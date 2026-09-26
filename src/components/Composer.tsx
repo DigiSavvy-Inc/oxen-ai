@@ -77,6 +77,14 @@ function isFileDrag(event: DragEvent) {
   return Array.from(event.dataTransfer.types).includes("Files");
 }
 
+function savedPromptLabel(item: Pick<SavedPrompt, "name" | "body">): string {
+  const name = item.name.trim();
+  if (name) return name;
+  const line = item.body.trim().split("\n")[0] ?? "";
+  if (!line) return "Untitled";
+  return line.length > 48 ? `${line.slice(0, 48)}…` : line;
+}
+
 export type PromptField = {
   element: HTMLTextAreaElement | null;
   place: (caret: number, prompt: string) => void;
@@ -111,7 +119,8 @@ type Props = {
   getLastFrame?: boolean;
   onGetLastFrameChange?: (value: boolean) => void;
   savedPrompts?: SavedPrompt[];
-  onSavePrompt?: () => Promise<void> | void;
+  onSavePrompt?: (name: string, body: string) => Promise<void> | void;
+  onUpdateSavedPrompt?: (id: string, name: string, body: string) => Promise<void> | void;
   onDeleteSavedPrompt?: (id: string) => Promise<void> | void;
   galleryName?: string;
   onGalleryNameChange?: (value: string) => void;
@@ -124,6 +133,7 @@ type Props = {
   onGalleryRemove?: (index: number) => void;
   onGalleryReorder?: (from: number, to: number) => void;
   onGallerySave?: () => Promise<void> | void;
+  onGalleryNew?: () => void;
   onGalleryLoad?: (id: string) => Promise<void> | void;
   onGalleryAttach?: () => string[];
   quality: string;
@@ -165,6 +175,9 @@ export function Composer(props: Props) {
   const [promptHeight, setPromptHeight] = useState(96);
   const [savedOpen, setSavedOpen] = useState(false);
   const [savingPrompt, setSavingPrompt] = useState(false);
+  const [promptDraft, setPromptDraft] = useState<{ id: string | null; name: string; body: string } | null>(
+    null,
+  );
   const [galleryForMode, setGalleryForMode] = useState<GenerationMode | null>(null);
   const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
   const savedMenuRef = useRef<HTMLDivElement>(null);
@@ -260,15 +273,28 @@ export function Composer(props: Props) {
   function loadSavedPrompt(body: string) {
     setMentionOpen(false);
     setSavedOpen(false);
+    setPromptDraft(null);
     props.onPromptChange(body);
     placeCaret(body.length, body);
   }
 
-  async function saveCurrentPrompt() {
-    if (!props.prompt.trim() || !props.onSavePrompt || savingPrompt) return;
+  function openNewPromptDraft() {
+    if (!props.prompt.trim() || !props.onSavePrompt) return;
+    setPromptDraft({ id: null, name: "", body: props.prompt });
+    setSavedOpen(true);
+  }
+
+  async function commitPromptDraft() {
+    if (!promptDraft || savingPrompt) return;
+    if (promptDraft.id ? !props.onUpdateSavedPrompt : !props.onSavePrompt) return;
     setSavingPrompt(true);
     try {
-      await props.onSavePrompt();
+      if (promptDraft.id) {
+        await props.onUpdateSavedPrompt?.(promptDraft.id, promptDraft.name, promptDraft.body);
+      } else {
+        await props.onSavePrompt?.(promptDraft.name, promptDraft.body);
+      }
+      setPromptDraft(null);
       setSavedOpen(true);
     } catch {
       /* App surfaces the error */
@@ -579,9 +605,9 @@ export function Composer(props: Props) {
               type="button"
               className="prompt-action"
               disabled={!props.prompt.trim() || savingPrompt || !props.onSavePrompt}
-              onClick={() => void saveCurrentPrompt()}
+              onClick={openNewPromptDraft}
             >
-              {savingPrompt ? "Saving…" : "Save prompt"}
+              Save prompt
             </button>
             <div className="saved-prompts">
               <button
@@ -595,6 +621,47 @@ export function Composer(props: Props) {
               </button>
               {savedOpen ? (
                 <div className="saved-prompts-menu" role="listbox" aria-label="Saved prompts">
+                  {promptDraft ? (
+                    <form
+                      className="saved-prompt-editor"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void commitPromptDraft();
+                      }}
+                    >
+                      <input
+                        className="field"
+                        value={promptDraft.name}
+                        placeholder="Name"
+                        aria-label="Prompt name"
+                        onChange={(event) =>
+                          setPromptDraft((draft) =>
+                            draft ? { ...draft, name: event.target.value } : draft,
+                          )
+                        }
+                      />
+                      <textarea
+                        className="field"
+                        value={promptDraft.body}
+                        aria-label="Prompt text"
+                        rows={3}
+                        onChange={(event) =>
+                          setPromptDraft((draft) =>
+                            draft ? { ...draft, body: event.target.value } : draft,
+                          )
+                        }
+                      />
+                      <button
+                        type="submit"
+                        className="prompt-action"
+                        disabled={
+                          savingPrompt || !promptDraft.name.trim() || !promptDraft.body.trim()
+                        }
+                      >
+                        {savingPrompt ? "Saving…" : promptDraft.id ? "Save changes" : "Save"}
+                      </button>
+                    </form>
+                  ) : null}
                   {(props.savedPrompts ?? []).length === 0 ? (
                     <p className="saved-prompts-empty">No saved prompts yet</p>
                   ) : (
@@ -604,9 +671,21 @@ export function Composer(props: Props) {
                           type="button"
                           className="saved-prompt-load"
                           role="option"
+                          title={item.body}
                           onClick={() => loadSavedPrompt(item.body)}
                         >
-                          {item.body}
+                          {savedPromptLabel(item)}
+                        </button>
+                        <button
+                          type="button"
+                          className="saved-prompt-edit"
+                          aria-label={`Edit ${savedPromptLabel(item)}`}
+                          onClick={() => {
+                            setPromptDraft({ id: item.id, name: item.name, body: item.body });
+                            setSavedOpen(true);
+                          }}
+                        >
+                          Edit
                         </button>
                         {props.onDeleteSavedPrompt ? (
                           <button
@@ -1065,6 +1144,10 @@ export function Composer(props: Props) {
           onRemove={(index) => props.onGalleryRemove?.(index)}
           onReorder={(from, to) => props.onGalleryReorder?.(from, to)}
           onSave={() => void props.onGallerySave?.()}
+          onNew={() => {
+            setGallerySkipped([]);
+            props.onGalleryNew?.();
+          }}
           onLoad={(id) => void props.onGalleryLoad?.(id)}
           onAttach={attachGallery}
           onClose={() => setGalleryForMode(null)}

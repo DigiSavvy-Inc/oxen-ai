@@ -1,0 +1,1 @@
+ALTER TABLE saved_prompts ADD COLUMN name TEXT NOT NULL DEFAULT '';

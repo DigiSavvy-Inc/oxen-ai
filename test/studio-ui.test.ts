@@ -1045,6 +1045,10 @@ describe("gallery drawer", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
     expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*position:\s*absolute/);
     expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*left:\s*calc\(100% \+ 12px\)/);
+    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*overflow:\s*hidden/);
+    expect(css).toMatch(/\.gallery-scroll\s*\{[^}]*overflow:\s*auto/);
+    const drawer = readFileSync(new URL("../src/components/GalleryDrawer.tsx", import.meta.url), "utf8");
+    expect(drawer).toContain("New gallery");
     expect(css).toMatch(
       /@media \(max-width: 860px\) \{[\s\S]*\.gallery-drawer\.is-sheet\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0/,
     );

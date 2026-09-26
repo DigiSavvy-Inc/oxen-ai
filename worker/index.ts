@@ -83,7 +83,12 @@ import {
   listGalleries,
   saveGallery,
 } from "./galleries";
-import { deleteSavedPrompt, listSavedPrompts, saveSavedPrompt } from "./saved-prompts";
+import {
+  deleteSavedPrompt,
+  listSavedPrompts,
+  saveSavedPrompt,
+  updateSavedPrompt,
+} from "./saved-prompts";
 import { parseTagList } from "./tags";
 import { createImageThumbnail } from "./thumbs";
 import {
@@ -955,12 +960,27 @@ app.get("/api/prompts", async (c) => {
 
 app.post("/api/prompts", async (c) => {
   const user = await requireUser(c);
-  const body = await c.req.json<{ body?: unknown }>();
-  const prompt = await saveSavedPrompt(c.env.DB, user.id, body.body);
+  const body = await c.req.json<{ name?: unknown; body?: unknown }>();
+  const prompt = await saveSavedPrompt(c.env.DB, user.id, { name: body.name, body: body.body });
   if (!prompt) {
-    throw new HTTPException(400, { message: "Prompt is empty" });
+    throw new HTTPException(400, { message: "Prompt needs a name and text" });
   }
   return c.json({ prompt });
+});
+
+app.patch("/api/prompts/:id", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ name?: unknown; body?: unknown }>();
+  const result = await updateSavedPrompt(c.env.DB, user.id, c.req.param("id"), {
+    name: body.name,
+    body: body.body,
+  });
+  if ("error" in result) {
+    throw new HTTPException(result.error === "missing" ? 404 : 400, {
+      message: result.error === "missing" ? "Saved prompt not found" : "Prompt needs a name and text",
+    });
+  }
+  return c.json({ prompt: result.prompt });
 });
 
 app.delete("/api/prompts/:id", async (c) => {

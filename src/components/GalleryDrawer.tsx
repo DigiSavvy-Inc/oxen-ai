@@ -26,6 +26,7 @@ type Props = {
   onRemove: (index: number) => void;
   onReorder: (from: number, to: number) => void;
   onSave: () => void;
+  onNew: () => void;
   onLoad: (id: string) => void;
   onAttach: () => void;
   onClose: () => void;
@@ -143,6 +144,9 @@ export function GalleryDrawer(props: Props) {
           </div>
         ) : null}
       </div>
+      <button type="button" className="gallery-new" onClick={props.onNew}>
+        New gallery
+      </button>
       <div className="gallery-actions">
         <button
           type="button"
@@ -166,6 +170,7 @@ export function GalleryDrawer(props: Props) {
         <p className="gallery-skipped">Skipped {props.skipped.join(", ")}</p>
       ) : null}
       {props.status ? <p className="gallery-status">{props.status}</p> : null}
+      <div className="gallery-scroll">
       <div
         className="gallery-grid"
         onDragOver={(event) => {
@@ -240,6 +245,7 @@ export function GalleryDrawer(props: Props) {
           }}
         />
       </label>
+      </div>
     </aside>
   );
 

@@ -102,6 +102,7 @@ export type Generation = {
 
 export type SavedPrompt = {
   id: string;
+  name: string;
   body: string;
   createdAt: number;
 };
@@ -324,11 +325,17 @@ export const api = {
     ),
   savedPrompts: () =>
     fetch("/api/prompts").then((r) => parseJson<{ prompts: SavedPrompt[] }>(r)),
-  savePrompt: (body: string) =>
+  savePrompt: (name: string, body: string) =>
     fetch("/api/prompts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ name, body }),
+    }).then((r) => parseJson<{ prompt: SavedPrompt }>(r)),
+  updateSavedPrompt: (id: string, name: string, body: string) =>
+    fetch(`/api/prompts/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, body }),
     }).then((r) => parseJson<{ prompt: SavedPrompt }>(r)),
   deleteSavedPrompt: (id: string) =>
     fetch(`/api/prompts/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>

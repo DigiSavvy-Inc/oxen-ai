@@ -1231,6 +1231,42 @@ a {
   background: var(--bg-active);
 }
 
+.saved-prompt-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.saved-prompt-editor .field,
+.saved-prompt-editor textarea {
+  width: 100%;
+  font-size: 12px;
+}
+
+.saved-prompt-editor textarea {
+  min-height: 64px;
+  max-height: 140px;
+  resize: vertical;
+  font-family: var(--font);
+}
+
+.saved-prompt-edit {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.saved-prompt-edit:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
 .saved-prompt-delete {
   flex: none;
   border: 0;
@@ -2011,11 +2047,12 @@ a {
 .gallery-drawer {
   position: absolute;
   z-index: 8;
-  top: 0;
+  top: auto;
+  bottom: 0;
   left: calc(100% + 12px);
   width: 252px;
-  max-height: min(560px, calc(100vh - 24px));
-  overflow: auto;
+  max-height: min(520px, calc(100vh - 16px));
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2107,6 +2144,29 @@ a {
   justify-content: center;
 }
 
+.gallery-new {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 0 2px;
+}
+
+.gallery-new:hover {
+  color: var(--text);
+}
+
+.gallery-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .gallery-skipped,
 .gallery-status {
   margin: 0;
@@ -2196,6 +2256,7 @@ a {
     inset: 0;
     width: auto;
     max-height: none;
+    overflow: hidden;
     border-radius: 0;
     z-index: 80;
     padding:
