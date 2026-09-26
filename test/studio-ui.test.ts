@@ -1109,3 +1109,66 @@ describe("last frame beside the video", () => {
     expect(canvas).not.toContain("Last frame");
   });
 });
+
+describe("saved prompt controls", () => {
+  const promptProps = {
+    mode: null,
+    onModeChange: () => undefined,
+    models: [],
+    preferred: [],
+    model: "",
+    onModelChange: () => undefined,
+    modelQuery: "",
+    onModelQueryChange: () => undefined,
+    isFavorite: false,
+    onToggleFavorite: () => undefined,
+    controls: null,
+    prompt: "hold @Image1 still",
+    onPromptChange: () => undefined,
+    aspectRatio: "1:1",
+    onAspectRatioChange: () => undefined,
+    duration: "",
+    onDurationChange: () => undefined,
+    seed: "",
+    onSeedChange: () => undefined,
+    numGenerations: 1,
+    onNumGenerationsChange: () => undefined,
+    generateAudio: false,
+    onGenerateAudioChange: () => undefined,
+    quality: "",
+    onQualityChange: () => undefined,
+    resolution: "",
+    onResolutionChange: () => undefined,
+    outputFormat: "",
+    onOutputFormatChange: () => undefined,
+    background: "",
+    onBackgroundChange: () => undefined,
+    attachments: [],
+    onAddFiles: () => undefined,
+    onClearAttachment: () => undefined,
+    onToggleAttachmentRole: () => undefined,
+    onReorderAttachments: () => undefined,
+    busy: false,
+    error: null,
+    onGenerate: () => undefined,
+    canGenerate: false,
+    onSavePrompt: () => undefined,
+  };
+
+  it("hides Load prompt and Saved until this account has a saved prompt", () => {
+    const empty = renderToStaticMarkup(createElement(Composer, { ...promptProps, savedPrompts: [] }));
+    expect(empty).toContain("Save prompt");
+    expect(empty).not.toContain("Load prompt");
+    expect(empty).not.toContain("Saved");
+
+    const filled = renderToStaticMarkup(
+      createElement(Composer, {
+        ...promptProps,
+        savedPrompts: [{ id: "p1", name: "Hold still", body: "hold @Image1 still", createdAt: 1 }],
+      }),
+    );
+    expect(filled).toContain("Load prompt");
+    expect(filled).toContain("Save prompt");
+    expect(filled).not.toContain(">Saved<");
+  });
+});

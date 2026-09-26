@@ -1180,6 +1180,12 @@ a {
   cursor: default;
 }
 
+.prompt-saved {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
 .saved-prompts {
   position: relative;
 }
@@ -1237,6 +1243,10 @@ a {
   gap: 6px;
   padding: 6px;
   border-bottom: 1px solid var(--border);
+}
+
+.saved-prompts-menu > .saved-prompt-editor:last-child {
+  border-bottom: 0;
 }
 
 .saved-prompt-editor .field,

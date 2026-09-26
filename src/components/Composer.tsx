@@ -173,11 +173,12 @@ export function Composer(props: Props) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropInsertBefore, setDropInsertBefore] = useState<number | null>(null);
   const [promptHeight, setPromptHeight] = useState(96);
-  const [savedOpen, setSavedOpen] = useState(false);
+  const [promptMenu, setPromptMenu] = useState<"save" | "load" | null>(null);
   const [savingPrompt, setSavingPrompt] = useState(false);
   const [promptDraft, setPromptDraft] = useState<{ id: string | null; name: string; body: string } | null>(
     null,
   );
+  const [savedMark, setSavedMark] = useState<string | null>(null);
   const [galleryForMode, setGalleryForMode] = useState<GenerationMode | null>(null);
   const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
   const savedMenuRef = useRef<HTMLDivElement>(null);
@@ -270,9 +271,17 @@ export function Composer(props: Props) {
     setCaret(nextCaret);
   }
 
+  const hasSavedPrompts = (props.savedPrompts ?? []).length > 0;
+  if (savedMark !== null && props.prompt !== savedMark) setSavedMark(null);
+  if (!hasSavedPrompts && promptMenu === "load") {
+    setPromptMenu(null);
+    setPromptDraft(null);
+  }
+  const showSaved = savedMark !== null && props.prompt === savedMark;
+
   function loadSavedPrompt(body: string) {
     setMentionOpen(false);
-    setSavedOpen(false);
+    setPromptMenu(null);
     setPromptDraft(null);
     props.onPromptChange(body);
     placeCaret(body.length, body);
@@ -281,21 +290,30 @@ export function Composer(props: Props) {
   function openNewPromptDraft() {
     if (!props.prompt.trim() || !props.onSavePrompt) return;
     setPromptDraft({ id: null, name: "", body: props.prompt });
-    setSavedOpen(true);
+    setPromptMenu("save");
+  }
+
+  function openLoadMenu() {
+    setPromptDraft(null);
+    setPromptMenu((menu) => (menu === "load" ? null : "load"));
   }
 
   async function commitPromptDraft() {
     if (!promptDraft || savingPrompt) return;
     if (promptDraft.id ? !props.onUpdateSavedPrompt : !props.onSavePrompt) return;
+    const draft = promptDraft;
     setSavingPrompt(true);
     try {
-      if (promptDraft.id) {
-        await props.onUpdateSavedPrompt?.(promptDraft.id, promptDraft.name, promptDraft.body);
+      if (draft.id) {
+        await props.onUpdateSavedPrompt?.(draft.id, draft.name, draft.body);
+        setPromptDraft(null);
+        setPromptMenu("load");
       } else {
-        await props.onSavePrompt?.(promptDraft.name, promptDraft.body);
+        await props.onSavePrompt?.(draft.name, draft.body);
+        setPromptDraft(null);
+        setPromptMenu(null);
+        setSavedMark(draft.body === props.prompt ? draft.body : null);
       }
-      setPromptDraft(null);
-      setSavedOpen(true);
     } catch {
       /* App surfaces the error */
     } finally {
@@ -304,15 +322,19 @@ export function Composer(props: Props) {
   }
 
   useEffect(() => {
-    if (!savedOpen) return;
+    if (!promptMenu) return;
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setSavedOpen(false);
+      if (event.key === "Escape") {
+        setPromptMenu(null);
+        setPromptDraft(null);
+      }
     }
     function onPointer(event: globalThis.PointerEvent) {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (savedMenuRef.current?.contains(target)) return;
-      setSavedOpen(false);
+      setPromptMenu(null);
+      setPromptDraft(null);
     }
     document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPointer);
@@ -320,7 +342,46 @@ export function Composer(props: Props) {
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onPointer);
     };
-  }, [savedOpen]);
+  }, [promptMenu]);
+
+  function promptEditor(submitLabel: string) {
+    if (!promptDraft) return null;
+    return (
+      <form
+        className="saved-prompt-editor"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void commitPromptDraft();
+        }}
+      >
+        <input
+          className="field"
+          value={promptDraft.name}
+          placeholder="Name"
+          aria-label="Prompt name"
+          onChange={(event) =>
+            setPromptDraft((draft) => (draft ? { ...draft, name: event.target.value } : draft))
+          }
+        />
+        <textarea
+          className="field"
+          value={promptDraft.body}
+          aria-label="Prompt text"
+          rows={3}
+          onChange={(event) =>
+            setPromptDraft((draft) => (draft ? { ...draft, body: event.target.value } : draft))
+          }
+        />
+        <button
+          type="submit"
+          className="prompt-action"
+          disabled={savingPrompt || !promptDraft.name.trim() || !promptDraft.body.trim()}
+        >
+          {savingPrompt ? "Saving…" : submitLabel}
+        </button>
+      </form>
+    );
+  }
 
   useLayoutEffect(() => {
     props.onPromptField?.({
@@ -601,71 +662,41 @@ export function Composer(props: Props) {
             />
           </div>
           <div className="prompt-actions" ref={savedMenuRef}>
-            <button
-              type="button"
-              className="prompt-action"
-              disabled={!props.prompt.trim() || savingPrompt || !props.onSavePrompt}
-              onClick={openNewPromptDraft}
-            >
-              Save prompt
-            </button>
             <div className="saved-prompts">
               <button
                 type="button"
                 className="prompt-action"
-                aria-expanded={savedOpen}
-                aria-haspopup="listbox"
-                onClick={() => setSavedOpen((open) => !open)}
+                disabled={!props.prompt.trim() || savingPrompt || !props.onSavePrompt}
+                onClick={openNewPromptDraft}
               >
-                Saved
+                Save prompt
               </button>
-              {savedOpen ? (
-                <div className="saved-prompts-menu" role="listbox" aria-label="Saved prompts">
-                  {promptDraft ? (
-                    <form
-                      className="saved-prompt-editor"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void commitPromptDraft();
-                      }}
-                    >
-                      <input
-                        className="field"
-                        value={promptDraft.name}
-                        placeholder="Name"
-                        aria-label="Prompt name"
-                        onChange={(event) =>
-                          setPromptDraft((draft) =>
-                            draft ? { ...draft, name: event.target.value } : draft,
-                          )
-                        }
-                      />
-                      <textarea
-                        className="field"
-                        value={promptDraft.body}
-                        aria-label="Prompt text"
-                        rows={3}
-                        onChange={(event) =>
-                          setPromptDraft((draft) =>
-                            draft ? { ...draft, body: event.target.value } : draft,
-                          )
-                        }
-                      />
-                      <button
-                        type="submit"
-                        className="prompt-action"
-                        disabled={
-                          savingPrompt || !promptDraft.name.trim() || !promptDraft.body.trim()
-                        }
-                      >
-                        {savingPrompt ? "Saving…" : promptDraft.id ? "Save changes" : "Save"}
-                      </button>
-                    </form>
-                  ) : null}
-                  {(props.savedPrompts ?? []).length === 0 ? (
-                    <p className="saved-prompts-empty">No saved prompts yet</p>
-                  ) : (
-                    (props.savedPrompts ?? []).map((item) => (
+              {promptMenu === "save" && promptDraft && !promptDraft.id ? (
+                <div className="saved-prompts-menu" role="dialog" aria-label="Save prompt">
+                  {promptEditor("Save")}
+                </div>
+              ) : null}
+            </div>
+            {showSaved ? (
+              <span className="prompt-saved" aria-live="polite">
+                Saved
+              </span>
+            ) : null}
+            {hasSavedPrompts ? (
+              <div className="saved-prompts">
+                <button
+                  type="button"
+                  className="prompt-action"
+                  aria-expanded={promptMenu === "load"}
+                  aria-haspopup="listbox"
+                  onClick={openLoadMenu}
+                >
+                  Load prompt
+                </button>
+                {promptMenu === "load" ? (
+                  <div className="saved-prompts-menu" role="listbox" aria-label="Saved prompts">
+                    {promptDraft?.id ? promptEditor("Save changes") : null}
+                    {(props.savedPrompts ?? []).map((item) => (
                       <div key={item.id} className="saved-prompt-row">
                         <button
                           type="button"
@@ -682,7 +713,7 @@ export function Composer(props: Props) {
                           aria-label={`Edit ${savedPromptLabel(item)}`}
                           onClick={() => {
                             setPromptDraft({ id: item.id, name: item.name, body: item.body });
-                            setSavedOpen(true);
+                            setPromptMenu("load");
                           }}
                         >
                           Edit
@@ -698,11 +729,11 @@ export function Composer(props: Props) {
                           </button>
                         ) : null}
                       </div>
-                    ))
-                  )}
-                </div>
-              ) : null}
-            </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div
             className="prompt-resize"
