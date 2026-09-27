@@ -87,6 +87,30 @@ describe("groupGenerationBatches", () => {
     expect(coverGeneration(batches[0]?.items ?? [])?.id).toBe("a");
   });
 
+  it("groups pre-batch rows from one enqueue and leaves a lone older item on its own", () => {
+    const shared = {
+      batchId: null,
+      createdAt: 50,
+      mode: "text-to-image",
+      model: "flux",
+      prompt: "a red ox",
+      mediaType: "image",
+    };
+    const batches = groupGenerationBatches([
+      gen({ id: "old-a", ...shared }),
+      gen({ id: "old-b", ...shared }),
+      gen({ id: "later", ...shared, createdAt: 80 }),
+      gen({ id: "other-prompt", ...shared, prompt: "a blue ox" }),
+      gen({ id: "batched", ...shared, batchId: "real-batch" }),
+    ]);
+    expect(batches.map((batch) => batch.items.map((item) => item.id))).toEqual([
+      ["old-a", "old-b"],
+      ["later"],
+      ["other-prompt"],
+      ["batched"],
+    ]);
+  });
+
   it("keeps a remaining variation selected after deleting one", () => {
     const rows = [
       gen({ id: "a", batchId: "b1" }),
@@ -746,12 +770,20 @@ describe("in-gallery version expand", () => {
     expect(set).toMatchObject({ expandedId: "clips", previewId: "v1", peek: null });
   });
 
-  it("keeps a single version on the attach peek and swaps the expanded preview without opening it", () => {
-    const peek = galleryExpandTransition(
+  it("expands a single older image in the gallery and swaps the preview without opening the peek", () => {
+    const opened = galleryExpandTransition(
       { expandedId: "set", previewId: "a", fitOpen: false },
-      { type: "tile", batchId: "solo", count: 1, openId: "solo-1" },
+      { type: "tile", batchId: "solo", count: 1, openId: "solo-1", mediaType: "image" },
     );
-    expect(peek).toMatchObject({ expandedId: null, fitOpen: false, peek: "solo-1" });
+    expect(opened).toMatchObject({ expandedId: "solo", previewId: "solo-1", fitOpen: false, peek: null });
+    const collapsed = galleryExpandTransition(opened, {
+      type: "tile",
+      batchId: "solo",
+      count: 1,
+      openId: "solo-1",
+      mediaType: "image",
+    });
+    expect(collapsed).toMatchObject({ expandedId: null, previewId: null, fitOpen: false, peek: null });
     const swapped = galleryExpandTransition(
       { expandedId: "set", previewId: "a", fitOpen: true },
       { type: "version", versionId: "b" },

@@ -10,12 +10,7 @@ export type GalleryExpandAction =
   | { type: "preview" }
   | { type: "close-fit" };
 
-/** Image sets expand once there is more than one version. A video always expands in the gallery. */
-function tileOpensInGallery(action: Extract<GalleryExpandAction, { type: "tile" }>): boolean {
-  return action.count > 1 || action.mediaType === "video";
-}
-
-/** `peek: undefined` leaves the attach peek alone. */
+/** `peek: undefined` leaves the attach peek alone. A tile always expands in the gallery. */
 export type GalleryExpandTransition = GalleryExpandState & {
   peek: string | null | undefined;
 };
@@ -26,14 +21,6 @@ export function galleryExpandTransition(
 ): GalleryExpandTransition {
   switch (action.type) {
     case "tile": {
-      if (!tileOpensInGallery(action)) {
-        return {
-          expandedId: null,
-          previewId: null,
-          fitOpen: false,
-          peek: action.openId,
-        };
-      }
       if (state.expandedId === action.batchId) {
         return {
           expandedId: null,

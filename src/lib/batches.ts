@@ -5,8 +5,17 @@ export type GenerationBatch = {
   items: Generation[];
 };
 
+/** Rows saved before batch ids share one enqueue's timestamp, mode, model, and prompt. */
 export function batchKey(generation: Generation): string {
-  return generation.batchId || generation.id;
+  if (generation.batchId) return generation.batchId;
+  return [
+    "legacy",
+    generation.createdAt,
+    generation.mode,
+    generation.mediaType ?? "",
+    generation.model,
+    generation.prompt ?? "",
+  ].join("\0");
 }
 
 export function groupGenerationBatches(generations: Generation[]): GenerationBatch[] {

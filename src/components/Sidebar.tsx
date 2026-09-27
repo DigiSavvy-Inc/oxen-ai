@@ -259,8 +259,8 @@ export function Sidebar({
                       ? "video"
                       : (cover?.mediaType ?? null);
                     const multi = batch.items.length > 1;
-                    const inGallery = multi || mediaType === "video";
                     const expanded = expandVisible.expandedId === batch.id;
+                    const singleLabel = mediaType === "video" ? "video" : mediaType === "audio" ? "audio" : "image";
                     const selected = batch.items.some((item) => item.id === selectedId);
                     const face = expanded && preview ? preview : cover;
                     return (
@@ -273,17 +273,15 @@ export function Sidebar({
                           <button
                             type="button"
                             className="history-tile-hit"
-                            aria-expanded={inGallery ? expanded : undefined}
+                            aria-expanded={expanded}
                             aria-label={
-                              inGallery
-                                ? expanded
-                                  ? multi
-                                    ? `Collapse ${batch.items.length} variations`
-                                    : "Collapse video"
-                                  : multi
-                                    ? `${batch.items.length} variations`
-                                    : "Open video"
-                                : undefined
+                              expanded
+                                ? multi
+                                  ? `Collapse ${batch.items.length} variations`
+                                  : `Collapse ${singleLabel}`
+                                : multi
+                                  ? `${batch.items.length} variations`
+                                  : `Open ${singleLabel}`
                             }
                             title={cover?.prompt || "Generation"}
                             onClick={() =>
