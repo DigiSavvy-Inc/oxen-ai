@@ -119,14 +119,10 @@ export function FullSizeMedia({
         <video
           src={src}
           aria-label={alt}
-          title={actualSize ? "Fit to the window" : "Actual size"}
-          muted
+          controls
           playsInline
           preload="metadata"
-          onClick={(event) => {
-            event.stopPropagation();
-            setActualSize((value) => !value);
-          }}
+          onClick={(event) => event.stopPropagation()}
         />
       ) : (
         <img

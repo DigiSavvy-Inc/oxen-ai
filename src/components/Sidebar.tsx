@@ -255,7 +255,11 @@ export function Sidebar({
                   {row.map((batch) => {
                     const cover = coverGeneration(batch.items);
                     const openId = cover?.id ?? batch.items[0]?.id ?? batch.id;
+                    const mediaType = batch.items.some((item) => item.mediaType === "video")
+                      ? "video"
+                      : (cover?.mediaType ?? null);
                     const multi = batch.items.length > 1;
+                    const inGallery = multi || mediaType === "video";
                     const expanded = expandVisible.expandedId === batch.id;
                     const selected = batch.items.some((item) => item.id === selectedId);
                     const face = expanded && preview ? preview : cover;
@@ -269,12 +273,16 @@ export function Sidebar({
                           <button
                             type="button"
                             className="history-tile-hit"
-                            aria-expanded={multi ? expanded : undefined}
+                            aria-expanded={inGallery ? expanded : undefined}
                             aria-label={
-                              multi
+                              inGallery
                                 ? expanded
-                                  ? `Collapse ${batch.items.length} variations`
-                                  : `${batch.items.length} variations`
+                                  ? multi
+                                    ? `Collapse ${batch.items.length} variations`
+                                    : "Collapse video"
+                                  : multi
+                                    ? `${batch.items.length} variations`
+                                    : "Open video"
                                 : undefined
                             }
                             title={cover?.prompt || "Generation"}
@@ -284,6 +292,7 @@ export function Sidebar({
                                 batchId: batch.id,
                                 count: batch.items.length,
                                 openId,
+                                mediaType,
                               })
                             }
                           >
@@ -305,7 +314,7 @@ export function Sidebar({
                     );
                   })}
                   {openBatch && preview ? (
-                    <div className="history-tile is-expanded" ref={expandedTileRef} key={openBatch.id}>
+                    <div className="history-tile is-expanded" ref={expandedTileRef} key={`${openBatch.id}-open`}>
                       <div className="history-expand">
                         <div className="history-expand-frame">
                           {canFit ? (
@@ -347,24 +356,26 @@ export function Sidebar({
                             </button>
                           ) : null}
                         </div>
-                        <div className="history-expand-versions" role="list" aria-label="Other versions">
-                          {others.map((item) => {
-                            const index = openBatch.items.findIndex((entry) => entry.id === item.id);
-                            return (
-                              <button
-                                key={item.id}
-                                type="button"
-                                className="history-version"
-                                aria-label={`Show variation ${index + 1}`}
-                                onClick={() => commit({ type: "version", versionId: item.id })}
-                              >
-                                <div className="history-tile-media">
-                                  <TileFace item={item} allowFull />
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
+                        {others.length > 0 ? (
+                          <div className="history-expand-versions" role="list" aria-label="Other versions">
+                            {others.map((item) => {
+                              const index = openBatch.items.findIndex((entry) => entry.id === item.id);
+                              return (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  className="history-version"
+                                  aria-label={`Show variation ${index + 1}`}
+                                  onClick={() => commit({ type: "version", versionId: item.id })}
+                                >
+                                  <div className="history-tile-media">
+                                    <TileFace item={item} allowFull />
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : null}
                         {preview.prompt ? <ExpandPrompt prompt={preview.prompt} /> : null}
                         {expandVisible.fitOpen && canFit && preview.resultUrl ? (
                           <FullSizeMedia

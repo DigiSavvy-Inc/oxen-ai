@@ -1964,6 +1964,10 @@ button.history-expand-preview {
   cursor: zoom-in;
 }
 
+.fullsize-backdrop video {
+  cursor: auto;
+}
+
 .fullsize-backdrop.is-actual img,
 .fullsize-backdrop.is-actual video {
   max-width: none;

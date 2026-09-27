@@ -719,6 +719,33 @@ describe("in-gallery version expand", () => {
     expect(other).toMatchObject({ expandedId: "other", previewId: "d", peek: null });
   });
 
+  it("expands a video in the gallery even when it is the only version", () => {
+    const opened = galleryExpandTransition(closed, {
+      type: "tile",
+      batchId: "clip",
+      count: 1,
+      openId: "v1",
+      mediaType: "video",
+    });
+    expect(opened).toMatchObject({ expandedId: "clip", previewId: "v1", fitOpen: false, peek: null });
+    const collapsed = galleryExpandTransition(opened, {
+      type: "tile",
+      batchId: "clip",
+      count: 1,
+      openId: "v1",
+      mediaType: "video",
+    });
+    expect(collapsed).toMatchObject({ expandedId: null, previewId: null, fitOpen: false, peek: null });
+    const set = galleryExpandTransition(closed, {
+      type: "tile",
+      batchId: "clips",
+      count: 2,
+      openId: "v1",
+      mediaType: "video",
+    });
+    expect(set).toMatchObject({ expandedId: "clips", previewId: "v1", peek: null });
+  });
+
   it("keeps a single version on the attach peek and swaps the expanded preview without opening it", () => {
     const peek = galleryExpandTransition(
       { expandedId: "set", previewId: "a", fitOpen: false },
