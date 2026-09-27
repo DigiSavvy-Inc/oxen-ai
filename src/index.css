@@ -964,6 +964,94 @@ button.history-expand-preview {
   object-position: center;
 }
 
+.history-tile-hit video,
+.history-expand-preview video,
+.history-version video {
+  pointer-events: none;
+}
+
+.history-expand-attach {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--text);
+  padding: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.history-expand-attach:hover:not(:disabled) {
+  background: #fff;
+}
+
+.history-expand-attach:disabled {
+  cursor: default;
+  color: var(--text-dim);
+}
+
+.history-expand-attach.is-attached {
+  color: var(--text-muted);
+}
+
+.history-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.history-prompt-toggle {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.history-prompt-toggle:hover {
+  border-color: var(--text);
+  background: var(--accent-soft);
+}
+
+.history-prompt-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  width: 100%;
+  transition: grid-template-rows 0.22s ease;
+}
+
+.history-prompt-panel.is-open {
+  grid-template-rows: 1fr;
+}
+
+.history-prompt-panel-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.history-prompt-quote {
+  padding: 2px 2px 0;
+}
+
+.history-prompt-quote .prompt-quote-text {
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .history-prompt-panel {
+    transition: none;
+  }
+}
+
 .history-expand-versions {
   display: flex;
   gap: 6px;
@@ -1867,7 +1955,8 @@ button.history-expand-preview {
   background: rgba(246, 245, 242, 0.94);
 }
 
-.fullsize-backdrop img {
+.fullsize-backdrop img,
+.fullsize-backdrop video {
   max-width: 100%;
   max-height: calc(100dvh - 56px);
   object-fit: contain;
@@ -1875,7 +1964,8 @@ button.history-expand-preview {
   cursor: zoom-in;
 }
 
-.fullsize-backdrop.is-actual img {
+.fullsize-backdrop.is-actual img,
+.fullsize-backdrop.is-actual video {
   max-width: none;
   max-height: none;
   width: auto;

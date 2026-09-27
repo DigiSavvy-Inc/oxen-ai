@@ -753,7 +753,13 @@ describe("in-gallery version expand", () => {
     expect(sidebar).toContain("history-expand-versions");
     expect(sidebar).toContain("history-expand-preview");
     expect(sidebar).toContain("View full size");
+    expect(sidebar).toContain("Click to attach");
+    expect(sidebar).toContain("history-prompt-toggle");
+    expect(sidebar).toContain("item.mediaType === \"video\"");
     expect(drawer).not.toContain("history-expand");
+    const media = readFileSync(new URL("../src/components/FullSizeMedia.tsx", import.meta.url), "utf8");
+    expect(media).toContain("kind === \"video\"");
+    expect(media).toContain("!actualSize && slides.length > 1");
     const thumbStart = peek.indexOf('className="library-peek-thumb-hit"');
     const thumb = peek.slice(thumbStart, peek.indexOf("</button>", thumbStart));
     expect(thumb).toContain("onSelectVariant(item.id)");

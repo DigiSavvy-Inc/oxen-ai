@@ -10,11 +10,18 @@ export function ExpandCorners() {
   );
 }
 
+export type FitMediaKind = "image" | "video";
+
 export type FitSlide = {
   id: string;
   src: string;
   alt: string;
+  mediaType?: FitMediaKind;
 };
+
+function fitMediaKind(value: FitMediaKind | undefined): FitMediaKind {
+  return value === "video" ? "video" : "image";
+}
 
 export function FullSizeMedia({
   src,
@@ -23,6 +30,7 @@ export function FullSizeMedia({
   slides = [],
   activeId,
   onSlide,
+  mediaType,
 }: {
   src: string;
   alt: string;
@@ -30,8 +38,11 @@ export function FullSizeMedia({
   slides?: FitSlide[];
   activeId?: string;
   onSlide?: (id: string) => void;
+  mediaType?: FitMediaKind;
 }) {
   const [actualSize, setActualSize] = useState(false);
+  const active = slides.find((slide) => slide.id === activeId);
+  const kind = fitMediaKind(active?.mediaType ?? mediaType);
   const canCycle = !actualSize && slides.length > 1 && Boolean(onSlide);
 
   const step = useCallback(
@@ -104,15 +115,30 @@ export function FullSizeMedia({
           ›
         </button>
       ) : null}
-      <img
-        src={src}
-        alt={alt}
-        title={actualSize ? "Fit to the window" : "Actual size"}
-        onClick={(event) => {
-          event.stopPropagation();
-          setActualSize((value) => !value);
-        }}
-      />
+      {kind === "video" ? (
+        <video
+          src={src}
+          aria-label={alt}
+          title={actualSize ? "Fit to the window" : "Actual size"}
+          muted
+          playsInline
+          preload="metadata"
+          onClick={(event) => {
+            event.stopPropagation();
+            setActualSize((value) => !value);
+          }}
+        />
+      ) : (
+        <img
+          src={src}
+          alt={alt}
+          title={actualSize ? "Fit to the window" : "Actual size"}
+          onClick={(event) => {
+            event.stopPropagation();
+            setActualSize((value) => !value);
+          }}
+        />
+      )}
     </div>,
     document.body,
   );

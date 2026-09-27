@@ -1098,6 +1098,12 @@ export default function App() {
           if (fromOxen) requestDeleteMedia(ids, true);
           else void onDeleteGenerations(ids, false);
         }}
+        attachedIds={attachedIds}
+        onAttach={addLibraryItem}
+        attachSupported={(item) => {
+          const ref = libraryRefFromGeneration(item);
+          return Boolean(ref && capForKind(ref.kind) > 0);
+        }}
       />
       {libraryOpen ? (
         <button

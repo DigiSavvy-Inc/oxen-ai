@@ -9,6 +9,7 @@ import {
   type GalleryExpandState,
 } from "../lib/gallery-expand";
 import { collectUniqueTags, suggestTags, tagsMatchQuery } from "../lib/tags";
+import { CopyPrompt } from "./CopyPrompt";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
 import { MediaDeleteGroup } from "./MediaDeleteGroup";
@@ -38,11 +39,55 @@ function PreviewFace({ item }: { item: Generation }) {
   return <TileFace item={item} allowFull />;
 }
 
+function canOpenFit(item: Generation | null | undefined): boolean {
+  return Boolean(
+    item &&
+      (item.mediaType === "image" || item.mediaType === "video") &&
+      item.status === "succeeded" &&
+      item.resultUrl,
+  );
+}
+
 function fitSlides(items: Generation[]): FitSlide[] {
   return items.flatMap((item) => {
-    if (item.mediaType !== "image" || item.status !== "succeeded" || !item.resultUrl) return [];
-    return [{ id: item.id, src: item.resultUrl, alt: item.prompt || "Library item" }];
+    if (!canOpenFit(item) || !item.resultUrl) return [];
+    if (item.mediaType !== "image" && item.mediaType !== "video") return [];
+    return [
+      {
+        id: item.id,
+        src: item.resultUrl,
+        alt: item.prompt || "Library item",
+        mediaType: item.mediaType,
+      },
+    ];
   });
+}
+
+function attachKindLabel(item: Generation): string {
+  if (item.mediaType === "video") return "video";
+  if (item.mediaType === "audio") return "audio";
+  return "images";
+}
+
+function ExpandPrompt({ prompt }: { prompt: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="history-prompt">
+      <button
+        type="button"
+        className="history-prompt-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {open ? "Hide prompt" : "Prompt"}
+      </button>
+      <div className={`history-prompt-panel${open ? " is-open" : ""}`}>
+        <div className="history-prompt-panel-inner">
+          <CopyPrompt prompt={prompt} className="history-prompt-quote" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const CLOSED_EXPAND: GalleryExpandState = {
@@ -70,6 +115,9 @@ export function Sidebar({
   onClose,
   onDownloadAll,
   onDelete,
+  attachedIds,
+  onAttach,
+  attachSupported,
 }: {
   generations: Generation[];
   selectedId: string | null;
@@ -79,6 +127,9 @@ export function Sidebar({
   onClose?: () => void;
   onDownloadAll?: () => void;
   onDelete?: (ids: string[], fromOxen?: boolean) => void;
+  attachedIds?: Set<string>;
+  onAttach?: (item: Generation) => void;
+  attachSupported?: (item: Generation) => boolean;
 }) {
   const [tagQuery, setTagQuery] = useState("");
   const [expand, setExpand] = useState<GalleryExpandState>(CLOSED_EXPAND);
@@ -198,12 +249,7 @@ export function Sidebar({
                 : null;
               const others =
                 openBatch && preview ? versionsBesidePreview(openBatch.items, preview.id) : [];
-              const canFit = Boolean(
-                preview &&
-                  preview.mediaType === "image" &&
-                  preview.status === "succeeded" &&
-                  preview.resultUrl,
-              );
+              const canFit = canOpenFit(preview);
               return (
                 <Fragment key={row.map((batch) => batch.id).join(":")}>
                   {row.map((batch) => {
@@ -259,7 +305,7 @@ export function Sidebar({
                     );
                   })}
                   {openBatch && preview ? (
-                    <div className="history-tile is-expanded" ref={expandedTileRef}>
+                    <div className="history-tile is-expanded" ref={expandedTileRef} key={openBatch.id}>
                       <div className="history-expand">
                         <div className="history-expand-frame">
                           {canFit ? (
@@ -270,18 +316,36 @@ export function Sidebar({
                               data-preview-id={preview.id}
                               onClick={() => commit({ type: "preview" })}
                             >
-                            <div className="history-tile-media">
-                              <PreviewFace item={preview} />
-                            </div>
-                            <ExpandCorners />
+                              <div className="history-tile-media">
+                                <PreviewFace item={preview} />
+                              </div>
+                              <ExpandCorners />
                             </button>
                           ) : (
                             <div className="history-expand-preview" data-preview-id={preview.id}>
-                            <div className="history-tile-media">
-                              <PreviewFace item={preview} />
+                              <div className="history-tile-media">
+                                <PreviewFace item={preview} />
+                              </div>
                             </div>
-                          </div>
                           )}
+                          {onAttach ? (
+                            <button
+                              type="button"
+                              className={`history-expand-attach${attachedIds?.has(preview.id) ? " is-attached" : ""}`}
+                              disabled={!attachSupported?.(preview)}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => {
+                                if (!attachSupported?.(preview)) return;
+                                onAttach(preview);
+                              }}
+                            >
+                              {attachedIds?.has(preview.id)
+                                ? "Attached"
+                                : attachSupported?.(preview)
+                                  ? "Click to attach"
+                                  : `Can't attach ${attachKindLabel(preview)}`}
+                            </button>
+                          ) : null}
                         </div>
                         <div className="history-expand-versions" role="list" aria-label="Other versions">
                           {others.map((item) => {
@@ -301,6 +365,7 @@ export function Sidebar({
                             );
                           })}
                         </div>
+                        {preview.prompt ? <ExpandPrompt prompt={preview.prompt} /> : null}
                         {expandVisible.fitOpen && canFit && preview.resultUrl ? (
                           <FullSizeMedia
                             src={preview.resultUrl}
