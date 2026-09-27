@@ -13,6 +13,7 @@ import {
   mergeGenerations,
   siblingAfterRemoval,
 } from "../src/lib/batches";
+import { galleryExpandTransition, versionsBesidePreview } from "../src/lib/gallery-expand";
 import {
   ALL_MODES,
   MODE_LABELS,
@@ -688,6 +689,75 @@ describe("library refs", () => {
     expect(appendAttachMention("@Image1", "image", 0, 1)).toBe("@Image1");
     expect(appendAttachMention("clip", "audio", 1, 1)).toBe("clip @Audio2");
     expect(appendAttachMention("clip", "audio", 1, 0)).toBe("clip");
+  });
+});
+
+describe("in-gallery version expand", () => {
+  const closed = { expandedId: null, previewId: null, fitOpen: false };
+
+  it("expands one multi-version set in place and leaves the attach peek closed", () => {
+    const opened = galleryExpandTransition(closed, {
+      type: "tile",
+      batchId: "set",
+      count: 3,
+      openId: "a",
+    });
+    expect(opened).toMatchObject({ expandedId: "set", previewId: "a", fitOpen: false, peek: null });
+    const collapsed = galleryExpandTransition(opened, {
+      type: "tile",
+      batchId: "set",
+      count: 3,
+      openId: "a",
+    });
+    expect(collapsed).toMatchObject({ expandedId: null, fitOpen: false, peek: null });
+    const other = galleryExpandTransition(opened, {
+      type: "tile",
+      batchId: "other",
+      count: 2,
+      openId: "d",
+    });
+    expect(other).toMatchObject({ expandedId: "other", previewId: "d", peek: null });
+  });
+
+  it("keeps a single version on the attach peek and swaps the expanded preview without opening it", () => {
+    const peek = galleryExpandTransition(
+      { expandedId: "set", previewId: "a", fitOpen: false },
+      { type: "tile", batchId: "solo", count: 1, openId: "solo-1" },
+    );
+    expect(peek).toMatchObject({ expandedId: null, fitOpen: false, peek: "solo-1" });
+    const swapped = galleryExpandTransition(
+      { expandedId: "set", previewId: "a", fitOpen: true },
+      { type: "version", versionId: "b" },
+    );
+    expect(swapped).toMatchObject({ expandedId: "set", previewId: "b", fitOpen: true, peek: undefined });
+    expect(versionsBesidePreview([{ id: "a" }, { id: "b" }, { id: "c" }], "b").map((item) => item.id)).toEqual([
+      "a",
+      "c",
+    ]);
+    const fitted = galleryExpandTransition(
+      { expandedId: "set", previewId: "b", fitOpen: false },
+      { type: "preview" },
+    );
+    expect(fitted.fitOpen).toBe(true);
+    expect(fitted.peek).toBeUndefined();
+    expect(
+      galleryExpandTransition(fitted, { type: "close-fit" }),
+    ).toMatchObject({ fitOpen: false, expandedId: "set", previewId: "b" });
+  });
+
+  it("renders the expand inside the library scroller, not the saved gallery drawer", () => {
+    const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+    const drawer = readFileSync(new URL("../src/components/GalleryDrawer.tsx", import.meta.url), "utf8");
+    const peek = readFileSync(new URL("../src/components/LibraryPeek.tsx", import.meta.url), "utf8");
+    expect(sidebar).toContain('className="history"');
+    expect(sidebar).toContain("history-expand-versions");
+    expect(sidebar).toContain("history-expand-preview");
+    expect(sidebar).toContain("View full size");
+    expect(drawer).not.toContain("history-expand");
+    const thumbStart = peek.indexOf('className="library-peek-thumb-hit"');
+    const thumb = peek.slice(thumbStart, peek.indexOf("</button>", thumbStart));
+    expect(thumb).toContain("onSelectVariant(item.id)");
+    expect(thumb).not.toContain("setFitOpen");
   });
 });
 
