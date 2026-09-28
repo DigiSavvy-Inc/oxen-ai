@@ -139,6 +139,19 @@ app.onError((err, c) => {
   return c.json({ error: err.message || "Internal error" }, 500);
 });
 
+// API responses never need to run script or be framed. A locked-down CSP means media
+// served from /api/media renders as a document with no script, even if mislabeled.
+// Static assets get the app CSP from public/_headers.
+app.use("/api/*", async (c, next) => {
+  await next();
+  const headers = c.res.headers;
+  headers.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; frame-ancestors 'none'");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  headers.set("Strict-Transport-Security", "max-age=31536000");
+});
+
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 // SameSite=Lax still sends the session cookie from other *.digisavvy.dev subdomains,

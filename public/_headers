@@ -1,0 +1,11 @@
+# Static assets and the SPA shell. /api/* responses get their headers in worker/index.ts.
+# HSTS omits includeSubDomains: other digisavvy.dev hosts are not all HTTPS-only.
+# img/media/connect allow https: because un-archived results and downloads can come
+# from hub.oxen.ai or provider CDNs; scripts stay same-origin only.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' data: blob: https:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Strict-Transport-Security: max-age=31536000
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
