@@ -1,14 +1,22 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { coverGeneration, groupGenerationBatches, isActiveGeneration } from "../lib/batches";
 import type { Generation } from "../lib/api";
-import { completedMedia, tilePreviewUrl } from "../lib/download";
+import {
+  completedMedia,
+  downloadAllMedia,
+  downloadFilename,
+  downloadMedia,
+  tilePreviewUrl,
+} from "../lib/download";
 import {
   galleryExpandTransition,
+  versionsBesidePreview,
   type GalleryExpandAction,
   type GalleryExpandState,
 } from "../lib/gallery-expand";
 import { collectUniqueTags, suggestTags, tagsMatchQuery } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
+import { DownloadButton } from "./DownloadButton";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
 import { MediaDeleteGroup } from "./MediaDeleteGroup";
@@ -281,15 +289,16 @@ export function Sidebar({
               const openBatch = row.find((batch) => batch.id === expandVisible.expandedId) ?? null;
               const preview = openBatch
                 ? (openBatch.items.find((item) => item.id === expandVisible.previewId) ??
-                  coverGeneration(openBatch.items) ??
-                  openBatch.items[0])
+                  openBatch.items[0] ??
+                  null)
                 : null;
+              const readyInGroup = openBatch ? completedMedia(openBatch.items) : [];
               const canFit = canOpenFit(preview);
               return (
                 <Fragment key={row.map((batch) => batch.id).join(":")}>
                   {row.map((batch) => {
                     const cover = coverGeneration(batch.items);
-                    const openId = cover?.id ?? batch.items[0]?.id ?? batch.id;
+                    const openId = batch.items[0]?.id ?? batch.id;
                     const mediaType = batch.items.some((item) => item.mediaType === "video")
                       ? "video"
                       : (cover?.mediaType ?? null);
@@ -370,6 +379,27 @@ export function Sidebar({
                               </div>
                             </div>
                           )}
+                          {preview.status === "succeeded" && preview.resultUrl ? (
+                            <div className="media-actions">
+                              <DownloadButton
+                                label="Download"
+                                onDownload={() =>
+                                  void downloadMedia(
+                                    preview.resultUrl ?? "",
+                                    downloadFilename(preview),
+                                  )
+                                }
+                              />
+                              {readyInGroup.length > 1 ? (
+                                <DownloadButton
+                                  className="media-download-all"
+                                  caption="All"
+                                  label={`Download all ${readyInGroup.length} completed`}
+                                  onDownload={() => void downloadAllMedia(readyInGroup)}
+                                />
+                              ) : null}
+                            </div>
+                          ) : null}
                           {onAttach ? (
                             <button
                               type="button"
@@ -391,23 +421,15 @@ export function Sidebar({
                         </div>
                         {openBatch.items.length > 1 ? (
                           <div className="history-expand-versions" role="list" aria-label="Versions">
-                            {openBatch.items.map((item, index) => {
-                              const current = item.id === preview.id;
+                            {versionsBesidePreview(openBatch.items, preview.id).map((item) => {
+                              const index = openBatch.items.findIndex((entry) => entry.id === item.id);
                               return (
                                 <button
                                   key={item.id}
                                   type="button"
-                                  className={`history-version${current ? " is-current" : ""}`}
-                                  aria-current={current ? "true" : undefined}
-                                  aria-label={
-                                    current
-                                      ? `Selected variation ${index + 1}`
-                                      : `Show variation ${index + 1}`
-                                  }
-                                  onClick={() => {
-                                    if (current) return;
-                                    commit({ type: "version", versionId: item.id });
-                                  }}
+                                  className="history-version"
+                                  aria-label={`Show variation ${index + 1}`}
+                                  onClick={() => commit({ type: "version", versionId: item.id })}
                                 >
                                   <div className="history-tile-media">
                                     <TileFace item={item} allowFull />

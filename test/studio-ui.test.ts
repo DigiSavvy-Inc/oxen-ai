@@ -851,8 +851,11 @@ describe("in-gallery version expand", () => {
     const peek = readFileSync(new URL("../src/components/LibraryPeek.tsx", import.meta.url), "utf8");
     expect(sidebar).toContain('className="history"');
     expect(sidebar).toContain("history-expand-versions");
-    expect(sidebar).toContain("is-current");
-    expect(sidebar).toContain('aria-current={current ? "true" : undefined}');
+    expect(sidebar).toContain("versionsBesidePreview(openBatch.items, preview.id)");
+    expect(sidebar).toContain("batch.items[0]?.id ?? batch.id");
+    expect(sidebar).toContain("DownloadButton");
+    expect(sidebar).toContain("media-download-all");
+    expect(sidebar).toContain("downloadAllMedia(readyInGroup)");
     expect(sidebar).toContain("history-expand-preview");
     expect(sidebar).toContain("View full size");
     expect(sidebar).toContain("Click to attach");
@@ -907,8 +910,14 @@ describe("library history layout", () => {
     expect(css).not.toMatch(/\.history-tile-square span\s*\{/);
     expect(css).not.toContain("history-tile-media.mosaic");
     expect(css).not.toMatch(/\.history\s*\{[^}]*display:\s*(flex|grid)/);
+    expect(css).toMatch(/\.history\s*\{[^}]*overflow-x:\s*hidden/);
+    expect(css).toMatch(/\.history-expand\s*\{[^}]*overflow-x:\s*hidden/);
+    expect(css).toMatch(/\.history-expand-versions\s*\{[^}]*overflow:\s*hidden/);
+    expect(css).toMatch(
+      /\.history-tile\.is-expanded \.history-expand-frame \.media-download\s*\{[^}]*display:\s*inline-flex/,
+    );
     expect(sidebar).not.toContain("history-status");
-    expect(sidebar).not.toContain("DownloadButton");
+    expect(sidebar).toContain("DownloadButton");
   });
 });
 
