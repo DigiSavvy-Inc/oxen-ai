@@ -27,6 +27,9 @@ describe("API security headers", () => {
     const csp = res.headers.get("Content-Security-Policy") ?? "";
     expect(csp).toContain("default-src 'none'");
     expect(csp).not.toContain("script-src");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(res.headers.get("Content-Type")).toBe("application/octet-stream");
+    expect(res.headers.get("Content-Disposition")).toBe("attachment");
   });
 
   it("still applies to error responses", async () => {

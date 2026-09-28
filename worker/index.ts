@@ -7,15 +7,17 @@ import {
   clearOxenKey,
   createSession,
   deleteSession,
+  deleteSessionsForAllowlistLogin,
   exchangeGithubCode,
   fetchGithubUser,
   getOxenKey,
   getSessionId,
-  getUserBySession,
   isLoopbackHost,
   isNumericAdminEntry,
+  loadAuthorizedUser,
   oauthConfigured,
   saveOxenKey,
+  sealGithubToken,
   sessionCookieOptions,
   toSessionUser,
   upsertUser,
@@ -26,10 +28,12 @@ import {
   buildReferenceMediaUrl,
   displayStoredMediaUrl,
   guessMediaContentType,
+  mediaServeDisposition,
   putMediaObject,
+  sniffSafeMediaType,
   verifyMediaSignature,
 } from "./media";
-import { collectOxenRefs, resolveRefsForOxen } from "./oxen-refs";
+import { collectOxenRefs, resolveRefsForOxen, StudioMediaRefRejected } from "./oxen-refs";
 import {
   buildEnqueuePayload,
   downloadOxenResult,
@@ -177,7 +181,7 @@ async function requireUser(c: {
   if (!sessionId) {
     throw new HTTPException(401, { message: "Unauthorized" });
   }
-  const user = await getUserBySession(c.env.DB, sessionId);
+  const user = await loadAuthorizedUser(c.env, sessionId);
   if (!user) {
     throw new HTTPException(401, { message: "Unauthorized" });
   }
@@ -252,7 +256,8 @@ async function signInWithLocalGithub(c: Context<{ Bindings: Env; Variables: Vari
     avatarUrl: ghUser.avatar_url,
   });
   const ttl = Number(c.env.SESSION_TTL_SECONDS || 604800);
-  const sessionId = await createSession(c.env.DB, user.id, ttl);
+  const sealed = await sealGithubToken(token, c.env.ENCRYPTION_KEY);
+  const sessionId = await createSession(c.env.DB, user.id, ttl, sealed);
   setCookie(c, SESSION_COOKIE, sessionId, sessionCookieOptions(ttl, isSecureRequest(c)));
   return c.redirect("/");
 }
@@ -898,7 +903,8 @@ app.get("/api/auth/callback", async (c) => {
     avatarUrl: ghUser.avatar_url,
   });
   const ttl = Number(c.env.SESSION_TTL_SECONDS || 604800);
-  const sessionId = await createSession(c.env.DB, user.id, ttl);
+  const sealed = await sealGithubToken(accessToken, c.env.ENCRYPTION_KEY);
+  const sessionId = await createSession(c.env.DB, user.id, ttl, sealed);
   setCookie(c, SESSION_COOKIE, sessionId, sessionCookieOptions(ttl, isSecureRequest(c)));
   return c.redirect("/");
 });
@@ -986,6 +992,7 @@ app.delete("/api/admin/allowlist/:login", async (c) => {
   await requireUser(c);
   requireAdmin(c.get("sessionUser"));
   const login = c.req.param("login");
+  await deleteSessionsForAllowlistLogin(c.env.DB, login);
   await c.env.DB.prepare(`DELETE FROM allowlist WHERE github_login = ? COLLATE NOCASE`)
     .bind(login)
     .run();
@@ -1193,7 +1200,10 @@ app.post("/api/upload", async (c) => {
   }
 
   const buffer = await file.arrayBuffer();
-  const contentType = file.type || "application/octet-stream";
+  const contentType = sniffSafeMediaType(new Uint8Array(buffer));
+  if (!contentType) {
+    throw new HTTPException(400, { message: "Only image, video, and audio files are accepted" });
+  }
   const folder = form.get("folder");
   const prefix = folder === "galleries" ? `u/${user.id}/galleries` : `u/${user.id}`;
   const { key } = await putMediaObject(c.env.MEDIA, buffer, contentType, prefix);
@@ -1232,8 +1242,11 @@ app.get("/api/media/*", async (c) => {
   }
   const headers = new Headers();
   object.writeHttpMetadata(headers);
-  const contentType = object.httpMetadata?.contentType || guessMediaContentType(key);
-  headers.set("Content-Type", contentType);
+  const storedType = object.httpMetadata?.contentType || guessMediaContentType(key);
+  const served = mediaServeDisposition(storedType);
+  headers.set("Content-Type", served.contentType);
+  headers.set("Content-Disposition", served.disposition);
+  headers.set("X-Content-Type-Options", "nosniff");
   if (typeof object.size === "number" && Number.isFinite(object.size)) {
     headers.set("Content-Length", String(object.size));
   }
@@ -1324,26 +1337,39 @@ app.post("/api/generate", async (c) => {
   const signing = {
     publicBaseUrl: c.env.PUBLIC_BASE_URL,
     secret: c.env.ENCRYPTION_KEY || c.env.SESSION_SECRET,
+    userId: user.id,
   };
-  const imageUrls = await resolveRefsForOxen(
-    c.env.MEDIA,
-    imageRefs.urls,
-    c.env.IMAGES,
-    imageRefs.keepHttps,
-    signing,
-  );
-  const videoUrls = await resolveRefsForOxen(
-    c.env.MEDIA,
-    videoRefs.urls,
-    c.env.IMAGES,
-    videoRefs.keepHttps,
-    signing,
-  );
-  const audioUrls = await resolveRefsForOxen(
-    c.env.MEDIA,
-    [...(body.audios ?? []), ...(body.input_audios ?? [])].filter((url) => url.trim()),
-    c.env.IMAGES,
-  );
+  let imageUrls: string[];
+  let videoUrls: string[];
+  let audioUrls: string[];
+  try {
+    imageUrls = await resolveRefsForOxen(
+      c.env.MEDIA,
+      imageRefs.urls,
+      c.env.IMAGES,
+      imageRefs.keepHttps,
+      signing,
+    );
+    videoUrls = await resolveRefsForOxen(
+      c.env.MEDIA,
+      videoRefs.urls,
+      c.env.IMAGES,
+      videoRefs.keepHttps,
+      signing,
+    );
+    audioUrls = await resolveRefsForOxen(
+      c.env.MEDIA,
+      [...(body.audios ?? []), ...(body.input_audios ?? [])].filter((url) => url.trim()),
+      c.env.IMAGES,
+      undefined,
+      signing,
+    );
+  } catch (err) {
+    if (err instanceof StudioMediaRefRejected) {
+      throw new HTTPException(400, { message: err.message });
+    }
+    throw err;
+  }
 
   const mapped =
     controls.slots.length > 0

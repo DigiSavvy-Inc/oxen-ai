@@ -113,6 +113,8 @@ describe("GET /api/media/*", () => {
     const res = await app.request(signed, {}, env);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("video/mp4");
+    expect(res.headers.get("Content-Disposition")).toBe("inline");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(res.headers.get("Content-Length")).toBe("4");
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     expect(res.headers.get("Cache-Control")).toMatch(/public, max-age=\d+, immutable/);
@@ -134,5 +136,70 @@ describe("GET /api/media/*", () => {
     );
     const res = await app.request(signed, {}, env);
     expect(res.status).toBe(403);
+  });
+
+  it("does not serve stored SVG as a document", async () => {
+    const { bucket } = createMockR2();
+    const key = "u/user-1/icon.svg";
+    await bucket.put(key, new TextEncoder().encode("<svg><script>1</script></svg>").buffer, {
+      httpMetadata: { contentType: "image/svg+xml" },
+    });
+    const env = createEnv({ MEDIA: bucket });
+    const signed = await createSignedMediaUrl("https://studio.digisavvy.dev", key, TEST_SECRET);
+    const res = await app.request(signed, {}, env);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(res.headers.get("Content-Type")).toBe("application/octet-stream");
+    expect(res.headers.get("Content-Disposition")).toBe("attachment");
+  });
+});
+
+describe("POST /api/upload media types", () => {
+  it("rejects HTML and SVG even when the declared type is an image", async () => {
+    const env = createEnv();
+    const html = new TextEncoder().encode("<!doctype html><script>alert(1)</script>");
+    const svg = new TextEncoder().encode(
+      `<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`,
+    );
+    const cases = [
+      { bytes: html, name: "page.html", type: "text/html" },
+      { bytes: html, name: "page.png", type: "image/png" },
+      { bytes: svg, name: "icon.svg", type: "image/svg+xml" },
+      { bytes: svg, name: "icon.png", type: "image/png" },
+      {
+        bytes: new TextEncoder().encode("<?xml version=\"1.0\"?><root/>"),
+        name: "doc.xml",
+        type: "text/xml",
+      },
+    ];
+    for (const item of cases) {
+      const form = new FormData();
+      form.append("file", new File([item.bytes], item.name, { type: item.type }));
+      const res = await app.request(
+        "https://studio.digisavvy.dev/api/upload",
+        { method: "POST", body: form, headers: { Cookie: cookieHeader() } },
+        env,
+      );
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toMatch(/image, video, and audio/i);
+    }
+  });
+
+  it("accepts a video file from its bytes", async () => {
+    const env = createEnv();
+    const mp4 = new Uint8Array([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32,
+    ]);
+    const form = new FormData();
+    form.append("file", new File([mp4], "clip.bin", { type: "text/html" }));
+    const res = await app.request(
+      "https://studio.digisavvy.dev/api/upload",
+      { method: "POST", body: form, headers: { Cookie: cookieHeader() } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { contentType: string };
+    expect(body.contentType).toBe("video/mp4");
   });
 });

@@ -93,6 +93,136 @@ export function arrayBufferToDataUri(buffer: ArrayBuffer, contentType: string): 
   return `data:${contentType};base64,${Buffer.from(buffer).toString("base64")}`;
 }
 
+const SAFE_MEDIA_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+  "image/bmp",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-matroska",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/mp4",
+  "audio/aac",
+  "audio/ogg",
+  "audio/flac",
+]);
+
+/** Image, video, and audio types Studio will show inline. SVG and HTML are not included. */
+export function canonicalSafeMediaType(contentType: string | null | undefined): string | null {
+  if (!contentType) return null;
+  const raw = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  let type = raw;
+  if (raw === "image/jpg" || raw === "image/pjpeg") type = "image/jpeg";
+  else if (raw === "audio/wave" || raw === "audio/x-wav") type = "audio/wav";
+  else if (raw === "audio/x-flac") type = "audio/flac";
+  else if (raw === "audio/mp3" || raw === "audio/x-mpeg") type = "audio/mpeg";
+  else if (raw === "audio/x-m4a" || raw === "audio/m4a") type = "audio/mp4";
+  else if (raw === "video/m4v" || raw === "video/x-m4v") type = "video/mp4";
+  else if (raw === "video/mov") type = "video/quicktime";
+  return SAFE_MEDIA_TYPES.has(type) ? type : null;
+}
+
+function bytesMatch(bytes: Uint8Array, signature: readonly number[]): boolean {
+  if (bytes.length < signature.length) return false;
+  for (let i = 0; i < signature.length; i++) {
+    if (bytes[i] !== signature[i]) return false;
+  }
+  return true;
+}
+
+function fourCC(bytes: Uint8Array, offset: number): string {
+  if (bytes.length < offset + 4) return "";
+  return String.fromCharCode(
+    bytes[offset] ?? 0,
+    bytes[offset + 1] ?? 0,
+    bytes[offset + 2] ?? 0,
+    bytes[offset + 3] ?? 0,
+  );
+}
+
+/**
+ * Identify a safe image, video, or audio payload from magic bytes.
+ * Declared Content-Type is ignored so HTML or SVG cannot pretend to be media.
+ */
+export function sniffSafeMediaType(bytes: Uint8Array): string | null {
+  if (bytesMatch(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
+  if (bytesMatch(bytes, [0xff, 0xd8, 0xff])) return "image/jpeg";
+  if (
+    bytesMatch(bytes, [0x47, 0x49, 0x46, 0x38, 0x37, 0x61]) ||
+    bytesMatch(bytes, [0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
+  ) {
+    return "image/gif";
+  }
+  if (bytesMatch(bytes, [0x42, 0x4d])) return "image/bmp";
+  if (fourCC(bytes, 0) === "RIFF") {
+    const kind = fourCC(bytes, 8);
+    if (kind === "WEBP") return "image/webp";
+    if (kind === "WAVE") return "audio/wav";
+    return null;
+  }
+  if (fourCC(bytes, 4) === "ftyp") {
+    const brand = fourCC(bytes, 8).trim().toLowerCase();
+    if (brand === "avif" || brand === "avis") return "image/avif";
+    if (brand === "qt") return "video/quicktime";
+    if (
+      brand === "m4a" ||
+      brand === "m4b" ||
+      brand === "m4p" ||
+      brand === "mp4a" ||
+      brand === "f4a" ||
+      brand === "f4b"
+    ) {
+      return "audio/mp4";
+    }
+    if (
+      brand === "mp41" ||
+      brand === "mp42" ||
+      brand === "isom" ||
+      brand === "iso2" ||
+      brand === "iso4" ||
+      brand === "iso5" ||
+      brand === "iso6" ||
+      brand === "m4v" ||
+      brand === "dash" ||
+      brand === "avc1" ||
+      brand === "mp4v"
+    ) {
+      return "video/mp4";
+    }
+    return null;
+  }
+  if (bytesMatch(bytes, [0x1a, 0x45, 0xdf, 0xa3])) {
+    const n = Math.min(bytes.length, 256);
+    let head = "";
+    for (let i = 0; i < n; i++) head += String.fromCharCode(bytes[i] ?? 0);
+    if (head.includes("matroska")) return "video/x-matroska";
+    return "video/webm";
+  }
+  if (bytesMatch(bytes, [0x4f, 0x67, 0x67, 0x53])) return "audio/ogg";
+  if (bytesMatch(bytes, [0x66, 0x4c, 0x61, 0x43])) return "audio/flac";
+  if (bytesMatch(bytes, [0x49, 0x44, 0x33])) return "audio/mpeg";
+  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) {
+    const layer = (bytes[1] >> 1) & 0x03;
+    if (layer === 0) return "audio/aac";
+    return "audio/mpeg";
+  }
+  return null;
+}
+
+export function mediaServeDisposition(storedContentType: string | null | undefined): {
+  contentType: string;
+  disposition: "inline" | "attachment";
+} {
+  const safe = canonicalSafeMediaType(storedContentType);
+  if (safe) return { contentType: safe, disposition: "inline" };
+  return { contentType: "application/octet-stream", disposition: "attachment" };
+}
+
 export function guessMediaContentType(key: string): string {
   const lower = key.toLowerCase();
   if (lower.endsWith(".png")) return "image/png";

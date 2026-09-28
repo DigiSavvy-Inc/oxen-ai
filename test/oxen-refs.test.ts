@@ -1,13 +1,27 @@
 import { describe, expect, it } from "vitest";
+import { createSignedMediaUrl } from "../worker/media";
 import {
   collectOxenRefs,
   inlineStudioMediaRefs,
   isOxenHostedMediaUrl,
   resolveRefsForOxen,
   rewriteRefsToOxenSources,
+  StudioMediaRefRejected,
   studioMediaKeyFromUrl,
 } from "../worker/oxen-refs";
 import { createMockR2 } from "./helpers";
+
+const SECRET = "test-secret";
+const AUTH = { userId: "user-1", secret: SECRET };
+const SIGNING = {
+  publicBaseUrl: "https://studio.digisavvy.dev",
+  secret: SECRET,
+  userId: "user-1",
+};
+
+function signed(key: string, ttlSeconds?: number) {
+  return createSignedMediaUrl("https://studio.digisavvy.dev", key, SECRET, ttlSeconds);
+}
 
 const KEY = "u/user-1/results/sheet.png";
 const STUDIO_URL = `https://studio.digisavvy.dev/api/media/${KEY}?exp=1&sig=abc`;
@@ -75,8 +89,8 @@ describe("inlineStudioMediaRefs", () => {
     const key = "u/user-1/drop.png";
     const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
     await bucket.put(key, bytes.buffer, { httpMetadata: { contentType: "image/png" } });
-    const upload = `https://studio.digisavvy.dev/api/media/${key}?exp=1&sig=x`;
-    await expect(inlineStudioMediaRefs(bucket, [upload, OXEN_URL])).resolves.toEqual([
+    const upload = await signed(key);
+    await expect(inlineStudioMediaRefs(bucket, [upload, OXEN_URL], { auth: AUTH })).resolves.toEqual([
       `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`,
       OXEN_URL,
     ]);
@@ -87,13 +101,13 @@ describe("inlineStudioMediaRefs", () => {
     const key = "u/user-1/face.png";
     const bytes = new Uint8Array([137, 80, 78, 71]);
     await bucket.put(key, bytes.buffer, { httpMetadata: { contentType: "image/png" } });
-    const upload = `https://studio.digisavvy.dev/api/media/${key}?exp=1&sig=x`;
-    const scene = `https://studio.digisavvy.dev/api/media/u/user-1/room.png?exp=1&sig=y`;
+    const upload = await signed(key);
+    const scene = await signed("u/user-1/room.png");
     await bucket.put("u/user-1/room.png", bytes.buffer, {
       httpMetadata: { contentType: "image/png" },
     });
     await expect(
-      inlineStudioMediaRefs(bucket, [upload, scene], { keepHttps: [true, false] }),
+      inlineStudioMediaRefs(bucket, [upload, scene], { keepHttps: [true, false], auth: AUTH }),
     ).resolves.toEqual([
       upload,
       `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`,
@@ -106,10 +120,28 @@ describe("inlineStudioMediaRefs", () => {
     await bucket.put(key, new Uint8Array([1, 2, 3]).buffer, {
       httpMetadata: { contentType: "image/png" },
     });
-    const upload = `https://studio.digisavvy.dev/api/media/${key}?exp=1&sig=x`;
-    await expect(inlineStudioMediaRefs(bucket, [upload], { maxBytes: 2 })).resolves.toEqual([
+    const upload = await signed(key);
+    await expect(inlineStudioMediaRefs(bucket, [upload], { maxBytes: 2, auth: AUTH })).resolves.toEqual([
       upload,
     ]);
+  });
+
+  it("refuses an expired signature and another user's key", async () => {
+    const { bucket } = createMockR2();
+    const own = "u/user-1/own.png";
+    const other = "u/user-2/other.png";
+    const bytes = new Uint8Array([137, 80, 78, 71]).buffer;
+    await bucket.put(own, bytes, { httpMetadata: { contentType: "image/png" } });
+    await bucket.put(other, bytes, { httpMetadata: { contentType: "image/png" } });
+    await expect(
+      inlineStudioMediaRefs(bucket, [await signed(own, -30)], { auth: AUTH }),
+    ).rejects.toBeInstanceOf(StudioMediaRefRejected);
+    await expect(
+      inlineStudioMediaRefs(bucket, [await signed(other)], { auth: AUTH, keepHttps: [true] }),
+    ).rejects.toBeInstanceOf(StudioMediaRefRejected);
+    await expect(
+      inlineStudioMediaRefs(bucket, [`https://studio.digisavvy.dev/api/media/${own}`], { auth: AUTH }),
+    ).rejects.toBeInstanceOf(StudioMediaRefRejected);
   });
 });
 
@@ -159,7 +191,8 @@ describe("resolveRefsForOxen", () => {
     await bucket.put(KEY, bytes.buffer, {
       httpMetadata: { contentType: "image/png" },
     });
-    await expect(resolveRefsForOxen(bucket, [STUDIO_URL])).resolves.toEqual([
+    const url = await signed(KEY);
+    await expect(resolveRefsForOxen(bucket, [url], undefined, undefined, SIGNING)).resolves.toEqual([
       `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`,
     ]);
   });
@@ -169,12 +202,39 @@ describe("resolveRefsForOxen", () => {
     await bucket.put(KEY, new Uint8Array([9]).buffer, {
       httpMetadata: { contentType: "image/png" },
     });
-    const [url] = await resolveRefsForOxen(bucket, [STUDIO_URL], undefined, [true], {
-      publicBaseUrl: "https://studio.digisavvy.dev",
-      secret: "test-secret",
-    });
+    const [url] = await resolveRefsForOxen(bucket, [await signed(KEY)], undefined, [true], SIGNING);
     expect(url.startsWith("data:")).toBe(false);
     expect(isOxenHostedMediaUrl(url)).toBe(false);
     expect(studioMediaKeyFromUrl(url)).toBe(KEY);
+  });
+
+  it("refuses expired and cross-user media refs before reading or re-signing them", async () => {
+    const { bucket } = createMockR2();
+    const other = "u/user-2/private.png";
+    await bucket.put(KEY, new Uint8Array([1]).buffer, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    await bucket.put(other, new Uint8Array([2]).buffer, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    let reads = 0;
+    const watched = new Proxy(bucket, {
+      get(target, prop, receiver) {
+        if (prop === "get") {
+          return async (key: string) => {
+            reads += 1;
+            return target.get(key);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    await expect(
+      resolveRefsForOxen(watched, [await signed(KEY, -30)], undefined, [false], SIGNING),
+    ).rejects.toBeInstanceOf(StudioMediaRefRejected);
+    await expect(
+      resolveRefsForOxen(watched, [await signed(other)], undefined, [true], SIGNING),
+    ).rejects.toBeInstanceOf(StudioMediaRefRejected);
+    expect(reads).toBe(0);
   });
 });

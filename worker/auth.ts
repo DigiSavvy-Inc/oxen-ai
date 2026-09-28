@@ -132,19 +132,55 @@ export async function upsertUser(
   };
 }
 
+export type SealedGithubToken = { ciphertext: string; iv: string };
+
+type SessionRecord = UserRow & {
+  github_token_ciphertext?: string | null;
+  github_token_iv?: string | null;
+};
+
+export async function sealGithubToken(
+  token: string,
+  encryptionKey: string,
+): Promise<SealedGithubToken | null> {
+  const trimmed = token.trim();
+  if (!trimmed || !encryptionKey.trim()) return null;
+  return encryptSecret(trimmed, encryptionKey);
+}
+
 export async function createSession(
   db: D1Database,
   userId: string,
   ttlSeconds: number,
+  githubToken?: SealedGithubToken | null,
 ): Promise<string> {
   const id = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
-  await db
-    .prepare(
-      `INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`,
-    )
-    .bind(id, userId, now + ttlSeconds, now)
-    .run();
+  const expiresAt = now + ttlSeconds;
+  try {
+    await db
+      .prepare(
+        `INSERT INTO sessions
+          (id, user_id, expires_at, created_at, github_token_ciphertext, github_token_iv)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        id,
+        userId,
+        expiresAt,
+        now,
+        githubToken?.ciphertext ?? null,
+        githubToken?.iv ?? null,
+      )
+      .run();
+  } catch {
+    await db
+      .prepare(
+        `INSERT INTO sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`,
+      )
+      .bind(id, userId, expiresAt, now)
+      .run();
+  }
   return id;
 }
 
@@ -152,20 +188,94 @@ export async function deleteSession(db: D1Database, sessionId: string): Promise<
   await db.prepare("DELETE FROM sessions WHERE id = ?").bind(sessionId).run();
 }
 
+/** End every session for this allowlist login, including after a GitHub rename. */
+export async function deleteSessionsForAllowlistLogin(db: D1Database, login: string): Promise<void> {
+  const trimmed = login.trim();
+  if (!trimmed) return;
+  const row = await db
+    .prepare(`SELECT github_id FROM allowlist WHERE github_login = ? COLLATE NOCASE`)
+    .bind(trimmed)
+    .first<{ github_id: number | null }>();
+  const githubId = row?.github_id ?? null;
+  await db
+    .prepare(
+      `DELETE FROM sessions WHERE user_id IN (
+         SELECT id FROM users
+         WHERE login = ? COLLATE NOCASE
+            OR (? IS NOT NULL AND github_id = ?)
+       )`,
+    )
+    .bind(trimmed, githubId, githubId)
+    .run();
+}
+
 export async function getUserBySession(
   db: D1Database,
   sessionId: string,
-): Promise<UserRow | null> {
+): Promise<SessionRecord | null> {
   const now = Math.floor(Date.now() / 1000);
-  const row = await db
-    .prepare(
-      `SELECT u.* FROM sessions s
-       JOIN users u ON u.id = s.user_id
-       WHERE s.id = ? AND s.expires_at > ?`,
-    )
-    .bind(sessionId, now)
-    .first<UserRow>();
-  return row ?? null;
+  try {
+    // Token columns arrive in migration 0012. Until then, sessions still load.
+    const row = await db
+      .prepare(
+        `SELECT u.*, s.github_token_ciphertext, s.github_token_iv
+         FROM sessions s
+         JOIN users u ON u.id = s.user_id
+         WHERE s.id = ? AND s.expires_at > ?`,
+      )
+      .bind(sessionId, now)
+      .first<SessionRecord>();
+    return row ?? null;
+  } catch {
+    const row = await db
+      .prepare(
+        `SELECT u.* FROM sessions s
+         JOIN users u ON u.id = s.user_id
+         WHERE s.id = ? AND s.expires_at > ?`,
+      )
+      .bind(sessionId, now)
+      .first<UserRow>();
+    return row ?? null;
+  }
+}
+
+function sessionUserRow(row: SessionRecord): UserRow {
+  return {
+    id: row.id,
+    github_id: row.github_id,
+    login: row.login,
+    name: row.name,
+    avatar_url: row.avatar_url,
+    oxen_key_ciphertext: row.oxen_key_ciphertext,
+    oxen_key_iv: row.oxen_key_iv,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+async function githubTokenFromSession(row: SessionRecord, encryptionKey: string): Promise<string> {
+  if (!row.github_token_ciphertext || !row.github_token_iv || !encryptionKey) return "";
+  try {
+    return await decryptSecret(row.github_token_ciphertext, row.github_token_iv, encryptionKey);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Re-check admin, allowlist, and org membership for a live session.
+ * A removed person is signed out. A GitHub outage keeps the session.
+ */
+export async function loadAuthorizedUser(env: Env, sessionId: string): Promise<UserRow | null> {
+  const row = await getUserBySession(env.DB, sessionId);
+  if (!row) return null;
+  const token = await githubTokenFromSession(row, env.ENCRYPTION_KEY);
+  const access = await userHasAccess(env.DB, { id: row.github_id, login: row.login }, token, env);
+  if (!access.allowed && access.revoke) {
+    await deleteSession(env.DB, sessionId);
+    return null;
+  }
+  return sessionUserRow(row);
 }
 
 export function toSessionUser(user: UserRow, env: Env): SessionUser {
@@ -213,53 +323,92 @@ async function matchAllowlist(
   return true;
 }
 
+export type AccessDecision = {
+  allowed: boolean;
+  /** Drop the session. False when GitHub could not be reached. */
+  revoke: boolean;
+  reason?: string;
+};
+
 export async function userHasAccess(
   db: D1Database,
   ghUser: { id: number; login: string },
   accessToken: string,
   env: Env,
-): Promise<{ allowed: boolean; reason?: string }> {
+): Promise<AccessDecision> {
   const login = ghUser.login;
   if (isAdminUser({ githubId: ghUser.id, login }, env)) {
-    return { allowed: true };
+    return { allowed: true, revoke: false };
   }
 
   if (await matchAllowlist(db, ghUser.id, login)) {
-    return { allowed: true };
+    return { allowed: true, revoke: false };
   }
 
   const org = env.GITHUB_ORG?.trim();
   if (!org) {
-    return { allowed: false, reason: "Not on the allowlist" };
+    return { allowed: false, revoke: true, reason: "Not on the allowlist" };
   }
-  const membership = await fetch(
-    `https://api.github.com/user/memberships/orgs/${encodeURIComponent(org)}`,
-    {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${accessToken}`,
-        "User-Agent": "oxen-studio",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    },
-  );
-
-  if (membership.status === 200) {
-    const body = (await membership.json()) as { state?: string };
-    if (body.state === "active") {
-      return { allowed: true };
-    }
-  }
-
-  if (membership.status === 404) {
+  if (!accessToken) {
     return {
       allowed: false,
+      revoke: true,
+      reason: `Not a member of ${org} and not on the allowlist`,
+    };
+  }
+
+  let membership: Response;
+  try {
+    membership = await fetch(
+      `https://api.github.com/user/memberships/orgs/${encodeURIComponent(org)}`,
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${accessToken}`,
+          "User-Agent": "oxen-studio",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      },
+    );
+  } catch {
+    return {
+      allowed: false,
+      revoke: false,
+      reason: `Unable to verify ${org} membership`,
+    };
+  }
+
+  if (membership.status === 200) {
+    let state: string | undefined;
+    try {
+      const body = (await membership.json()) as { state?: string };
+      state = body.state;
+    } catch {
+      return {
+        allowed: false,
+        revoke: false,
+        reason: `Unable to verify ${org} membership`,
+      };
+    }
+    if (state === "active") return { allowed: true, revoke: false };
+    return {
+      allowed: false,
+      revoke: true,
+      reason: `Not a member of ${org} and not on the allowlist`,
+    };
+  }
+
+  if (membership.status === 404 || membership.status === 401 || membership.status === 403) {
+    return {
+      allowed: false,
+      revoke: true,
       reason: `Not a member of ${org} and not on the allowlist`,
     };
   }
 
   return {
     allowed: false,
+    revoke: false,
     reason: `Unable to verify ${org} membership`,
   };
 }

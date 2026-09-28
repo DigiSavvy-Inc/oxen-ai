@@ -1,8 +1,10 @@
+import { galleryKeyForUser } from "./galleries";
 import {
   arrayBufferToDataUri,
   createSignedMediaUrl,
   guessMediaContentType,
   resolvePublicBaseUrl,
+  verifyMediaSignature,
 } from "./media";
 import { encodeImageForOxen } from "./thumbs";
 
@@ -20,7 +22,19 @@ export function isOxenHostedMediaUrl(value: string): boolean {
   }
 }
 
-export function studioMediaKeyFromUrl(value: string): string | null {
+export class StudioMediaRefRejected extends Error {
+  constructor() {
+    super("Media reference must be your own unexpired signed file");
+    this.name = "StudioMediaRefRejected";
+  }
+}
+
+export type StudioMediaAuth = {
+  userId: string;
+  secret: string;
+};
+
+function studioMediaUrl(value: string): URL | null {
   const trimmed = value.trim();
   if (!trimmed || trimmed.startsWith("data:")) return null;
   try {
@@ -29,12 +43,40 @@ export function studioMediaKeyFromUrl(value: string): string | null {
         ? new URL(trimmed)
         : new URL(trimmed, "https://studio.digisavvy.dev");
     if (!url.pathname.startsWith(MEDIA_PATH_PREFIX)) return null;
-    const key = decodeURIComponent(url.pathname.slice(MEDIA_PATH_PREFIX.length));
-    if (!key || key.includes("..")) return null;
-    return key;
+    return url;
   } catch {
     return null;
   }
+}
+
+export function studioMediaKeyFromUrl(value: string): string | null {
+  const url = studioMediaUrl(value);
+  if (!url) return null;
+  let key = "";
+  try {
+    key = decodeURIComponent(url.pathname.slice(MEDIA_PATH_PREFIX.length));
+  } catch {
+    return null;
+  }
+  if (!key || key.includes("..")) return null;
+  return key;
+}
+
+/** Studio media inputs must be an unexpired signature for this user's own key. */
+export async function assertAuthorizedStudioMediaUrl(
+  url: string,
+  auth: StudioMediaAuth | null | undefined,
+): Promise<void> {
+  const key = studioMediaKeyFromUrl(url);
+  if (!key) return;
+  const parsed = studioMediaUrl(url);
+  const exp = parsed?.searchParams.get("exp") ?? "";
+  const sig = parsed?.searchParams.get("sig") ?? "";
+  if (!auth?.secret || !galleryKeyForUser(auth.userId, key) || !exp || !sig) {
+    throw new StudioMediaRefRejected();
+  }
+  const ok = await verifyMediaSignature(key, exp, sig, auth.secret);
+  if (!ok) throw new StudioMediaRefRejected();
 }
 
 export async function oxenSourceUrlForMediaKey(
@@ -79,11 +121,17 @@ export async function rewriteRefsToOxenSources(
 export async function inlineStudioMediaRefs(
   bucket: R2Bucket,
   urls: string[],
-  options?: { maxBytes?: number; images?: ImagesBinding; keepHttps?: boolean[] },
+  options?: {
+    maxBytes?: number;
+    images?: ImagesBinding;
+    keepHttps?: boolean[];
+    auth?: StudioMediaAuth;
+  },
 ): Promise<string[]> {
   const maxBytes = options?.maxBytes ?? OXEN_INLINE_MEDIA_MAX_BYTES;
   const out: string[] = [];
   for (const [index, url] of urls.entries()) {
+    await assertAuthorizedStudioMediaUrl(url, options?.auth);
     // Seedance face upload rejects data: URIs (`unsupported_url_scheme`).
     if (options?.keepHttps?.[index]) {
       out.push(url);
@@ -132,15 +180,25 @@ export async function resolveRefsForOxen(
   urls: string[],
   images?: ImagesBinding,
   keepHttps?: boolean[],
-  signing?: { publicBaseUrl?: string | null; secret: string },
+  signing?: { publicBaseUrl?: string | null; secret: string; userId: string },
 ): Promise<string[]> {
+  const auth: StudioMediaAuth | undefined =
+    signing?.secret && signing.userId
+      ? { userId: signing.userId, secret: signing.secret }
+      : undefined;
   // Face slots must stay https — Seedance rejects data URIs — but hub.oxen.ai
   // file URLs time out in ByteDance CreateAsset. Keep a Studio signed URL.
   // Everything else is inlined from R2 so the provider does not download hub.
+  // A Studio key is read or re-signed only after its signature and owner check.
   const prepared = await Promise.all(
-    urls.map((url, index) => (keepHttps?.[index] ? freshStudioHttps(url, signing) : Promise.resolve(url))),
+    urls.map(async (url, index) => {
+      if (!keepHttps?.[index]) return url;
+      if (!studioMediaKeyFromUrl(url)) return url;
+      await assertAuthorizedStudioMediaUrl(url, auth);
+      return freshStudioHttps(url, signing);
+    }),
   );
-  return inlineStudioMediaRefs(bucket, prepared, { images, keepHttps });
+  return inlineStudioMediaRefs(bucket, prepared, { images, keepHttps, auth });
 }
 
 export type OxenRefGroup = {
