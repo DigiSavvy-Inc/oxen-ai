@@ -851,11 +851,28 @@ describe("in-gallery version expand", () => {
     const peek = readFileSync(new URL("../src/components/LibraryPeek.tsx", import.meta.url), "utf8");
     expect(sidebar).toContain('className="history"');
     expect(sidebar).toContain("history-expand-versions");
+    expect(sidebar).toContain("is-current");
+    expect(sidebar).toContain('aria-current={current ? "true" : undefined}');
     expect(sidebar).toContain("history-expand-preview");
     expect(sidebar).toContain("View full size");
     expect(sidebar).toContain("Click to attach");
     expect(sidebar).toContain("history-prompt-toggle");
+    expect(sidebar).toContain("history-prompt-row");
+    expect(sidebar).toContain("history-model-pill");
+    expect(sidebar).toContain("model={preview.model}");
     expect(sidebar).toContain("item.mediaType === \"video\"");
+    expect(sidebar).toContain("<VideoPlayMark />");
+    const tileFace = sidebar.slice(sidebar.indexOf("function TileFace"), sidebar.indexOf("function PreviewFace"));
+    const imageBranch = tileFace.slice(
+      tileFace.indexOf('mediaType === "image"'),
+      tileFace.indexOf('mediaType === "video"'),
+    );
+    const videoBranch = tileFace.slice(
+      tileFace.indexOf('mediaType === "video"'),
+      tileFace.indexOf("isActiveGeneration"),
+    );
+    expect(imageBranch).not.toContain("VideoPlayMark");
+    expect(videoBranch).toContain("<VideoPlayMark />");
     expect(drawer).not.toContain("history-expand");
     const media = readFileSync(new URL("../src/components/FullSizeMedia.tsx", import.meta.url), "utf8");
     expect(media).toContain("kind === \"video\"");
@@ -880,6 +897,13 @@ describe("library history layout", () => {
     expect(css).toMatch(/\.history-tile-square\s*\{[^}]*aspect-ratio:\s*1\s*\/\s*1/);
     expect(css).toMatch(/\.history-tile-square\s*\{[^}]*contain:\s*paint/);
     expect(css).toContain(".history-tile-square > .history-count");
+    expect(css).toContain(".history-prompt-row");
+    expect(css).toContain(".history-model-pill");
+    expect(css).toMatch(/\.history-tile-media > \.history-play\s*\{[^}]*top:\s*50%/);
+    expect(css).toMatch(/\.history-tile-media > \.history-play\s*\{[^}]*left:\s*50%/);
+    expect(css).toMatch(/\.history-expand-preview \.history-play\s*\{[^}]*width:\s*52px/);
+    expect(css).toContain(".history-version.is-current::after");
+    expect(css).toContain("box-shadow: inset 0 0 0 3px var(--text)");
     expect(css).not.toMatch(/\.history-tile-square span\s*\{/);
     expect(css).not.toContain("history-tile-media.mosaic");
     expect(css).not.toMatch(/\.history\s*\{[^}]*display:\s*(flex|grid)/);

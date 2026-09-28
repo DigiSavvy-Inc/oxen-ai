@@ -4,7 +4,6 @@ import type { Generation } from "../lib/api";
 import { completedMedia, tilePreviewUrl } from "../lib/download";
 import {
   galleryExpandTransition,
-  versionsBesidePreview,
   type GalleryExpandAction,
   type GalleryExpandState,
 } from "../lib/gallery-expand";
@@ -18,13 +17,31 @@ function tileSrc(item: Generation, allowFull = false): string | null {
   return tilePreviewUrl(item) || (allowFull ? item.resultUrl : null);
 }
 
+function VideoPlayMark() {
+  return (
+    <span className="history-play" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false">
+        <path
+          fill="currentColor"
+          d="M9.5 7.1a1 1 0 0 1 1.52-.85l7.1 4.4a1 1 0 0 1 0 1.7l-7.1 4.4A1 1 0 0 1 9.5 16V7.1z"
+        />
+      </svg>
+    </span>
+  );
+}
+
 function TileFace({ item, allowFull = false }: { item: Generation; allowFull?: boolean }) {
   const src = tileSrc(item, allowFull);
   if (src && item.mediaType === "image") {
     return <img src={src} alt="" loading="lazy" />;
   }
   if (src && item.mediaType === "video") {
-    return <video src={item.resultUrl || src} muted playsInline preload="metadata" />;
+    return (
+      <>
+        <video src={item.resultUrl || src} muted playsInline preload="metadata" />
+        <VideoPlayMark />
+      </>
+    );
   }
   if (isActiveGeneration(item) && !src) {
     return <Loader size="sm" />;
@@ -69,23 +86,37 @@ function attachKindLabel(item: Generation): string {
   return "images";
 }
 
-function ExpandPrompt({ prompt }: { prompt: string }) {
+function ExpandPrompt({ prompt, model }: { prompt: string; model: string }) {
   const [open, setOpen] = useState(false);
+  const modelName = model.trim();
+  const hasPrompt = prompt.trim().length > 0;
+  if (!hasPrompt && !modelName) return null;
   return (
     <div className="history-prompt">
-      <button
-        type="button"
-        className="history-prompt-toggle"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {open ? "Hide prompt" : "Prompt"}
-      </button>
-      <div className={`history-prompt-panel${open ? " is-open" : ""}`}>
-        <div className="history-prompt-panel-inner">
-          <CopyPrompt prompt={prompt} className="history-prompt-quote" />
-        </div>
+      <div className="history-prompt-row">
+        {hasPrompt ? (
+          <button
+            type="button"
+            className="history-prompt-toggle"
+            aria-expanded={open}
+            onClick={() => setOpen((value) => !value)}
+          >
+            {open ? "Hide prompt" : "Prompt"}
+          </button>
+        ) : null}
+        {modelName ? (
+          <span className="pill history-model-pill" title={modelName} data-model={modelName}>
+            {modelName}
+          </span>
+        ) : null}
       </div>
+      {hasPrompt ? (
+        <div className={`history-prompt-panel${open ? " is-open" : ""}`}>
+          <div className="history-prompt-panel-inner">
+            <CopyPrompt prompt={prompt} className="history-prompt-quote" />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -253,8 +284,6 @@ export function Sidebar({
                   coverGeneration(openBatch.items) ??
                   openBatch.items[0])
                 : null;
-              const others =
-                openBatch && preview ? versionsBesidePreview(openBatch.items, preview.id) : [];
               const canFit = canOpenFit(preview);
               return (
                 <Fragment key={row.map((batch) => batch.id).join(":")}>
@@ -360,17 +389,25 @@ export function Sidebar({
                             </button>
                           ) : null}
                         </div>
-                        {others.length > 0 ? (
-                          <div className="history-expand-versions" role="list" aria-label="Other versions">
-                            {others.map((item) => {
-                              const index = openBatch.items.findIndex((entry) => entry.id === item.id);
+                        {openBatch.items.length > 1 ? (
+                          <div className="history-expand-versions" role="list" aria-label="Versions">
+                            {openBatch.items.map((item, index) => {
+                              const current = item.id === preview.id;
                               return (
                                 <button
                                   key={item.id}
                                   type="button"
-                                  className="history-version"
-                                  aria-label={`Show variation ${index + 1}`}
-                                  onClick={() => commit({ type: "version", versionId: item.id })}
+                                  className={`history-version${current ? " is-current" : ""}`}
+                                  aria-current={current ? "true" : undefined}
+                                  aria-label={
+                                    current
+                                      ? `Selected variation ${index + 1}`
+                                      : `Show variation ${index + 1}`
+                                  }
+                                  onClick={() => {
+                                    if (current) return;
+                                    commit({ type: "version", versionId: item.id });
+                                  }}
                                 >
                                   <div className="history-tile-media">
                                     <TileFace item={item} allowFull />
@@ -380,7 +417,9 @@ export function Sidebar({
                             })}
                           </div>
                         ) : null}
-                        {preview.prompt ? <ExpandPrompt prompt={preview.prompt} /> : null}
+                        {preview.prompt || preview.model ? (
+                          <ExpandPrompt prompt={preview.prompt ?? ""} model={preview.model} />
+                        ) : null}
                         {expandVisible.fitOpen && canFit && preview.resultUrl ? (
                           <FullSizeMedia
                             src={preview.resultUrl}
