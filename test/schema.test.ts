@@ -376,7 +376,7 @@ describe("composer aspect vs reference auto", () => {
 });
 
 describe("clampDuration", () => {
-  it("keeps compatible enum values and falls back otherwise", () => {
+  it("keeps compatible enum values and snaps others to the nearest allowed", () => {
     const duration = {
       kind: "enum" as const,
       values: ["auto", "4", "5", "8"],
@@ -384,7 +384,7 @@ describe("clampDuration", () => {
     };
     expect(clampDuration("8", duration)).toBe("8");
     expect(clampDuration(5, duration)).toBe("5");
-    expect(clampDuration("99", duration)).toBe("auto");
+    expect(clampDuration("99", duration)).toBe("8");
   });
 
   it("clamps integer durations", () => {
