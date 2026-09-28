@@ -76,17 +76,40 @@ export async function createSignedMediaUrl(
   return url.toString();
 }
 
+type MediaSigningEnv = { MEDIA_SIGNING_KEY?: string; ENCRYPTION_KEY: string };
+
+/**
+ * Media URLs get their own key so rotating it never touches stored Oxen keys (and vice versa).
+ * Self-hosters without MEDIA_SIGNING_KEY fall back to ENCRYPTION_KEY.
+ */
+export function mediaSigningSecret(env: MediaSigningEnv): string {
+  return env.MEDIA_SIGNING_KEY?.trim() || env.ENCRYPTION_KEY;
+}
+
+/**
+ * Keys a signature may verify against. ENCRYPTION_KEY stays accepted so URLs signed before
+ * MEDIA_SIGNING_KEY existed (composer refs, queued jobs) work until they expire (≤13h).
+ * TODO: drop the ENCRYPTION_KEY entry after 2026-10-01.
+ */
+export function mediaVerifySecrets(env: MediaSigningEnv): string[] {
+  return [...new Set([mediaSigningSecret(env), env.ENCRYPTION_KEY].filter(Boolean))];
+}
+
 export async function verifyMediaSignature(
   key: string,
   exp: string,
   sig: string,
-  secret: string,
+  secrets: string | string[],
 ): Promise<boolean> {
-  if (!key || !exp || !sig || !secret) return false;
+  const candidates = (Array.isArray(secrets) ? secrets : [secrets]).filter(Boolean);
+  if (!key || !exp || !sig || candidates.length === 0) return false;
   const expires = Number(exp);
   if (!Number.isFinite(expires) || expires < Math.floor(Date.now() / 1000)) return false;
-  const expected = await hmacSign(secret, `${key}:${exp}`);
-  return timingSafeEqual(expected, sig);
+  for (const secret of candidates) {
+    const expected = await hmacSign(secret, `${key}:${exp}`);
+    if (await timingSafeEqual(expected, sig)) return true;
+  }
+  return false;
 }
 
 export function arrayBufferToDataUri(buffer: ArrayBuffer, contentType: string): string {
@@ -240,14 +263,14 @@ export function guessMediaContentType(key: string): string {
 }
 
 export async function displayStoredMediaUrl(
-  env: { PUBLIC_BASE_URL?: string; ENCRYPTION_KEY: string; SESSION_SECRET: string; MEDIA: R2Bucket },
+  env: { PUBLIC_BASE_URL?: string; ENCRYPTION_KEY: string; MEDIA_SIGNING_KEY?: string; MEDIA: R2Bucket },
   key: string | null | undefined,
   fallback: string | null,
 ): Promise<string | null> {
   if (!key) return fallback;
   const origin = resolvePublicBaseUrl(env.PUBLIC_BASE_URL);
   if (origin) {
-    return createSignedMediaUrl(origin, key, env.ENCRYPTION_KEY || env.SESSION_SECRET);
+    return createSignedMediaUrl(origin, key, mediaSigningSecret(env));
   }
   const object = await env.MEDIA.get(key);
   if (!object) return fallback;

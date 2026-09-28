@@ -10,6 +10,8 @@ export type Env = {
   GITHUB_ADMINS: string;
   ENCRYPTION_KEY: string;
   SESSION_SECRET: string;
+  /** HMAC key for signed /api/media URLs. Separate from ENCRYPTION_KEY so each rotates alone. */
+  MEDIA_SIGNING_KEY?: string;
   SESSION_TTL_SECONDS: string;
   PUBLIC_BASE_URL?: string;
   /** Local-only: `gh auth token`. Used when no OAuth app is configured. */

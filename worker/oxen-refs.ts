@@ -32,6 +32,8 @@ export class StudioMediaRefRejected extends Error {
 export type StudioMediaAuth = {
   userId: string;
   secret: string;
+  /** Extra keys to accept while old signatures age out; see mediaVerifySecrets. */
+  verifySecrets?: string[];
 };
 
 function studioMediaUrl(value: string): URL | null {
@@ -75,7 +77,7 @@ export async function assertAuthorizedStudioMediaUrl(
   if (!auth?.secret || !galleryKeyForUser(auth.userId, key) || !exp || !sig) {
     throw new StudioMediaRefRejected();
   }
-  const ok = await verifyMediaSignature(key, exp, sig, auth.secret);
+  const ok = await verifyMediaSignature(key, exp, sig, auth.verifySecrets ?? auth.secret);
   if (!ok) throw new StudioMediaRefRejected();
 }
 
@@ -180,11 +182,16 @@ export async function resolveRefsForOxen(
   urls: string[],
   images?: ImagesBinding,
   keepHttps?: boolean[],
-  signing?: { publicBaseUrl?: string | null; secret: string; userId: string },
+  signing?: {
+    publicBaseUrl?: string | null;
+    secret: string;
+    verifySecrets?: string[];
+    userId: string;
+  },
 ): Promise<string[]> {
   const auth: StudioMediaAuth | undefined =
     signing?.secret && signing.userId
-      ? { userId: signing.userId, secret: signing.secret }
+      ? { userId: signing.userId, secret: signing.secret, verifySecrets: signing.verifySecrets }
       : undefined;
   // Face slots must stay https — Seedance rejects data URIs — but hub.oxen.ai
   // file URLs time out in ByteDance CreateAsset. Keep a Studio signed URL.

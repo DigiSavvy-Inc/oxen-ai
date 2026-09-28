@@ -38,7 +38,7 @@ cp .dev.vars.example .dev.vars
 In `.dev.vars`:
 
 - Set `GITHUB_ADMINS` to your numeric GitHub account id (`gh api user --jq .id`). Logins still work, but a renamed login can be re-registered by someone else; ids cannot.
-- Set `ENCRYPTION_KEY` and `SESSION_SECRET` to long random strings.
+- Set `ENCRYPTION_KEY`, `SESSION_SECRET`, and `MEDIA_SIGNING_KEY` to long random strings. `ENCRYPTION_KEY` encrypts stored Oxen keys; `MEDIA_SIGNING_KEY` signs media URLs, so either can rotate without breaking the other. Without `MEDIA_SIGNING_KEY`, media URLs are signed with `ENCRYPTION_KEY`.
 - Leave `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` empty.
 - Set `GH_TOKEN` to the output of `gh auth token`.
 
@@ -72,6 +72,7 @@ npx wrangler d1 migrations apply oxen-studio --remote
 npx wrangler secret put GITHUB_CLIENT_SECRET
 npx wrangler secret put ENCRYPTION_KEY
 npx wrangler secret put SESSION_SECRET
+npx wrangler secret put MEDIA_SIGNING_KEY
 ```
 
 Attach your domain to the Worker in the Cloudflare dashboard. Then deploy with every variable you intend to keep. Omitting a variable on a later deploy can clear it. `--keep-vars` retains variables you do not pass this time.

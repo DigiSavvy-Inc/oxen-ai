@@ -29,6 +29,8 @@ import {
   displayStoredMediaUrl,
   guessMediaContentType,
   mediaServeDisposition,
+  mediaSigningSecret,
+  mediaVerifySecrets,
   putMediaObject,
   sniffSafeMediaType,
   verifyMediaSignature,
@@ -1207,7 +1209,7 @@ app.post("/api/upload", async (c) => {
   const folder = form.get("folder");
   const prefix = folder === "galleries" ? `u/${user.id}/galleries` : `u/${user.id}`;
   const { key } = await putMediaObject(c.env.MEDIA, buffer, contentType, prefix);
-  const secret = c.env.ENCRYPTION_KEY || c.env.SESSION_SECRET;
+  const secret = mediaSigningSecret(c.env);
   const { url } = await buildReferenceMediaUrl({
     publicBaseUrl: c.env.PUBLIC_BASE_URL,
     key,
@@ -1231,8 +1233,7 @@ app.get("/api/media/*", async (c) => {
   }
   const exp = c.req.query("exp") || "";
   const sig = c.req.query("sig") || "";
-  const secret = c.env.ENCRYPTION_KEY || c.env.SESSION_SECRET;
-  const ok = await verifyMediaSignature(key, exp, sig, secret);
+  const ok = await verifyMediaSignature(key, exp, sig, mediaVerifySecrets(c.env));
   if (!ok) {
     throw new HTTPException(403, { message: "Invalid or expired media signature" });
   }
@@ -1336,7 +1337,8 @@ app.post("/api/generate", async (c) => {
   ]);
   const signing = {
     publicBaseUrl: c.env.PUBLIC_BASE_URL,
-    secret: c.env.ENCRYPTION_KEY || c.env.SESSION_SECRET,
+    secret: mediaSigningSecret(c.env),
+    verifySecrets: mediaVerifySecrets(c.env),
     userId: user.id,
   };
   let imageUrls: string[];
