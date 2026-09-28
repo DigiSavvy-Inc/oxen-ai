@@ -40,7 +40,7 @@ export type MediaSlot = {
 };
 
 export type DurationControl =
-  | { kind: "int"; min: number; max: number; defaultValue?: number }
+  | { kind: "int"; min: number; max: number; step?: number; defaultValue?: number }
   | { kind: "enum"; values: string[]; defaultValue?: string };
 
 export type ModelControls = {
@@ -135,11 +135,11 @@ export type CreditBalance = {
 };
 
 export const MODE_LABELS: Record<GenerationMode, string> = {
-  "text-to-image": "Text → Image",
-  "image-to-image": "Image → Image",
-  "text-to-video": "Text → Video",
-  "reference-to-video": "Image → Video",
-  "video-to-video": "Video → Video",
+  "text-to-image": "Text \u2192 Image",
+  "image-to-image": "Image \u2192 Image",
+  "text-to-video": "Text \u2192 Video",
+  "reference-to-video": "Image \u2192 Video",
+  "video-to-video": "Video \u2192 Video",
 };
 
 export const ALL_MODES: GenerationMode[] = [
