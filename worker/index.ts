@@ -13,6 +13,7 @@ import {
   getSessionId,
   getUserBySession,
   isLoopbackHost,
+  isNumericAdminEntry,
   oauthConfigured,
   saveOxenKey,
   sessionCookieOptions,
@@ -231,7 +232,7 @@ async function signInWithLocalGithub(c: Context<{ Bindings: Env; Variables: Vari
   }
 
   const ghUser = await fetchGithubUser(token);
-  const access = await userHasAccess(c.env.DB, ghUser.login, token, c.env);
+  const access = await userHasAccess(c.env.DB, ghUser, token, c.env);
   if (!access.allowed) {
     return c.html(
       `<!doctype html><html><body style="font-family:system-ui;background:#f6f5f2;color:#1c1b19;padding:3rem">
@@ -877,7 +878,7 @@ app.get("/api/auth/callback", async (c) => {
   const redirectUri = `${publicOrigin(c)}/api/auth/callback`;
   const accessToken = await exchangeGithubCode(code, c.env, redirectUri);
   const ghUser = await fetchGithubUser(accessToken);
-  const access = await userHasAccess(c.env.DB, ghUser.login, accessToken, c.env);
+  const access = await userHasAccess(c.env.DB, ghUser, accessToken, c.env);
   if (!access.allowed) {
     return c.html(
       `<!doctype html><html><body style="font-family:system-ui;background:#f6f5f2;color:#1c1b19;padding:3rem">
@@ -936,6 +937,20 @@ app.delete("/api/settings/oxen-key", async (c) => {
   return c.json({ ok: true, hasOxenKey: false });
 });
 
+/** GITHUB_ADMINS may hold account ids; show the login of anyone who has signed in. */
+async function adminDisplayNames(env: Env): Promise<string[]> {
+  const entries = (env.GITHUB_ADMINS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  return Promise.all(
+    entries.map(async (entry) => {
+      if (!isNumericAdminEntry(entry)) return entry;
+      const row = await env.DB.prepare(`SELECT login FROM users WHERE github_id = ?`)
+        .bind(Number(entry))
+        .first<{ login: string }>();
+      return row?.login ?? entry;
+    }),
+  );
+}
+
 app.get("/api/admin/allowlist", async (c) => {
   await requireUser(c);
   requireAdmin(c.get("sessionUser"));
@@ -944,7 +959,7 @@ app.get("/api/admin/allowlist", async (c) => {
   ).all<{ github_login: string; added_by: string | null; created_at: number }>();
   return c.json({
     org: c.env.GITHUB_ORG,
-    admins: [...(c.env.GITHUB_ADMINS || "").split(",").map((s) => s.trim()).filter(Boolean)],
+    admins: await adminDisplayNames(c.env),
     allowlist: rows.results ?? [],
   });
 });

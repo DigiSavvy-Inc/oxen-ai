@@ -23,7 +23,7 @@ GitHub only.
 
 - People in the GitHub organization named by `GITHUB_ORG`
 - GitHub logins on the in-app allowlist
-- Logins in `GITHUB_ADMINS`, who can also manage the allowlist
+- Accounts in `GITHUB_ADMINS`, who can also manage the allowlist
 
 Leave `GITHUB_ORG` empty if you only want the allowlist and admins.
 
@@ -37,7 +37,7 @@ cp .dev.vars.example .dev.vars
 
 In `.dev.vars`:
 
-- Set `GITHUB_ADMINS` to your GitHub login.
+- Set `GITHUB_ADMINS` to your numeric GitHub account id (`gh api user --jq .id`). Logins still work, but a renamed login can be re-registered by someone else; ids cannot.
 - Set `ENCRYPTION_KEY` and `SESSION_SECRET` to long random strings.
 - Leave `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` empty.
 - Set `GH_TOKEN` to the output of `gh auth token`.
@@ -79,7 +79,7 @@ Attach your domain to the Worker in the Cloudflare dashboard. Then deploy with e
 ```bash
 npm run build && npx wrangler deploy --keep-vars \
   --var GITHUB_ORG:your-org \
-  --var GITHUB_ADMINS:your-github-login \
+  --var GITHUB_ADMINS:your-github-account-id \
   --var GITHUB_CLIENT_ID:your-oauth-client-id \
   --var PUBLIC_BASE_URL:https://YOUR_DOMAIN \
   --var OXEN_BILLING_URL:https://www.oxen.ai/your-namespace/settings/billing \

@@ -45,8 +45,20 @@ export function parseAdmins(env: Env): Set<string> {
   );
 }
 
-export function isAdminLogin(login: string, env: Env): boolean {
-  return parseAdmins(env).has(login.toLowerCase());
+/**
+ * Numeric GITHUB_ADMINS entries match the immutable GitHub account id; anything else
+ * matches the login. Prefer ids — a renamed or deleted login can be claimed by someone else.
+ */
+export function isAdminUser(user: { githubId: number; login: string }, env: Env): boolean {
+  const login = user.login.toLowerCase();
+  for (const entry of parseAdmins(env)) {
+    if (isNumericAdminEntry(entry) ? entry === String(user.githubId) : entry === login) return true;
+  }
+  return false;
+}
+
+export function isNumericAdminEntry(entry: string): boolean {
+  return /^\d+$/.test(entry);
 }
 
 export function sessionCookieOptions(maxAge: number, secure: boolean) {
@@ -162,26 +174,57 @@ export function toSessionUser(user: UserRow, env: Env): SessionUser {
     login: user.login,
     name: user.name,
     avatarUrl: user.avatar_url,
-    isAdmin: isAdminLogin(user.login, env),
+    isAdmin: isAdminUser({ githubId: user.github_id, login: user.login }, env),
     hasOxenKey: Boolean(user.oxen_key_ciphertext && user.oxen_key_iv),
   };
 }
 
+/**
+ * Allowlist rows are bound to the GitHub account id on first sign-in, so a later
+ * rename (and someone else registering the old login) cannot inherit access.
+ */
+async function matchAllowlist(
+  db: D1Database,
+  githubId: number,
+  login: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT github_login, github_id FROM allowlist
+       WHERE github_id = ? OR (github_id IS NULL AND github_login = ? COLLATE NOCASE)
+       ORDER BY github_id IS NULL
+       LIMIT 1`,
+    )
+    .bind(githubId, login)
+    .first<{ github_login: string; github_id: number | null }>();
+  if (!row) return false;
+  if (row.github_id === null) {
+    await db
+      .prepare(`UPDATE allowlist SET github_id = ? WHERE github_login = ? AND github_id IS NULL`)
+      .bind(githubId, row.github_login)
+      .run();
+  } else if (row.github_login.toLowerCase() !== login.toLowerCase()) {
+    // Keep the displayed login current after a rename; ignore a clash with a stale row.
+    await db
+      .prepare(`UPDATE OR IGNORE allowlist SET github_login = ? WHERE github_id = ?`)
+      .bind(login, githubId)
+      .run();
+  }
+  return true;
+}
+
 export async function userHasAccess(
   db: D1Database,
-  login: string,
+  ghUser: { id: number; login: string },
   accessToken: string,
   env: Env,
 ): Promise<{ allowed: boolean; reason?: string }> {
-  if (isAdminLogin(login, env)) {
+  const login = ghUser.login;
+  if (isAdminUser({ githubId: ghUser.id, login }, env)) {
     return { allowed: true };
   }
 
-  const allowlisted = await db
-    .prepare("SELECT 1 AS ok FROM allowlist WHERE github_login = ? COLLATE NOCASE")
-    .bind(login)
-    .first<{ ok: number }>();
-  if (allowlisted) {
+  if (await matchAllowlist(db, ghUser.id, login)) {
     return { allowed: true };
   }
 
