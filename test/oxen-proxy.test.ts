@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   POLL_FAILURE_THRESHOLD,
   buildEnqueuePayload,
+  downloadOxenResult,
   enqueueGeneration,
   extractResultUrl,
   filterModelsForMode,
@@ -420,5 +421,55 @@ describe("poll failure threshold", () => {
     expect(shouldPersistPollFailure(notePollFailure("gen-a"))).toBe(true);
     expect(POLL_FAILURE_THRESHOLD).toBe(3);
     resetPollFailures("gen-a");
+  });
+});
+
+describe("downloadOxenResult", () => {
+  type Call = { url: string; auth: string | null };
+
+  function mockFetch(routes: Record<string, () => Response>): Call[] {
+    const calls: Call[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, auth: new Headers(init?.headers).get("Authorization") });
+      const route = routes[url];
+      if (!route) throw new Error(`unexpected fetch ${url}`);
+      return route();
+    }) as typeof fetch;
+    return calls;
+  }
+
+  // The user's Oxen key must never reach a provider CDN or a redirect target.
+  it("sends the key to hub.oxen.ai but drops it after a redirect off-host", async () => {
+    const calls = mockFetch({
+      "https://hub.oxen.ai/api/files/out.png": () =>
+        new Response(null, { status: 302, headers: { Location: "https://cdn.example/out.png" } }),
+      "https://cdn.example/out.png": () =>
+        new Response("png", { headers: { "Content-Type": "image/png" } }),
+    });
+    const result = await downloadOxenResult("sk-user", "https://hub.oxen.ai/api/files/out.png");
+    expect(result.contentType).toBe("image/png");
+    expect(calls).toEqual([
+      { url: "https://hub.oxen.ai/api/files/out.png", auth: "Bearer sk-user" },
+      { url: "https://cdn.example/out.png", auth: null },
+    ]);
+  });
+
+  it("never sends the key to a non-Oxen result URL", async () => {
+    const calls = mockFetch({
+      "https://provider.example/v.mp4": () => new Response("mp4"),
+    });
+    await downloadOxenResult("sk-user", "https://provider.example/v.mp4");
+    expect(calls[0]?.auth).toBeNull();
+  });
+
+  it("gives up on redirect loops", async () => {
+    mockFetch({
+      "https://hub.oxen.ai/loop": () =>
+        new Response(null, { status: 302, headers: { Location: "/loop" } }),
+    });
+    await expect(downloadOxenResult("sk-user", "https://hub.oxen.ai/loop")).rejects.toThrow(
+      /too many times/,
+    );
   });
 });

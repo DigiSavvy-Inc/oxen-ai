@@ -474,20 +474,41 @@ export async function cancelGeneration(
 /** Bound so a stuck provider URL cannot pin a Worker invocation. */
 export const OXEN_RESULT_DOWNLOAD_MS = 20_000;
 
+export const OXEN_RESULT_MAX_REDIRECTS = 5;
+
+// Local check, not oxen-refs: src/ imports this module and cannot pull in Worker-only types.
+function isOxenHost(url: URL): boolean {
+  return url.protocol === "https:" && url.hostname === "hub.oxen.ai";
+}
+
+/**
+ * Follow redirects by hand so the user's Oxen key only ever goes to hub.oxen.ai,
+ * never to a provider CDN or wherever a redirect points.
+ */
 export async function downloadOxenResult(
   apiKey: string,
   resultUrl: string,
 ): Promise<{ bytes: ArrayBuffer; contentType: string }> {
-  const res = await fetch(resultUrl, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-    redirect: "follow",
-    signal: AbortSignal.timeout(OXEN_RESULT_DOWNLOAD_MS),
-  });
-  if (!res.ok) {
-    throw new Error(`Oxen result download failed (${res.status})`);
+  const signal = AbortSignal.timeout(OXEN_RESULT_DOWNLOAD_MS);
+  let url = new URL(resultUrl);
+  for (let hop = 0; hop <= OXEN_RESULT_MAX_REDIRECTS; hop++) {
+    const res = await fetch(url.toString(), {
+      headers: isOxenHost(url) ? { Authorization: `Bearer ${apiKey}` } : {},
+      redirect: "manual",
+      signal,
+    });
+    const location = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+    if (location) {
+      url = new URL(location, url);
+      continue;
+    }
+    if (!res.ok) {
+      throw new Error(`Oxen result download failed (${res.status})`);
+    }
+    return {
+      bytes: await res.arrayBuffer(),
+      contentType: res.headers.get("content-type") || "application/octet-stream",
+    };
   }
-  return {
-    bytes: await res.arrayBuffer(),
-    contentType: res.headers.get("content-type") || "application/octet-stream",
-  };
+  throw new Error("Oxen result download redirected too many times");
 }
