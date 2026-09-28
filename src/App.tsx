@@ -28,13 +28,15 @@ import {
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations, siblingAfterRemoval } from "./lib/batches";
 import { notifyGenerationLocal } from "./lib/pwa";
 import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
-import { filesFromList, kindFromFile } from "./lib/files";
+import { filesFromList, partitionMediaFiles } from "./lib/files";
 import {
+  acceptedMediaKinds,
+  attachKindCap,
   kindFromMediaType,
   libraryRefFromGeneration,
-  mediaKindCap,
   mergeLibraryRefs,
   releasePreview,
+  supportedMediaNotice,
 } from "./lib/library-refs";
 import { planGalleryAttach } from "./lib/gallery-attach";
 import { insertAttachMentions, moveItem } from "./lib/mentions";
@@ -540,8 +542,17 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [generations, refreshCredits]);
 
+  function currentModel() {
+    return models.find((item) => item.id === model) ?? null;
+  }
+
   function capForKind(kind: "image" | "video" | "audio") {
-    return mediaKindCap(controls, mode, kind);
+    return attachKindCap(controls, mode, kind, currentModel());
+  }
+
+  function noteRejectedMedia(rejected: File[]) {
+    if (rejected.length === 0) return;
+    setError(supportedMediaNotice(acceptedMediaKinds(controls, mode, currentModel())));
   }
 
   function modelHasFaceSlot(kind: "image" | "video") {
@@ -598,12 +609,17 @@ export default function App() {
   function onAddFiles(list: FileList | File[] | null) {
     const incoming = filesFromList(list);
     if (incoming.length === 0) return;
-    const images = incoming.filter((file) => kindFromFile(file) === "image");
-    const videos = incoming.filter((file) => kindFromFile(file) === "video");
-    const audios = incoming.filter((file) => kindFromFile(file) === "audio");
+    const { accepted, rejected } = partitionMediaFiles(
+      incoming,
+      acceptedMediaKinds(controls, mode, currentModel()),
+    );
+    const images = accepted.filter((item) => item.kind === "image").map((item) => item.file);
+    const videos = accepted.filter((item) => item.kind === "video").map((item) => item.file);
+    const audios = accepted.filter((item) => item.kind === "audio").map((item) => item.file);
     addFilesOfKind("image", images);
     addFilesOfKind("video", videos);
     addFilesOfKind("audio", audios);
+    noteRejectedMedia(rejected);
   }
 
   function addLibraryItem(generation: Generation) {
@@ -740,10 +756,13 @@ export default function App() {
 
   async function onGalleryAddFiles(list: FileList | File[] | null) {
     const incoming = filesFromList(list);
-    const accepted = incoming.flatMap((file) => {
-      const kind = kindFromFile(file);
-      return kind ? [{ file, kind }] : [];
-    });
+    const { accepted, rejected } = partitionMediaFiles(
+      incoming,
+      acceptedMediaKinds(controls, mode, currentModel()),
+    );
+    if (rejected.length > 0) {
+      setGalleryStatus(supportedMediaNotice(acceptedMediaKinds(controls, mode, currentModel())));
+    }
     if (accepted.length === 0) return;
     const room = Math.max(0, GALLERY_ITEM_CAP - galleryItems.length);
     if (room === 0) {
@@ -751,7 +770,7 @@ export default function App() {
       return;
     }
     setGalleryAdding(true);
-    setGalleryStatus(null);
+    if (rejected.length === 0) setGalleryStatus(null);
     try {
       const added: GalleryDraftItem[] = [];
       for (const item of accepted.slice(0, room)) {
@@ -766,6 +785,9 @@ export default function App() {
         });
       }
       setGalleryItems((prev) => [...prev, ...added].slice(0, GALLERY_ITEM_CAP));
+      if (rejected.length > 0) {
+        setGalleryStatus(supportedMediaNotice(acceptedMediaKinds(controls, mode, currentModel())));
+      }
     } catch (err) {
       setGalleryStatus(err instanceof Error ? err.message : "Couldn’t add that file");
     } finally {

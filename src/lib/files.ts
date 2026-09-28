@@ -16,6 +16,21 @@ export function filesFromList(list: FileList | File[] | null | undefined): File[
   return Array.from(list);
 }
 
+export function partitionMediaFiles(
+  files: File[],
+  allowed: readonly MediaKind[],
+): { accepted: { file: File; kind: MediaKind }[]; rejected: File[] } {
+  const allow = new Set(allowed);
+  const accepted: { file: File; kind: MediaKind }[] = [];
+  const rejected: File[] = [];
+  for (const file of files) {
+    const kind = kindFromFile(file);
+    if (kind && allow.has(kind)) accepted.push({ file, kind });
+    else rejected.push(file);
+  }
+  return { accepted, rejected };
+}
+
 export function shortenFileName(name: string, max = 22): string {
   const trimmed = name.trim();
   if (!trimmed) return "audio";

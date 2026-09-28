@@ -29,6 +29,8 @@ type Props = {
   onNew: () => void;
   onLoad: (id: string) => void;
   onAttach: () => void;
+  accept: string;
+  dropLabel: string;
   onClose: () => void;
 };
 
@@ -233,18 +235,20 @@ export function GalleryDrawer(props: Props) {
           </div>
         ))}
       </div>
-      <label className={`gallery-drop${fileHover ? " is-hot" : ""}`}>
-        {props.adding ? "Adding…" : "Drop images, video, or audio"}
-        <input
-          type="file"
-          accept="image/*,video/*,audio/*"
-          multiple
-          onChange={(event) => {
-            props.onAddFiles(event.target.files);
-            event.target.value = "";
-          }}
-        />
-      </label>
+      {props.accept ? (
+        <label className={`gallery-drop${fileHover ? " is-hot" : ""}`}>
+          {props.adding ? "Adding…" : props.dropLabel}
+          <input
+            type="file"
+            accept={props.accept}
+            multiple
+            onChange={(event) => {
+              props.onAddFiles(event.target.files);
+              event.target.value = "";
+            }}
+          />
+        </label>
+      ) : null}
       </div>
     </aside>
   );

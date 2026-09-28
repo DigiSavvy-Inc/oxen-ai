@@ -162,6 +162,12 @@ export function modeIsVideo(mode: GenerationMode): boolean {
   );
 }
 
+/** Saved reference galleries for image edit and every video mode. */
+export function modeHasReferenceGallery(mode: GenerationMode | null | undefined): boolean {
+  if (!mode) return false;
+  return mode === "image-to-image" || modeIsVideo(mode);
+}
+
 export function slotMax(controls: Pick<ModelControls, "slots"> | null, kind: MediaSlot["kind"]): number {
   if (!controls) return 0;
   const slots = controls.slots.filter((slot) => slot.kind === kind);

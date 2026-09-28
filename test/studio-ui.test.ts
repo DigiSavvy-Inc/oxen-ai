@@ -19,20 +19,25 @@ import {
   MODE_LABELS,
   estimateGenerationCost,
   mentionToken,
+  modeHasReferenceGallery,
   slotRequired,
   type Generation,
   type ModelControls,
 } from "../src/lib/api";
 import { copyText } from "../src/lib/clipboard";
 import { canvasWashUrl, downloadFilename, mediaAssetId, tilePreviewUrl } from "../src/lib/download";
-import { formatAudioClock, shortenFileName } from "../src/lib/files";
+import { formatAudioClock, partitionMediaFiles, shortenFileName } from "../src/lib/files";
 import {
+  acceptedMediaKinds,
   appendAttachMention,
+  attachKindCap,
   DEFAULT_ATTACH_MAX,
+  fileAcceptValue,
   kindFromMediaType,
   libraryRefFromGeneration,
   mediaKindCap,
   mergeLibraryRefs,
+  supportedMediaNotice,
 } from "../src/lib/library-refs";
 import {
   attachmentForMention,
@@ -707,6 +712,42 @@ describe("library refs", () => {
     expect(mediaKindCap(imageSlots, "text-to-image", "audio")).toBe(0);
   });
 
+  it("accepts only the media kinds the selected model lists", () => {
+    const seedream = { capabilities: { input: ["text", "image"] } };
+    const seedance = { capabilities: { input: ["text", "image", "video", "audio"] } };
+    const imageSlots = {
+      slots: [{ field: "input_images" as const, kind: "image" as const, required: false, maxItems: 9, asArray: true }],
+    };
+    const seedanceSlots = {
+      slots: [
+        { field: "input_images" as const, kind: "image" as const, required: false, maxItems: 9, asArray: true },
+        { field: "input_videos" as const, kind: "video" as const, required: false, maxItems: 3, asArray: true },
+        { field: "input_audios" as const, kind: "audio" as const, required: false, maxItems: 3, asArray: true },
+      ],
+    };
+    expect(attachKindCap(imageSlots, "image-to-image", "image", seedream)).toBe(9);
+    expect(attachKindCap(imageSlots, "image-to-image", "video", seedream)).toBe(0);
+    expect(attachKindCap(imageSlots, "image-to-image", "audio", seedream)).toBe(0);
+    expect(attachKindCap(null, "image-to-image", "video", seedream)).toBe(0);
+    expect(attachKindCap(null, "image-to-image", "image", seedream)).toBe(DEFAULT_ATTACH_MAX);
+    expect(attachKindCap(seedanceSlots, "reference-to-video", "video", seedance)).toBe(3);
+    expect(attachKindCap(seedanceSlots, "reference-to-video", "audio", seedance)).toBe(3);
+    expect(attachKindCap(null, "reference-to-video", "video", seedance)).toBe(DEFAULT_ATTACH_MAX);
+    expect(fileAcceptValue(acceptedMediaKinds(imageSlots, "image-to-image", seedream))).toBe("image/*");
+    expect(fileAcceptValue(acceptedMediaKinds(seedanceSlots, "reference-to-video", seedance))).toBe(
+      "image/*,video/*,audio/*",
+    );
+    expect(supportedMediaNotice(["image"])).toBe("This model accepts images.");
+    expect(modeHasReferenceGallery("image-to-image")).toBe(true);
+    expect(modeHasReferenceGallery("text-to-image")).toBe(false);
+    expect(modeHasReferenceGallery("reference-to-video")).toBe(true);
+    const image = new File(["x"], "still.png", { type: "image/png" });
+    const video = new File(["x"], "clip.mp4", { type: "video/mp4" });
+    const split = partitionMediaFiles([image, video], ["image"]);
+    expect(split.accepted.map((item) => item.kind)).toEqual(["image"]);
+    expect(split.rejected.map((file) => file.name)).toEqual(["clip.mp4"]);
+  });
+
   it("always writes mention tokens when a library item is newly staged", () => {
     expect(appendAttachMention("", "image", 0, 1)).toBe("@Image1");
     expect(appendAttachMention("a red ox", "image", 0, 1)).toBe("a red ox @Image1");
@@ -1120,16 +1161,19 @@ describe("get last frame control", () => {
   };
 
   function markup(props: {
-    mode: "text-to-image" | "reference-to-video" | "video-to-video" | null;
+    mode: "text-to-image" | "image-to-image" | "reference-to-video" | "video-to-video" | null;
     model: string;
     showLastFrame: boolean;
     getLastFrame?: boolean;
+    capabilities?: { input?: string[] };
+    slots?: ModelControls["slots"];
+    resolution?: string[] | null;
   }) {
     return renderToStaticMarkup(
       createElement(Composer, {
         ...base,
         mode: props.mode,
-        models: [{ id: props.model }],
+        models: [{ id: props.model, capabilities: props.capabilities }],
         model: props.model,
         controls: {
           modelId: props.model,
@@ -1138,11 +1182,11 @@ describe("get last frame control", () => {
           seed: true,
           generateAudio: false,
           quality: null,
-          resolution: null,
+          resolution: props.resolution ?? null,
           outputFormat: null,
           background: null,
-          slots: [],
-          mentions: false,
+          slots: props.slots ?? [],
+          mentions: (props.slots ?? []).length > 0,
           pricing: null,
         },
         showLastFrame: props.showLastFrame,
@@ -1172,6 +1216,43 @@ describe("get last frame control", () => {
     expect(video).toContain("Get last frame");
     expect(video).toContain("checked");
     expect(video).toContain("Gallery");
+  });
+
+  it("opens the gallery for image-to-image and limits uploads to images", () => {
+    const still = markup({
+      mode: "image-to-image",
+      model: "bytedance-seedream-5-pro",
+      showLastFrame: false,
+      capabilities: { input: ["text", "image"] },
+      resolution: ["2K", "3K"],
+      slots: [
+        { field: "input_images", kind: "image", required: false, maxItems: 6, asArray: true },
+      ],
+    });
+    expect(still).toContain("Gallery");
+    expect(still).toContain('accept="image/*"');
+    expect(still).not.toContain("video/*");
+    expect(still).not.toContain("audio/*");
+    expect(still).toContain(">2K<");
+    expect(still).toContain(">3K<");
+  });
+
+  it("keeps video and audio attachable on a model that accepts them", () => {
+    const clip = markup({
+      mode: "reference-to-video",
+      model: "bytedance-seedance-2-5-reference-to-video",
+      showLastFrame: false,
+      capabilities: { input: ["text", "image", "video", "audio"] },
+      slots: [
+        { field: "input_images", kind: "image", required: false, maxItems: 9, asArray: true },
+        { field: "input_videos", kind: "video", required: false, maxItems: 3, asArray: true },
+        { field: "input_audios", kind: "audio", required: false, maxItems: 3, asArray: true },
+      ],
+    });
+    expect(clip).toContain("Gallery");
+    expect(clip).toContain('accept="image/*,video/*,audio/*"');
+    expect(clip).not.toContain("This model needs at least one reference image.");
+    expect(clip).not.toContain("This model needs a reference video.");
   });
 });
 

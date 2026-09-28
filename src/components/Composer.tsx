@@ -12,6 +12,7 @@ import {
   ALL_MODES,
   MODE_LABELS,
   estimateGenerationCost,
+  modeHasReferenceGallery,
   modeIsVideo,
   modelSupportsMode,
   slotRequired,
@@ -34,7 +35,7 @@ import {
   type PromptMention,
 } from "../lib/mentions";
 import { shortenFileName } from "../lib/files";
-import { mediaKindCap } from "../lib/library-refs";
+import { acceptedMediaKinds, fileAcceptValue, mediaKindPhrase, attachKindCap } from "../lib/library-refs";
 import { aspectCatalog, aspectSelectOptions } from "../lib/params";
 import type { GallerySummary } from "../lib/api";
 import { AudioAttachControl, ExpandMediaButton } from "./MediaLightbox";
@@ -184,11 +185,15 @@ export function Composer(props: Props) {
   const savedMenuRef = useRef<HTMLDivElement>(null);
   const pendingCaret = useRef<{ caret: number; prompt: string } | null>(null);
 
-  const imageMax = mediaKindCap(props.controls, props.mode, "image");
-  const videoMax = mediaKindCap(props.controls, props.mode, "video");
-  const audioMax = mediaKindCap(props.controls, props.mode, "audio");
+  const selectedModel = props.models.find((item) => item.id === props.model);
+  const imageMax = attachKindCap(props.controls, props.mode, "image", selectedModel);
+  const videoMax = attachKindCap(props.controls, props.mode, "video", selectedModel);
+  const audioMax = attachKindCap(props.controls, props.mode, "audio", selectedModel);
+  const acceptedKinds = acceptedMediaKinds(props.controls, props.mode, selectedModel);
+  const fileAccept = fileAcceptValue(acceptedKinds);
+  const dropPhrase = mediaKindPhrase(acceptedKinds);
   const audioCount = props.attachments.filter((item) => item.kind === "audio").length;
-  const galleryAvailable = Boolean(props.mode && modeIsVideo(props.mode));
+  const galleryAvailable = modeHasReferenceGallery(props.mode);
   const galleryOpen = galleryAvailable && galleryForMode === props.mode;
   const showDropzone =
     imageMax > 0 ||
@@ -201,7 +206,6 @@ export function Composer(props: Props) {
     aspectCatalog(props.controls, props.mode),
     props.aspectRatio,
   );
-  const selectedModel = props.models.find((item) => item.id === props.model);
   const cost = estimateGenerationCost({
     pricing: props.controls?.pricing ?? selectedModel?.pricing,
     numGenerations: props.numGenerations,
@@ -1105,13 +1109,13 @@ export function Composer(props: Props) {
             </label>
           ) : null}
 
-          {showDropzone ? (
+          {showDropzone && fileAccept ? (
             <label className="ghost-btn attach">
               Add media
               <input
                 ref={fileRef}
                 type="file"
-                accept="image/*,video/*,audio/*"
+                accept={fileAccept}
                 multiple
                 onChange={(e) => {
                   props.onAddFiles(e.target.files);
@@ -1157,7 +1161,7 @@ export function Composer(props: Props) {
         ) : null}
         {dragging ? (
           <div className="prompt-drop-overlay" aria-hidden>
-            Drop media to attach
+            {dropPhrase ? `Drop ${dropPhrase}` : "Choose a model that accepts this file"}
           </div>
         ) : null}
       </div>
@@ -1181,6 +1185,8 @@ export function Composer(props: Props) {
           }}
           onLoad={(id) => void props.onGalleryLoad?.(id)}
           onAttach={attachGallery}
+          accept={fileAccept}
+          dropLabel={dropPhrase ? `Drop ${dropPhrase}` : ""}
           onClose={() => setGalleryForMode(null)}
         />
       ) : null}
