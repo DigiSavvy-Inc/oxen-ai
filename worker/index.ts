@@ -139,6 +139,21 @@ app.onError((err, c) => {
   return c.json({ error: err.message || "Internal error" }, 500);
 });
 
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+// SameSite=Lax still sends the session cookie from other *.digisavvy.dev subdomains,
+// and c.req.json() parses text/plain bodies, so browser writes must come from Studio.
+// Requests without an Origin header (curl, server-to-server) are not browser CSRF.
+app.use("/api/*", async (c, next) => {
+  if (UNSAFE_METHODS.has(c.req.method)) {
+    const origin = c.req.header("Origin");
+    if (origin && origin !== new URL(c.req.url).origin && origin !== publicOrigin(c)) {
+      throw new HTTPException(403, { message: "Cross-origin request blocked" });
+    }
+  }
+  await next();
+});
+
 async function requireUser(c: {
   req: { header: (name: string) => string | undefined };
   env: Env;
