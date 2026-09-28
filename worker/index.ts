@@ -1409,7 +1409,7 @@ app.post("/api/generate", async (c) => {
     model: body.model.trim(),
     prompt: body.prompt.trim(),
     aspect_ratio: resolveEnqueueAspectRatio(body.aspect_ratio, controls.aspectRatios),
-    duration: clampDuration(body.duration, controls.duration),
+    duration: controls.duration ? clampDuration(body.duration, controls.duration) : undefined,
     seed: controls.seed || useFallback ? body.seed : undefined,
     generate_audio: controls.generateAudio || useFallback ? body.generate_audio : undefined,
     num_generations: body.num_generations,
@@ -1534,7 +1534,7 @@ app.post("/api/generate", async (c) => {
     await saveStudioSettings(c.env.DB, user.id, {
       lastParams: {
         aspect_ratio: body.aspect_ratio,
-        duration: body.duration,
+        duration: controls.duration ? clampDuration(body.duration, controls.duration) : undefined,
         seed: body.seed,
         generate_audio: body.generate_audio,
         quality: body.quality,

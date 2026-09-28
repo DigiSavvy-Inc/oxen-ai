@@ -14,6 +14,7 @@ import {
   api,
   firstSupportedMode,
   mentionToken,
+  modeIsVideo,
   modelSupportsMode,
   slotRequired,
   type CreditBalance,
@@ -43,6 +44,7 @@ import { insertAttachMentions, moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 import { captureVideoLastFrame } from "./lib/last-frame";
 import { preferredAspectRatio, showGetLastFrame, takeStagedOfKind } from "./lib/params";
+import { durationFieldValue, durationToSend, nearestDurationValue } from "../worker/schema";
 
 type StagedMedia = {
   file?: File;
@@ -466,28 +468,9 @@ export default function App() {
         if (data.controls.aspectRatios && data.controls.aspectRatios.length > 0) {
           setAspectRatio((prev) => preferredAspectRatio(data.controls.aspectRatios ?? [], prev));
         }
-        if (data.controls.duration?.kind === "enum") {
-          setDuration((prev) =>
-            data.controls.duration?.kind === "enum" && data.controls.duration.values.includes(prev)
-              ? prev
-              : (data.controls.duration?.kind === "enum"
-                  ? (data.controls.duration.defaultValue ?? data.controls.duration.values[0] ?? prev)
-                  : prev),
-          );
-        } else if (data.controls.duration?.kind === "int") {
-          setDuration((prev) => {
-            const numeric = Number(prev);
-            if (!Number.isFinite(numeric) || data.controls.duration?.kind !== "int") {
-              return String(data.controls.duration?.kind === "int"
-                ? (data.controls.duration.defaultValue ?? data.controls.duration.min)
-                : prev);
-            }
-            const clamped = Math.min(
-              data.controls.duration.max,
-              Math.max(data.controls.duration.min, numeric),
-            );
-            return String(clamped);
-          });
+        const durationControl = data.controls.duration;
+        if (durationControl) {
+          setDuration((prev) => nearestDurationValue(prev, durationControl));
         }
         if (data.controls.quality) {
           setQuality((prev) =>
@@ -527,6 +510,13 @@ export default function App() {
       cancelled = true;
     };
   }, [model, user?.hasOxenKey]);
+
+  useEffect(() => {
+    const durationControl = controls?.duration;
+    if (!durationControl || duration.trim() === "") return;
+    const next = durationFieldValue(duration, durationControl);
+    if (next !== duration) setDuration(next);
+  }, [controls, duration]);
 
   useEffect(() => {
     const active = generations.filter(isActiveGeneration);
@@ -1074,11 +1064,9 @@ export default function App() {
         aspect_ratio: aspectRatio,
         num_generations: numGenerations,
       };
-      if (duration.trim()) {
-        payload.duration =
-          controls?.duration?.kind === "enum" || Number.isNaN(Number(duration))
-            ? duration
-            : Number(duration);
+      if (modeIsVideo(mode)) {
+        const sent = durationToSend(duration, controls?.duration ?? null);
+        if (sent != null && sent !== "") payload.duration = sent;
       }
       if (seed.trim()) payload.seed = Number(seed);
       if (controls?.generateAudio) payload.generate_audio = generateAudio;
