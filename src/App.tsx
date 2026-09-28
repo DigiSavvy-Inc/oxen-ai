@@ -56,6 +56,7 @@ type StagedMedia = {
 };
 
 const GALLERY_ITEM_CAP = 24;
+const LIBRARY_LOAD_TIMEOUT_MS = 20_000;
 
 function initialLibraryOpen(): boolean {
   if (typeof window === "undefined") return false;
@@ -105,6 +106,7 @@ export default function App() {
   const [libraryOpen, setLibraryOpen] = useState(initialLibraryOpen);
   const [peekId, setPeekId] = useState<string | null>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const hydratedParamsUserId = useRef<string | null>(null);
   const paramsTouched = useRef(false);
@@ -168,8 +170,8 @@ export default function App() {
     });
   }, [keepCanvasClear]);
 
-  const refreshLibrary = useCallback(async () => {
-    const data = await api.listGenerations("library");
+  const refreshLibrary = useCallback(async (signal?: AbortSignal) => {
+    const data = await api.listGenerations("library", signal);
     setGenerations((prev) => mergeGenerations(prev, data.generations));
   }, []);
 
@@ -321,19 +323,33 @@ export default function App() {
 
   useEffect(() => {
     if (!user || !libraryOpen) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), LIBRARY_LOAD_TIMEOUT_MS);
     let cancelled = false;
     setLibraryLoading(true);
-    void refreshLibrary()
+    setLibraryError(null);
+    void refreshLibrary(controller.signal)
+      .then(() => {
+        if (!cancelled) setLibraryError(null);
+      })
       .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load library");
-        }
+        if (cancelled) return;
+        const message = controller.signal.aborted
+          ? "Library took too long to load."
+          : err instanceof Error
+            ? err.message
+            : "Failed to load library";
+        setLibraryError(message);
+        setError(message);
       })
       .finally(() => {
+        window.clearTimeout(timer);
         if (!cancelled) setLibraryLoading(false);
       });
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
+      controller.abort();
     };
   }, [user, libraryOpen, refreshLibrary]);
 
@@ -1112,6 +1128,7 @@ export default function App() {
         generations={generations}
         selectedId={peekId}
         loading={libraryLoading}
+        loadError={libraryError}
         downloadingAll={downloadingAll}
         onSelect={setPeekId}
         onClose={closeLibrary}

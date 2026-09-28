@@ -98,6 +98,12 @@ const CLOSED_EXPAND: GalleryExpandState = {
 
 const GALLERY_COLUMNS = 3;
 
+function emptyLibraryMessage(tagQuery: string, loadError?: string | null): string {
+  if (loadError) return loadError;
+  if (tagQuery.trim()) return "No media with that tag.";
+  return "No generations yet. Write a prompt and hit Generate — jobs run through Oxen's async queue.";
+}
+
 function chunkBatches<T>(items: T[], size = GALLERY_COLUMNS): T[][] {
   const rows: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
@@ -110,6 +116,7 @@ export function Sidebar({
   generations,
   selectedId,
   loading,
+  loadError,
   downloadingAll,
   onSelect,
   onClose,
@@ -122,6 +129,7 @@ export function Sidebar({
   generations: Generation[];
   selectedId: string | null;
   loading?: boolean;
+  loadError?: string | null;
   downloadingAll?: boolean;
   onSelect: (id: string | null) => void;
   onClose?: () => void;
@@ -235,9 +243,7 @@ export function Sidebar({
             </div>
           ) : batches.length === 0 ? (
             <div className="history-empty">
-              {tagQuery.trim()
-                ? "No media with that tag."
-                : "No generations yet. Write a prompt and hit Generate — jobs run through Oxen's async queue."}
+              {emptyLibraryMessage(tagQuery, loadError)}
             </div>
           ) : (
             chunkBatches(batches).map((row) => {

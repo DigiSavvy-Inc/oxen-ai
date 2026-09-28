@@ -275,9 +275,9 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).then((r) => parseJson<{ generations: Generation[] }>(r)),
-  listGenerations: (scope: "active" | "library" = "library") => {
+  listGenerations: (scope: "active" | "library" = "library", signal?: AbortSignal) => {
     const params = new URLSearchParams({ scope });
-    return fetch(`/api/generations?${params}`).then((r) =>
+    return fetch(`/api/generations?${params}`, { signal }).then((r) =>
       parseJson<{ generations: Generation[] }>(r),
     );
   },

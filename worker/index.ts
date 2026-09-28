@@ -594,25 +594,41 @@ async function typicalWaitByMedia(
   return out;
 }
 
-function generationListQuery(scope: GenerationListScope): {
-  sql: string;
-  persistMissing: boolean;
-} {
+function generationListQuery(scope: GenerationListScope): string {
   switch (scope) {
     case "active":
-      return {
-        sql: `SELECT * FROM generations WHERE user_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled') ORDER BY created_at DESC LIMIT 50`,
-        persistMissing: false,
-      };
+      return `SELECT * FROM generations WHERE user_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled') ORDER BY created_at DESC LIMIT 50`;
     case "library":
-      return {
-        sql: `SELECT * FROM generations WHERE user_id = ? ORDER BY created_at DESC LIMIT 100`,
-        persistMissing: true,
-      };
+      return `SELECT * FROM generations WHERE user_id = ? ORDER BY created_at DESC LIMIT 100`;
     default: {
       const _never: never = scope;
       throw new Error(`Unhandled generation list scope: ${_never}`);
     }
+  }
+}
+
+/** One file per library open. Archiving the whole page inline held the response for minutes. */
+const LIBRARY_ARCHIVE_LIMIT = 1;
+
+async function archiveMissingLibraryResults(
+  env: Env,
+  userId: string,
+  apiKey: string,
+): Promise<void> {
+  const rows = await env.DB.prepare(
+    `SELECT * FROM generations
+     WHERE user_id = ? AND status = 'succeeded'
+       AND result_url IS NOT NULL AND (result_key IS NULL OR result_key = '')
+     ORDER BY created_at DESC
+     LIMIT ?`,
+  )
+    .bind(userId, LIBRARY_ARCHIVE_LIMIT)
+    .all<GenerationRow>();
+  for (const row of rows.results ?? []) {
+    await syncGenerationRow(env, userId, apiKey, row, {
+      persistMissing: true,
+      pollActive: false,
+    });
   }
 }
 
@@ -1480,12 +1496,9 @@ app.get("/api/generations", async (c) => {
   if (!scope) {
     throw new HTTPException(400, { message: "Invalid generation list scope" });
   }
-  const query = generationListQuery(scope);
+  const sql = generationListQuery(scope);
   const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
-  if (scope === "library") {
-    runInBackground(c, backfillMissingThumbnails(c.env, user.id));
-  }
-  const rows = await c.env.DB.prepare(query.sql).bind(user.id).all<GenerationRow>();
+  const rows = await c.env.DB.prepare(sql).bind(user.id).all<GenerationRow>();
 
   const typicals = await typicalWaitByMedia(c.env, user.id);
   const tagMap = await tagsByGeneration(
@@ -1496,13 +1509,18 @@ app.get("/api/generations", async (c) => {
   const generations = await Promise.all(
     (rows.results ?? []).map((row) =>
       syncGenerationRow(c.env, user.id, apiKey, row, {
-        persistMissing: query.persistMissing,
+        persistMissing: false,
         pollActive: false,
         typicalSeconds: row.media_type ? typicals[row.media_type] ?? null : null,
         tags: tagMap.get(row.id) ?? [],
       }),
     ),
   );
+
+  if (scope === "library") {
+    runInBackground(c, backfillMissingThumbnails(c.env, user.id));
+    if (apiKey) runInBackground(c, archiveMissingLibraryResults(c.env, user.id, apiKey));
+  }
 
   return c.json({ generations });
 });

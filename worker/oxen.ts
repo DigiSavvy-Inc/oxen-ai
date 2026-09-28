@@ -471,6 +471,9 @@ export async function cancelGeneration(
   }
 }
 
+/** Bound so a stuck provider URL cannot pin a Worker invocation. */
+export const OXEN_RESULT_DOWNLOAD_MS = 20_000;
+
 export async function downloadOxenResult(
   apiKey: string,
   resultUrl: string,
@@ -478,6 +481,7 @@ export async function downloadOxenResult(
   const res = await fetch(resultUrl, {
     headers: { Authorization: `Bearer ${apiKey}` },
     redirect: "follow",
+    signal: AbortSignal.timeout(OXEN_RESULT_DOWNLOAD_MS),
   });
   if (!res.ok) {
     throw new Error(`Oxen result download failed (${res.status})`);
