@@ -370,7 +370,6 @@ export function Sidebar({
                               <div className="history-tile-media">
                                 <PreviewFace item={preview} />
                               </div>
-                              <ExpandCorners />
                             </button>
                           ) : (
                             <div className="history-expand-preview" data-preview-id={preview.id}>
@@ -418,6 +417,7 @@ export function Sidebar({
                                   : `Can't attach ${attachKindLabel(preview)}`}
                             </button>
                           ) : null}
+                          {canFit ? <ExpandCorners /> : null}
                         </div>
                         {openBatch.items.length > 1 ? (
                           <div className="history-expand-versions" role="list" aria-label="Versions">

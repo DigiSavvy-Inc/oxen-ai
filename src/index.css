@@ -2017,7 +2017,9 @@ button.history-expand-preview {
 .result-expand:hover .expand-corners,
 .result-expand:focus-visible .expand-corners,
 .history-expand-preview:hover .expand-corners,
-.history-expand-preview:focus-visible .expand-corners {
+.history-expand-preview:focus-visible .expand-corners,
+.history-expand-frame:hover .expand-corners,
+.history-expand-frame:focus-within .expand-corners {
   opacity: 0.85;
 }
 
@@ -2041,6 +2043,42 @@ button.history-expand-preview {
   left: 0;
   border-bottom-width: 2px;
   border-left-width: 2px;
+}
+
+/* History downloads occupy the upper right, so the angle marks swap corners.
+   The lower mark sits on the light attach bar and needs a dark stroke plus a light halo. */
+.history-expand-frame:hover .expand-corners,
+.history-expand-frame:focus-within .expand-corners {
+  opacity: 1;
+}
+
+.history-expand-frame .expand-corners {
+  z-index: 5;
+}
+
+.history-expand-frame .expand-corner-tr {
+  top: 0;
+  right: auto;
+  left: 0;
+  border-top-width: 2px;
+  border-right-width: 0;
+  border-left-width: 2px;
+}
+
+.history-expand-frame .expand-corner-bl {
+  bottom: 0;
+  left: auto;
+  right: 0;
+  z-index: 5;
+  border-bottom-width: 3px;
+  border-left-width: 0;
+  border-right-width: 3px;
+  border-color: var(--text);
+  filter:
+    drop-shadow(1px 0 0 #fff)
+    drop-shadow(-1px 0 0 #fff)
+    drop-shadow(0 1px 0 #fff)
+    drop-shadow(0 -1px 0 #fff);
 }
 
 .fullsize-backdrop {

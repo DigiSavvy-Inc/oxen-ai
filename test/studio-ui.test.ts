@@ -916,6 +916,9 @@ describe("library history layout", () => {
     expect(css).toMatch(
       /\.history-tile\.is-expanded \.history-expand-frame \.media-download\s*\{[^}]*display:\s*inline-flex/,
     );
+    expect(css).toMatch(/\.history-expand-frame \.expand-corner-tr\s*\{[^}]*left:\s*0/);
+    expect(css).toMatch(/\.history-expand-frame \.expand-corner-bl\s*\{[^}]*right:\s*0/);
+    expect(css).toMatch(/\.history-expand-frame \.expand-corner-bl\s*\{[^}]*border-color:\s*var\(--text\)/);
     expect(sidebar).not.toContain("history-status");
     expect(sidebar).toContain("DownloadButton");
   });
