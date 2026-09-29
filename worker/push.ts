@@ -39,6 +39,32 @@ export function vapidSubject(env: Pick<Env, "VAPID_SUBJECT" | "PUBLIC_BASE_URL">
   return "https://oxen.ai";
 }
 
+/**
+ * Browser push services. The Worker POSTs to the endpoint on every finished generation,
+ * so an arbitrary https URL would turn subscriptions into a blind outbound-request relay.
+ */
+const PUSH_SERVICE_HOSTS = [
+  "fcm.googleapis.com", // Chrome, Edge (Chromium), Brave, Opera, Samsung Internet
+  "push.services.mozilla.com", // Firefox
+  "push.apple.com", // Safari
+  "notify.windows.com", // legacy Edge / Windows
+];
+const MAX_ENDPOINT_LENGTH = 2048;
+const MAX_KEY_LENGTH = 256;
+/** Oldest devices are dropped past this, so one account cannot grow the table without bound. */
+export const MAX_PUSH_SUBSCRIPTIONS_PER_USER = 10;
+
+export function isPushServiceEndpoint(endpoint: string): boolean {
+  try {
+    const url = new URL(endpoint);
+    if (url.protocol !== "https:" || url.port) return false;
+    const host = url.hostname.toLowerCase();
+    return PUSH_SERVICE_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+  } catch {
+    return false;
+  }
+}
+
 export function parsePushSubscription(body: unknown): PushSubscriptionInput {
   if (!body || typeof body !== "object") {
     throw new Error("Invalid push subscription");
@@ -50,7 +76,14 @@ export function parsePushSubscription(body: unknown): PushSubscriptionInput {
   const endpoint = typeof record.endpoint === "string" ? record.endpoint.trim() : "";
   const p256dh = typeof record.keys?.p256dh === "string" ? record.keys.p256dh.trim() : "";
   const auth = typeof record.keys?.auth === "string" ? record.keys.auth.trim() : "";
-  if (!endpoint.startsWith("https://") || !p256dh || !auth) {
+  if (
+    !p256dh ||
+    !auth ||
+    endpoint.length > MAX_ENDPOINT_LENGTH ||
+    p256dh.length > MAX_KEY_LENGTH ||
+    auth.length > MAX_KEY_LENGTH ||
+    !isPushServiceEndpoint(endpoint)
+  ) {
     throw new Error("Invalid push subscription");
   }
   return { endpoint, keys: { p256dh, auth } };
@@ -67,28 +100,39 @@ export async function savePushSubscription(
     .bind(subscription.endpoint)
     .first<{ id: string }>();
   if (existing?.id) {
+    // The endpoint is a secret only the subscribing browser knows, so a match means the
+    // same device; moving it to whoever signed in there last is the intended handoff.
     await db
       .prepare(
         `UPDATE push_subscriptions SET user_id = ?, p256dh = ?, auth = ?, updated_at = ? WHERE id = ?`,
       )
       .bind(userId, subscription.keys.p256dh, subscription.keys.auth, now, existing.id)
       .run();
-    return;
+  } else {
+    await db
+      .prepare(
+        `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        userId,
+        subscription.endpoint,
+        subscription.keys.p256dh,
+        subscription.keys.auth,
+        now,
+        now,
+      )
+      .run();
   }
   await db
     .prepare(
-      `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `DELETE FROM push_subscriptions
+       WHERE user_id = ? AND id NOT IN (
+         SELECT id FROM push_subscriptions WHERE user_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT ?
+       )`,
     )
-    .bind(
-      crypto.randomUUID(),
-      userId,
-      subscription.endpoint,
-      subscription.keys.p256dh,
-      subscription.keys.auth,
-      now,
-      now,
-    )
+    .bind(userId, userId, MAX_PUSH_SUBSCRIPTIONS_PER_USER)
     .run();
 }
 

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SESSION_COOKIE } from "../worker/auth";
 import { app } from "../worker/index";
@@ -5,7 +7,13 @@ import {
   generationNotifyCopy,
   shouldNotifyStatusChange,
 } from "../worker/notify-copy";
-import { parsePushSubscription, vapidConfigured } from "../worker/push";
+import {
+  MAX_PUSH_SUBSCRIPTIONS_PER_USER,
+  isPushServiceEndpoint,
+  parsePushSubscription,
+  savePushSubscription,
+  vapidConfigured,
+} from "../worker/push";
 import { createEnv, TEST_SESSION_ID } from "./helpers";
 
 function cookieHeader() {
@@ -69,11 +77,11 @@ describe("parsePushSubscription", () => {
     ).toThrow("Invalid push subscription");
     expect(
       parsePushSubscription({
-        endpoint: "https://push.example/sub",
+        endpoint: "https://fcm.googleapis.com/fcm/send/test-sub",
         keys: { p256dh: "abc", auth: "def" },
       }),
     ).toEqual({
-      endpoint: "https://push.example/sub",
+      endpoint: "https://fcm.googleapis.com/fcm/send/test-sub",
       keys: { p256dh: "abc", auth: "def" },
     });
   });
@@ -130,7 +138,7 @@ describe("POST /api/push/subscribe", () => {
         method: "POST",
         headers: { Cookie: cookieHeader(), "Content-Type": "application/json" },
         body: JSON.stringify({
-          endpoint: "https://push.example/sub",
+          endpoint: "https://fcm.googleapis.com/fcm/send/test-sub",
           keys: { p256dh: "abc", auth: "def" },
         }),
       },
@@ -157,7 +165,7 @@ describe("POST /api/push/subscribe", () => {
         method: "POST",
         headers: { Cookie: cookieHeader(), "Content-Type": "application/json" },
         body: JSON.stringify({
-          endpoint: "https://push.example/sub",
+          endpoint: "https://fcm.googleapis.com/fcm/send/test-sub",
           keys: { p256dh: "abc", auth: "def" },
         }),
       },
@@ -181,5 +189,82 @@ describe("DELETE /api/push/subscribe", () => {
       createEnv(),
     );
     expect(res.status).toBe(400);
+  });
+});
+
+describe("push endpoint allowlist", () => {
+  // The Worker POSTs to every stored endpoint; only real browser push services qualify.
+  it.each([
+    "https://fcm.googleapis.com/fcm/send/abc",
+    "https://updates.push.services.mozilla.com/wpush/v2/abc",
+    "https://web.push.apple.com/abc",
+    "https://wns2-bl2p.notify.windows.com/w/?token=abc",
+  ])("accepts %s", (endpoint) => {
+    expect(isPushServiceEndpoint(endpoint)).toBe(true);
+  });
+
+  it.each([
+    "https://evil.example/collect",
+    "https://fcm.googleapis.com.evil.example/x",
+    "https://notfcm.googleapis.com/x",
+    "http://fcm.googleapis.com/fcm/send/abc",
+    "https://fcm.googleapis.com:8443/fcm/send/abc",
+    "https://169.254.169.254/latest",
+  ])("rejects %s", (endpoint) => {
+    expect(isPushServiceEndpoint(endpoint)).toBe(false);
+    expect(() =>
+      parsePushSubscription({ endpoint, keys: { p256dh: "p", auth: "a" } }),
+    ).toThrow();
+  });
+
+  it("rejects oversized keys", () => {
+    expect(() =>
+      parsePushSubscription({
+        endpoint: "https://fcm.googleapis.com/fcm/send/abc",
+        keys: { p256dh: "p".repeat(257), auth: "a" },
+      }),
+    ).toThrow();
+  });
+});
+
+describe("push subscriptions per account", () => {
+  it(`keeps only the newest ${MAX_PUSH_SUBSCRIPTIONS_PER_USER} devices per account`, async () => {
+    const raw = new DatabaseSync(":memory:");
+    raw.exec(readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8"));
+    raw.exec(readFileSync(new URL("../migrations/0006_push_subscriptions.sql", import.meta.url), "utf8"));
+    raw.exec(
+      `INSERT INTO users (id, github_id, login, created_at, updated_at) VALUES ('u1', 1, 'a', 0, 0), ('u2', 2, 'b', 0, 0)`,
+    );
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...args: (string | number)[]) {
+            return {
+              async first() {
+                return raw.prepare(sql).get(...args) ?? null;
+              },
+              async run() {
+                raw.prepare(sql).run(...args);
+                return { success: true };
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    for (let i = 0; i < MAX_PUSH_SUBSCRIPTIONS_PER_USER + 5; i++) {
+      await savePushSubscription(db, "u1", {
+        endpoint: `https://fcm.googleapis.com/fcm/send/device-${i}`,
+        keys: { p256dh: "p", auth: "a" },
+      });
+    }
+    await savePushSubscription(db, "u2", {
+      endpoint: "https://fcm.googleapis.com/fcm/send/other",
+      keys: { p256dh: "p", auth: "a" },
+    });
+    const count = (user: string) =>
+      (raw.prepare(`SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?`).get(user) as { n: number }).n;
+    expect(count("u1")).toBe(MAX_PUSH_SUBSCRIPTIONS_PER_USER);
+    expect(count("u2")).toBe(1);
   });
 });
