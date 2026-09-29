@@ -1,8 +1,8 @@
-# DS Studio
+# Oxen Studio
 
 A light web studio for [Oxen AI](https://docs.oxen.ai/inference-api/overview) image and video generation. You pick a mode and a model, write a prompt, attach references, and the app queues the job. Finished files are saved for you.
 
-DigiSavvy runs a copy at **https://studio.digisavvy.dev**. This repository is the app. You can run your own.
+The default site name is **Oxen Studio**, with Oxen’s mark bundled in the repo. An admin changes the name and logo for the whole instance in Settings → Branding. DigiSavvy runs a copy at **https://studio.digisavvy.dev**. This repository is the app. You can run your own.
 
 Each signed-in person keeps their own Oxen API key. The server encrypts it and talks to Oxen. The browser never sees the key again after it is saved.
 

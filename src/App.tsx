@@ -27,6 +27,7 @@ import {
   type StudioSettings,
 } from "./lib/api";
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations, siblingAfterRemoval } from "./lib/batches";
+import { useInstanceBranding } from "./lib/branding";
 import { notifyGenerationLocal } from "./lib/pwa";
 import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
 import { filesFromList, partitionMediaFiles } from "./lib/files";
@@ -71,6 +72,7 @@ function initialLibraryOpen(): boolean {
 
 export default function App() {
   const { user, loading, logout } = useAuth();
+  const { branding, setBranding } = useInstanceBranding();
   const [showSettings, setShowSettings] = useState(false);
   const [mode, setMode] = useState<GenerationMode | null>(null);
   const [models, setModels] = useState<OxenModel[]>([]);
@@ -959,7 +961,7 @@ export default function App() {
     if (ids.length === 0) return;
     if (
       fromOxen &&
-      !window.confirm("Delete this media from DS Studio and Oxen? This cannot be undone.")
+      !window.confirm(`Delete this media from ${branding.name} and Oxen? This cannot be undone.`)
     ) {
       return;
     }
@@ -1101,18 +1103,19 @@ export default function App() {
   if (loading) {
     return (
       <div className="loading-screen">
-        <Loader size="lg" label="Loading DS Studio…" />
+        <Loader size="lg" label={`Loading ${branding.name}…`} />
       </div>
     );
   }
 
   if (!user) {
-    return <LoginPage />;
+    return <LoginPage name={branding.name} logoUrl={branding.logoUrl} />;
   }
 
   return (
     <div className={`app-shell${libraryOpen ? " library-open" : ""}${peek ? " has-peek" : ""}`}>
       <Sidebar
+        logoUrl={branding.logoUrl}
         generations={generations}
         selectedId={peekId}
         loading={libraryLoading}
@@ -1143,6 +1146,10 @@ export default function App() {
       <main className="main">
         <div className="main-top">
           <div className="main-top-left">
+            <div className="nav-brand">
+              <img className="brand-mark-img" src={branding.logoUrl} alt="" />
+              <strong>{branding.name}</strong>
+            </div>
             <button
               type="button"
               className={`ghost-btn${libraryOpen ? " active" : ""}`}
@@ -1286,6 +1293,8 @@ export default function App() {
           onSettingsChange={setSettings}
           onFavoritesChange={refreshFavorites}
           onLibraryCleanup={onLibraryCleanup}
+          branding={branding}
+          onBrandingChange={setBranding}
         />
       ) : null}
     </div>

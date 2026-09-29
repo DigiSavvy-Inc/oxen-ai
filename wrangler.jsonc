@@ -20,7 +20,7 @@
   // "routes": [{ "pattern": "studio.digisavvy.dev", "custom_domain": true }],
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/manifest.webmanifest"]
   },
   "observability": {
     "enabled": true,

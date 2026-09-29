@@ -3,6 +3,14 @@ import { api } from "./api";
 
 const NOTIFIED_KEY = "ds-studio-notified-ids";
 
+let activeSiteName = "Oxen Studio";
+let activeLogoUrl = "/oxen-logo.svg";
+
+export function setActiveBranding(name: string, logoUrl: string) {
+  activeSiteName = name.trim() || "Oxen Studio";
+  activeLogoUrl = logoUrl || "/oxen-logo.svg";
+}
+
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
@@ -159,19 +167,19 @@ export async function notifyGenerationLocal(generation: GenerationNotifyInput): 
   const push = await currentPushSubscription();
   if (push) return;
   markNotified(generation.id);
-  const copy = generationNotifyCopy(generation);
+  const copy = generationNotifyCopy(generation, activeSiteName);
   const registration = await navigator.serviceWorker.ready.catch(() => null);
   if (registration) {
     await registration.showNotification(copy.title, {
       body: copy.body,
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
+      icon: activeLogoUrl,
+      badge: activeLogoUrl,
       tag: copy.tag,
       data: { url: copy.url },
     });
     return;
   }
-  new Notification(copy.title, { body: copy.body, icon: "/icon-192.png", tag: copy.tag });
+  new Notification(copy.title, { body: copy.body, icon: activeLogoUrl, tag: copy.tag });
 }
 
 export function bootPwa() {

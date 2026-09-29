@@ -6,8 +6,10 @@ import {
   api,
   type GenerationMode,
   type OxenModel,
+  type InstanceBranding,
   type StudioSettings,
 } from "../lib/api";
+import { DEFAULT_LOGO_URL, DEFAULT_SITE_NAME } from "../lib/branding";
 import { defaultModelChoices, modelLabel } from "../lib/model-menu";
 import {
   canPromptInstall,
@@ -27,7 +29,7 @@ type AllowRow = {
   created_at: number;
 };
 
-type SettingsPane = "api-key" | "models" | "notifications" | "cleanup" | "allowlist";
+type SettingsPane = "api-key" | "models" | "notifications" | "cleanup" | "branding" | "allowlist";
 type CleanupAction = "failed" | "thumbs" | "all";
 
 function cleanupWaitLabel(action: CleanupAction): string {
@@ -52,6 +54,8 @@ export function SettingsModal({
   onSettingsChange,
   onFavoritesChange,
   onLibraryCleanup,
+  branding,
+  onBrandingChange,
 }: {
   onClose: () => void;
   favorites: OxenModel[];
@@ -59,6 +63,8 @@ export function SettingsModal({
   onSettingsChange: (settings: StudioSettings) => void;
   onFavoritesChange: () => Promise<void> | void;
   onLibraryCleanup?: (action: "failed" | "thumbs" | "all") => void;
+  branding: InstanceBranding;
+  onBrandingChange: (branding: InstanceBranding) => void;
 }) {
   const { user, setHasOxenKey } = useAuth();
   const [pane, setPane] = useState<SettingsPane>("api-key");
@@ -98,6 +104,13 @@ export function SettingsModal({
   const [notifyError, setNotifyError] = useState<string | null>(null);
   const [installReady, setInstallReady] = useState(() => canPromptInstall());
   const [installed, setInstalled] = useState(() => isStandaloneDisplay());
+  const [siteName, setSiteName] = useState(branding.savedName ?? "");
+  const [clearLogo, setClearLogo] = useState(false);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [brandBusy, setBrandBusy] = useState(false);
+  const [brandMessage, setBrandMessage] = useState<string | null>(null);
+  const [brandError, setBrandError] = useState<string | null>(null);
   async function loadAllowlist() {
     const data = await api.allowlist();
     setOrg(data.org);
@@ -111,6 +124,13 @@ export function SettingsModal({
       setAllowError(err instanceof Error ? err.message : "Failed to load allowlist"),
     );
   }, [user?.isAdmin]);
+
+  function chooseLogo(file: File | null) {
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    setLogoFile(file);
+    setLogoPreview(file ? URL.createObjectURL(file) : null);
+    if (file) setClearLogo(false);
+  }
 
   useEffect(() => {
     return onInstallAvailable(() => setInstallReady(canPromptInstall()));
@@ -173,6 +193,36 @@ export function SettingsModal({
     }, 300);
     return () => window.clearTimeout(handle);
   }, [modelSearch, user?.hasOxenKey]);
+
+  async function saveBranding() {
+    setBrandBusy(true);
+    setBrandError(null);
+    setBrandMessage(null);
+    try {
+      if (logoFile && logoFile.size > 512 * 1024) {
+        setBrandError("Logo must be 512 KB or smaller");
+        return;
+      }
+      const dropLogo = clearLogo && !logoFile;
+      let next = await api.saveBranding({ name: siteName, clearLogo: dropLogo });
+      if (logoFile && !clearLogo) {
+        next = await api.saveBrandingLogo(logoFile);
+      }
+      onBrandingChange(next);
+      setSiteName(next.savedName ?? "");
+      setClearLogo(false);
+      chooseLogo(null);
+      setBrandMessage(
+        next.savedName || next.customLogo
+          ? "Site name and logo saved."
+          : "Using the Oxen Studio defaults.",
+      );
+    } catch (err) {
+      setBrandError(err instanceof Error ? err.message : "Failed to save branding");
+    } finally {
+      setBrandBusy(false);
+    }
+  }
 
   function selectPane(next: SettingsPane) {
     setPane(next);
@@ -278,7 +328,7 @@ export function SettingsModal({
     if (outcome === "accepted") {
       setInstallReady(false);
       setInstalled(true);
-      setNotifyMessage("DS Studio is installing. Open it from your home screen.");
+      setNotifyMessage(`${branding.name} is installing. Open it from your home screen.`);
       return;
     }
     if (outcome === "unavailable") {
@@ -299,10 +349,12 @@ export function SettingsModal({
       } else if (result.permission === "unsupported") {
         setNotifyError("This browser does not support notifications.");
       } else if (result.subscribed) {
-        setNotifyMessage("You’ll get a notification when a generation finishes, even if DS Studio is closed.");
+        setNotifyMessage(
+          `You’ll get a notification when a generation finishes, even if ${branding.name} is closed.`,
+        );
       } else {
         setNotifyMessage(
-          "Notifications are on while DS Studio is open. Install the app and enable again for alerts after you leave.",
+          `Notifications are on while ${branding.name} is open. Install the app and enable again for alerts after you leave.`,
         );
       }
     } catch (err) {
@@ -527,7 +579,7 @@ export function SettingsModal({
       case "notifications":
         return (
           <>
-            <h3>Install DS Studio</h3>
+            <h3>Install {branding.name}</h3>
             <p>
               Add it to your phone’s home screen so it opens like an app. iPhone needs this
               step before notifications can work in the background.
@@ -556,7 +608,7 @@ export function SettingsModal({
                   style={{ marginLeft: 0 }}
                   onClick={() => void installApp()}
                 >
-                  Install DS Studio
+                  Install {branding.name}
                 </button>
               </div>
             ) : null}
@@ -610,7 +662,7 @@ export function SettingsModal({
           <>
             <h3>Library cleanup</h3>
             <p>
-              Removes jobs from DS Studio and their files in R2. Hover × in the library
+              Removes jobs from {branding.name} and their files in R2. Hover × in the library
               removes Studio copies only. Oxen also deletes the matching playground file
               when we can find it. Queue billing is unchanged.
               Thumbnails are 320px JPEGs for the library grid; full results stay for the canvas
@@ -688,6 +740,78 @@ export function SettingsModal({
             </div>
           </>
         );
+      case "branding": {
+        const previewName = siteName.trim() || DEFAULT_SITE_NAME;
+        const previewLogo = logoPreview
+          ? logoPreview
+          : clearLogo
+            ? DEFAULT_LOGO_URL
+            : branding.logoUrl;
+        return (
+          <>
+            <h3>Site name and logo</h3>
+            <p>
+              Everyone on this instance sees the same name and logo: the browser title,
+              favicon, sign-in page, and navigation. Leave the name blank to use Oxen Studio.
+              Save with the default logo checked to restore Oxen’s mark.
+            </p>
+            <label htmlFor="site-name">Site name</label>
+            <input
+              id="site-name"
+              className="field"
+              placeholder={DEFAULT_SITE_NAME}
+              value={siteName}
+              maxLength={80}
+              onChange={(e) => setSiteName(e.target.value)}
+            />
+            <div className="brand" style={{ margin: "14px 0" }}>
+              <img className="brand-mark-img" src={previewLogo} alt="" />
+              <div className="brand-copy">
+                <strong>{previewName}</strong>
+                <span>Preview</span>
+              </div>
+            </div>
+            <label htmlFor="site-logo">Logo</label>
+            <input
+              id="site-logo"
+              className="settings-logo-input"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+              disabled={brandBusy || clearLogo}
+              onChange={(e) => {
+                chooseLogo(e.target.files?.[0] ?? null);
+              }}
+            />
+            <label className="settings-check" htmlFor="clear-logo">
+              <input
+                id="clear-logo"
+                type="checkbox"
+                checked={clearLogo || (!branding.customLogo && !logoFile)}
+                disabled={brandBusy || (!branding.customLogo && !logoFile)}
+                onChange={(e) => {
+                  setClearLogo(e.target.checked);
+                  if (e.target.checked) chooseLogo(null);
+                }}
+              />
+              Use the default logo
+            </label>
+            <div className="modal-actions" style={{ justifyContent: "flex-start" }}>
+              <button
+                type="button"
+                className="primary-btn"
+                style={{ marginLeft: 0 }}
+                disabled={brandBusy}
+                onClick={() => void saveBranding()}
+              >
+                Save
+              </button>
+            </div>
+            {brandMessage ? <p className="settings-ok">{brandMessage}</p> : null}
+            {brandError ? <p className="settings-bad">{brandError}</p> : null}
+            {brandBusy ? <StatusWait label="Saving site name" /> : null}
+          </>
+        );
+      }
       case "allowlist":
         return (
           <>
@@ -796,6 +920,15 @@ export function SettingsModal({
             >
               Cleanup
             </button>
+            {user?.isAdmin ? (
+              <button
+                type="button"
+                className={`settings-nav-btn${pane === "branding" ? " active" : ""}`}
+                onClick={() => selectPane("branding")}
+              >
+                Branding
+              </button>
+            ) : null}
             {user?.isAdmin ? (
               <button
                 type="button"

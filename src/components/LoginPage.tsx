@@ -2,7 +2,13 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { Loader } from "./Loader";
 
-export function LoginPage() {
+export function LoginPage({
+  name,
+  logoUrl,
+}: {
+  name: string;
+  logoUrl: string;
+}) {
   const { loading } = useAuth();
   const [mode, setMode] = useState<"oauth" | "local" | null>(null);
   const [org, setOrg] = useState<string | null>(null);
@@ -29,9 +35,9 @@ export function LoginPage() {
     <div className="login-page">
       <div className="login-card">
         <div className="brand" style={{ marginBottom: 18 }}>
-          <img className="brand-mark-img" src="/favicon.svg" alt="" />
+          <img className="brand-mark-img" src={logoUrl} alt="" />
           <div className="brand-copy">
-            <strong>DS Studio</strong>
+            <strong>{name}</strong>
             <span>Image &amp; video generation</span>
           </div>
         </div>

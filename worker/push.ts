@@ -1,4 +1,5 @@
 import { buildPushPayload } from "@block65/webcrypto-web-push";
+import { readInstanceBranding } from "./branding";
 import {
   generationNotifyCopy,
   isTerminalNotifyStatus,
@@ -182,7 +183,11 @@ export async function notifyUser(
   const subscriptions = await listPushSubscriptions(env.DB, userId);
   if (subscriptions.length === 0) return { sent: 0, dropped: 0 };
 
-  const copy = generationNotifyCopy(generation);
+  const branding = await readInstanceBranding(env.DB);
+  const copy = {
+    ...generationNotifyCopy(generation, branding.name),
+    icon: branding.logoUrl,
+  };
   const vapid = {
     subject: vapidSubject(env),
     publicKey: env.VAPID_PUBLIC_KEY,

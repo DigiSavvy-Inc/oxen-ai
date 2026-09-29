@@ -113,6 +113,14 @@ import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
 import { getStudioSettings, saveStudioSettings } from "./user-settings";
 import { reserveUploadBytes } from "./upload-quota";
 import {
+  acceptLogoBytes,
+  INSTANCE_LOGO_KEY,
+  normalizeSiteName,
+  readInstanceBranding,
+  saveInstanceBranding,
+  saveInstanceLogo,
+} from "./branding";
+import {
   deletePushSubscription,
   notifyGenerationComplete,
   parsePushSubscription,
@@ -966,6 +974,70 @@ async function adminDisplayNames(env: Env): Promise<string[]> {
     }),
   );
 }
+
+app.get("/manifest.webmanifest", async (c) => {
+  const branding = await readInstanceBranding(c.env.DB);
+  const body = {
+    name: branding.name,
+    short_name: branding.name,
+    description: "Image and video generation",
+    start_url: "/",
+    scope: "/",
+    display: "standalone",
+    orientation: "any",
+    background_color: "#f6f5f2",
+    theme_color: "#f6f5f2",
+    icons: [
+      {
+        src: branding.logoUrl,
+        sizes: "any",
+        type: branding.logoType,
+        purpose: "any",
+      },
+    ],
+  };
+  return c.body(JSON.stringify(body), 200, {
+    "Content-Type": "application/manifest+json; charset=utf-8",
+    "Cache-Control": "no-cache",
+  });
+});
+
+app.get("/api/branding", async (c) => {
+  return c.json(await readInstanceBranding(c.env.DB));
+});
+
+app.put("/api/branding", async (c) => {
+  await requireUser(c);
+  requireAdmin(c.get("sessionUser"));
+  const body = await c.req.json<{ name?: unknown; clearLogo?: unknown }>();
+  const parsed = normalizeSiteName(body.name);
+  if (!parsed.ok) throw new HTTPException(400, { message: parsed.error });
+  const branding = await saveInstanceBranding(c.env.DB, c.env.MEDIA, {
+    name: parsed.name,
+    clearLogo: body.clearLogo === true,
+  });
+  return c.json(branding);
+});
+
+app.put("/api/branding/logo", async (c) => {
+  await requireUser(c);
+  requireAdmin(c.get("sessionUser"));
+  const bytes = new Uint8Array(await c.req.arrayBuffer());
+  const accepted = acceptLogoBytes(bytes);
+  if ("error" in accepted) throw new HTTPException(400, { message: accepted.error });
+  const branding = await saveInstanceLogo(c.env.DB, c.env.MEDIA, bytes, accepted.contentType);
+  return c.json(branding);
+});
+
+app.get("/api/branding/logo", async (c) => {
+  const object = await c.env.MEDIA.get(INSTANCE_LOGO_KEY);
+  if (!object) throw new HTTPException(404, { message: "No custom logo" });
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  if (!headers.get("Content-Type")) headers.set("Content-Type", "application/octet-stream");
+  headers.set("Cache-Control", "public, max-age=300");
+  return new Response(object.body, { headers });
+});
 
 app.get("/api/admin/allowlist", async (c) => {
   await requireUser(c);

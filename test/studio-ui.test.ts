@@ -975,7 +975,7 @@ describe("copy prompt", () => {
     expect(settings).toContain("Building missing thumbnails");
     expect(wait).toContain("Loader");
     expect(loader).toContain("Blocks");
-    expect(app).toContain("Loading DS Studio");
+    expect(app).toContain("branding.name");
     expect(composer).toContain("Queuing");
   });
 

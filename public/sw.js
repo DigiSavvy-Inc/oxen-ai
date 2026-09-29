@@ -1,4 +1,4 @@
-/* DS Studio service worker — installability + generation notifications. */
+/* Service worker — installability + generation notifications. */
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -10,10 +10,11 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("push", (event) => {
   const fallback = {
-    title: "DS Studio",
+    title: "Oxen Studio",
     body: "A generation finished.",
-    tag: "ds-studio",
+    tag: "oxen-studio",
     url: "/",
+    icon: "/oxen-logo.svg",
   };
   let payload = fallback;
   try {
@@ -35,8 +36,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(String(payload.title || fallback.title), {
       body: String(payload.body || fallback.body),
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
+      icon: String(payload.icon || fallback.icon),
+      badge: String(payload.icon || fallback.icon),
       tag: String(payload.tag || fallback.tag),
       renotify: true,
       data: { url: String(payload.url || "/") },

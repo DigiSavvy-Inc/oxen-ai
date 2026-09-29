@@ -18,7 +18,10 @@ export function shouldNotifyStatusChange(previous: string, next: string): boolea
   return isTerminalNotifyStatus(next) && previous !== next && !isSettledStatus(previous);
 }
 
-export function generationNotifyCopy(generation: GenerationNotifyInput): {
+export function generationNotifyCopy(
+  generation: GenerationNotifyInput,
+  siteName = "Oxen Studio",
+): {
   title: string;
   body: string;
   tag: string;
@@ -39,7 +42,7 @@ export function generationNotifyCopy(generation: GenerationNotifyInput): {
 
   return {
     title: `${kind} is ready`,
-    body: short || "Open DS Studio to view it.",
+    body: short || `Open ${siteName} to view it.`,
     tag: generation.id,
     url: "/",
   };

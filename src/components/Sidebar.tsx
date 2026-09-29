@@ -152,6 +152,7 @@ function chunkBatches<T>(items: T[], size = GALLERY_COLUMNS): T[][] {
 }
 
 export function Sidebar({
+  logoUrl,
   generations,
   selectedId,
   loading,
@@ -165,6 +166,7 @@ export function Sidebar({
   onAttach,
   attachSupported,
 }: {
+  logoUrl: string;
   generations: Generation[];
   selectedId: string | null;
   loading?: boolean;
@@ -216,7 +218,7 @@ export function Sidebar({
     <aside className="sidebar" id="media-library">
       <div className="sidebar-header">
         <div className="brand">
-          <img className="brand-mark-img" src="/favicon.svg" alt="" />
+          <img className="brand-mark-img" src={logoUrl} alt="" />
           <div className="brand-copy">
             <strong>Library</strong>
             <span>Past work</span>

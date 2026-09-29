@@ -76,8 +76,8 @@ export async function deleteOxenRepoMedia(
       return deleteWorkspacePaths(apiKey, ref, [ref.path]);
     case "file": {
       const form = new FormData();
-      form.append("message", "Delete DS Studio generation");
-      form.append("name", "DS Studio");
+      form.append("message", "Delete Oxen Studio generation");
+      form.append("name", "Oxen Studio");
       form.append("email", "studio@digisavvy.dev");
       const res = await hubFetch(encodeRepoPath(ref.namespace, ref.repo, "file", ref.resource), apiKey, {
         method: "DELETE",

@@ -64,6 +64,30 @@ describe("generationNotifyCopy", () => {
       tag: "gen-2",
     });
   });
+
+  it("uses the site name when a finished job has no prompt", () => {
+    expect(
+      generationNotifyCopy(
+        {
+          id: "gen-3",
+          status: "succeeded",
+          prompt: "   ",
+          mediaType: "image",
+          errorMessage: null,
+        },
+        "DS Studio",
+      ).body,
+    ).toBe("Open DS Studio to view it.");
+    expect(
+      generationNotifyCopy({
+        id: "gen-4",
+        status: "succeeded",
+        prompt: "",
+        mediaType: "video",
+        errorMessage: null,
+      }).body,
+    ).toBe("Open Oxen Studio to view it.");
+  });
 });
 
 describe("parsePushSubscription", () => {

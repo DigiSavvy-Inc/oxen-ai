@@ -76,6 +76,15 @@ export type StudioSettings = {
   lastParams: SharedOxenParams;
 };
 
+/** Instance-wide name and logo. `savedName` is null when the default is in use. */
+export type InstanceBranding = {
+  name: string;
+  savedName: string | null;
+  logoUrl: string;
+  logoType: string;
+  customLogo: boolean;
+};
+
 export type Generation = {
   id: string;
   oxenGenerationId: string;
@@ -226,6 +235,17 @@ export const api = {
     }).then((r) => parseJson(r)),
   clearOxenKey: () =>
     fetch("/api/settings/oxen-key", { method: "DELETE" }).then((r) => parseJson(r)),
+  branding: () => fetch("/api/branding").then((r) => parseJson<InstanceBranding>(r)),
+  saveBranding: (body: { name: string; clearLogo?: boolean }) =>
+    fetch("/api/branding", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => parseJson<InstanceBranding>(r)),
+  saveBrandingLogo: (file: Blob) =>
+    fetch("/api/branding/logo", { method: "PUT", body: file }).then((r) =>
+      parseJson<InstanceBranding>(r),
+    ),
   studioSettings: () =>
     fetch("/api/settings/studio").then((r) => parseJson<StudioSettings>(r)),
   saveStudioSettings: (body: Partial<StudioSettings>) =>
