@@ -20,6 +20,7 @@ import { DownloadButton } from "./DownloadButton";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
 import { MediaDeleteGroup } from "./MediaDeleteGroup";
+import { StagedStill, StagedVideo } from "./StagedStill";
 
 function tileSrc(item: Generation, allowFull = false): string | null {
   return tilePreviewUrl(item) || (allowFull ? item.resultUrl : null);
@@ -65,7 +66,22 @@ function PreviewFace({ item }: { item: Generation }) {
     return <audio className="library-audio" src={item.resultUrl} controls preload="metadata" />;
   }
   if (item.mediaType === "image" && item.resultUrl) {
-    return <img src={item.resultUrl} alt="" />;
+    return <StagedStill key={item.id} thumb={item.thumbUrl} full={item.resultUrl} alt="" />;
+  }
+  if (item.mediaType === "video" && item.resultUrl) {
+    return (
+      <>
+        <StagedVideo
+          key={item.id}
+          src={item.resultUrl}
+          poster={item.thumbUrl || item.lastFrameUrl}
+          muted
+          playsInline
+          preload="metadata"
+        />
+        <VideoPlayMark />
+      </>
+    );
   }
   return <TileFace item={item} allowFull />;
 }
@@ -89,6 +105,7 @@ function fitSlides(items: Generation[]): FitSlide[] {
         src: item.resultUrl,
         alt: item.prompt || "Library item",
         mediaType: item.mediaType,
+        poster: item.thumbUrl || item.lastFrameUrl || null,
       },
     ];
   });

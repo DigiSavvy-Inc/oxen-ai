@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { Canvas } from "../src/components/Canvas";
+import { StagedStill } from "../src/components/StagedStill";
 import { Composer } from "../src/components/Composer";
 import { LibraryPeek } from "../src/components/LibraryPeek";
 import {
@@ -927,6 +928,39 @@ describe("in-gallery version expand", () => {
     const thumb = peek.slice(thumbStart, peek.indexOf("</button>", thumbStart));
     expect(thumb).toContain("onSelectVariant(item.id)");
     expect(thumb).not.toContain("setFitOpen");
+  });
+
+  it("shows the thumbnail already on screen before the full file in the expand and the fit view", () => {
+    const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+    const media = readFileSync(new URL("../src/components/FullSizeMedia.tsx", import.meta.url), "utf8");
+    const canvas = readFileSync(new URL("../src/components/Canvas.tsx", import.meta.url), "utf8");
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    const preview = sidebar.slice(sidebar.indexOf("function PreviewFace"), sidebar.indexOf("function canOpenFit"));
+    expect(preview).toContain("<StagedStill");
+    expect(preview).toContain("thumb={item.thumbUrl}");
+    expect(preview).toContain("full={item.resultUrl}");
+    expect(preview).toContain("<StagedVideo");
+    expect(preview).toContain("poster={item.thumbUrl || item.lastFrameUrl}");
+    expect(sidebar).toContain("poster: item.thumbUrl || item.lastFrameUrl || null");
+    expect(media).toContain("<StagedStill");
+    expect(media).toContain("thumb={poster}");
+    expect(media).toContain("<StagedVideo");
+    expect(canvas).toContain("<StagedStill");
+    expect(canvas).toContain("thumb={generation.thumbUrl}");
+    expect(css).toMatch(/\.staged-still \.staged-sharp\.is-ready|\.staged-sharp\.is-ready/);
+    expect(css).toMatch(/\.history-expand-preview \.staged-still \.staged-sharp\s*\{[^}]*opacity:\s*0/);
+    expect(css).toMatch(/\.history-expand-preview \.staged-still \.staged-sharp\.is-ready\s*\{[^}]*opacity:\s*1/);
+    const waiting = renderToStaticMarkup(
+      createElement(StagedStill, { thumb: "tiny.jpg", full: "full.png", alt: "Ox" }),
+    );
+    expect(waiting).toContain('src="tiny.jpg"');
+    expect(waiting).toContain("staged-base");
+    expect(waiting).toContain('src="full.png"');
+    expect(waiting).toContain("staged-sharp");
+    expect(waiting).not.toContain("is-ready");
+    const plain = renderToStaticMarkup(createElement(StagedStill, { full: "only.png", alt: "Ox" }));
+    expect(plain).toContain('src="only.png"');
+    expect(plain).not.toContain("staged-base");
   });
 });
 

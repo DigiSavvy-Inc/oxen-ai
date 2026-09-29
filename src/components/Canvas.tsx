@@ -15,11 +15,17 @@ import { DownloadButton } from "./DownloadButton";
 import { LastFrameStill } from "./LastFrameStill";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
+import { StagedStill, StagedVideo } from "./StagedStill";
 
 function fitSlides(variants: Generation[]): FitSlide[] {
   return variants.flatMap((item) => {
     if (item.mediaType !== "image" || item.status !== "succeeded" || !item.resultUrl) return [];
-    return [{ id: item.id, src: item.resultUrl, alt: item.prompt || "Generated" }];
+    return [{
+      id: item.id,
+      src: item.resultUrl,
+      alt: item.prompt || "Generated",
+      poster: item.thumbUrl || null,
+    }];
   });
 }
 
@@ -40,7 +46,17 @@ function MediaPreview({
       return (
         <div className="last-frame-pair">
           {generation.lastFrameUrl ? <LastFrameStill src={generation.lastFrameUrl} /> : null}
-          <video className={className} src={generation.resultUrl} controls autoPlay loop />
+          <StagedVideo
+            key={generation.id}
+            className={className}
+            src={generation.resultUrl}
+            poster={generation.thumbUrl || generation.lastFrameUrl}
+            controls
+            autoPlay
+            loop
+            playsInline
+            scale
+          />
         </div>
       );
     }
@@ -58,7 +74,14 @@ function MediaPreview({
           aria-label="View full size"
           onClick={() => setFitOpen(true)}
         >
-          <img className={className} src={generation.resultUrl} alt={alt} />
+          <StagedStill
+            key={generation.id}
+            className={className}
+            thumb={generation.thumbUrl}
+            full={generation.resultUrl}
+            alt={alt}
+            scale
+          />
           <ExpandCorners />
         </button>
         {fitOpen ? (

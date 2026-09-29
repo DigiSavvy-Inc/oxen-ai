@@ -11,7 +11,12 @@ import { MediaDeleteGroup } from "./MediaDeleteGroup";
 function fitSlides(variants: Generation[]): FitSlide[] {
   return variants.flatMap((item) => {
     if (item.mediaType !== "image" || item.status !== "succeeded" || !item.resultUrl) return [];
-    return [{ id: item.id, src: item.resultUrl, alt: item.prompt || "Library item" }];
+    return [{
+      id: item.id,
+      src: item.resultUrl,
+      alt: item.prompt || "Library item",
+      poster: item.thumbUrl || null,
+    }];
   });
 }
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { StagedStill, StagedVideo } from "./StagedStill";
 
 export function ExpandCorners() {
   return (
@@ -17,6 +18,7 @@ export type FitSlide = {
   src: string;
   alt: string;
   mediaType?: FitMediaKind;
+  poster?: string | null;
 };
 
 function fitMediaKind(value: FitMediaKind | undefined): FitMediaKind {
@@ -43,6 +45,8 @@ export function FullSizeMedia({
   const [actualSize, setActualSize] = useState(false);
   const active = slides.find((slide) => slide.id === activeId);
   const kind = fitMediaKind(active?.mediaType ?? mediaType);
+  const poster = active?.poster ?? null;
+  const slideKey = active?.id ?? src;
   const canCycle = !actualSize && slides.length > 1 && Boolean(onSlide);
 
   const step = useCallback(
@@ -116,19 +120,35 @@ export function FullSizeMedia({
         </button>
       ) : null}
       {kind === "video" ? (
-        <video
+        <StagedVideo
+          key={slideKey}
           src={src}
-          aria-label={alt}
+          poster={poster}
+          label={alt}
           controls
           playsInline
           preload="metadata"
+          scale
           onClick={(event) => event.stopPropagation()}
         />
-      ) : (
+      ) : actualSize ? (
         <img
           src={src}
           alt={alt}
-          title={actualSize ? "Fit to the window" : "Actual size"}
+          title="Fit to the window"
+          onClick={(event) => {
+            event.stopPropagation();
+            setActualSize((value) => !value);
+          }}
+        />
+      ) : (
+        <StagedStill
+          key={slideKey}
+          thumb={poster}
+          full={src}
+          alt={alt}
+          title="Actual size"
+          scale
           onClick={(event) => {
             event.stopPropagation();
             setActualSize((value) => !value);

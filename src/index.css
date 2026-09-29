@@ -2022,6 +2022,77 @@ button.history-expand-preview {
   max-height: min(70vh, 720px);
 }
 
+/* Cached thumb paints in the frame; the full file covers it after decode. */
+.staged-still {
+  position: relative;
+  display: block;
+  max-width: 100%;
+}
+
+.history-expand-preview .staged-still {
+  position: absolute;
+  inset: 0;
+  max-width: none;
+}
+
+.result-media img.staged-base,
+.fullsize-backdrop img.staged-base {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+}
+
+.fullsize-backdrop .staged-still.is-scaled {
+  aspect-ratio: var(--still-ratio);
+  width: min(100%, calc((100dvh - 56px) * var(--still-ratio, 1)));
+  max-height: calc(100dvh - 56px);
+  height: auto;
+}
+
+.result-media .staged-still.is-scaled {
+  aspect-ratio: var(--still-ratio);
+  width: calc(min(70vh, 720px) * var(--still-ratio, 1));
+  max-width: 100%;
+  max-height: min(70vh, 720px);
+  height: auto;
+}
+
+.fullsize-backdrop .staged-still.is-scaled img.staged-base,
+.result-media .staged-still.is-scaled img.staged-base {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+}
+
+.result-media .staged-still .staged-sharp,
+.fullsize-backdrop .staged-still .staged-sharp,
+.history-expand-preview .staged-still .staged-sharp {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.result-media .staged-still .staged-sharp.is-ready,
+.fullsize-backdrop .staged-still .staged-sharp.is-ready,
+.history-expand-preview .staged-still .staged-sharp.is-ready {
+  opacity: 1;
+}
+
+.result-media .staged-still .staged-sharp.is-ready,
+.fullsize-backdrop .staged-still .staged-sharp.is-ready {
+  pointer-events: auto;
+}
+
 .result-audio {
   display: block;
   width: min(100%, 28rem);
