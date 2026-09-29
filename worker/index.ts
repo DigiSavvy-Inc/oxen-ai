@@ -50,6 +50,7 @@ import {
   isD1TooBig,
   isMediaGenerationModel,
   listFavoriteModels,
+  OxenApiError,
   listModels,
   listQueue,
   mergeMissingFeaturedModels,
@@ -110,6 +111,7 @@ import {
 import { GENERATION_MODES } from "./model-modes";
 import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
 import { getStudioSettings, saveStudioSettings } from "./user-settings";
+import { reserveUploadBytes } from "./upload-quota";
 import {
   deletePushSubscription,
   notifyGenerationComplete,
@@ -142,8 +144,14 @@ app.onError((err, c) => {
     const message = err.message || "Request failed";
     return c.json({ error: message }, err.status);
   }
-  console.error(err);
-  return c.json({ error: err.message || "Internal error" }, 500);
+  if (err instanceof OxenApiError) {
+    return c.json({ error: err.message || "Oxen request failed" }, 502);
+  }
+  // Internal errors (D1, R2, GitHub) can carry schema or infrastructure detail. Log it
+  // with a short reference and give the browser only the reference.
+  const ref = crypto.randomUUID().slice(0, 8);
+  console.error(`internal error ${ref}`, err);
+  return c.json({ error: `Something went wrong (ref ${ref})` }, 500);
 });
 
 // API responses never need to run script or be framed. A locked-down CSP means media
@@ -1206,6 +1214,11 @@ app.post("/api/upload", async (c) => {
   if (!contentType) {
     throw new HTTPException(400, { message: "Only image, video, and audio files are accepted" });
   }
+  if (!(await reserveUploadBytes(c.env.DB, user.id, buffer.byteLength))) {
+    throw new HTTPException(429, {
+      message: "Daily upload limit reached (2 GB). Try again tomorrow.",
+    });
+  }
   const folder = form.get("folder");
   const prefix = folder === "galleries" ? `u/${user.id}/galleries` : `u/${user.id}`;
   const { key } = await putMediaObject(c.env.MEDIA, buffer, contentType, prefix);
@@ -1798,15 +1811,15 @@ app.post("/api/push/subscribe", async (c) => {
   } catch {
     throw new HTTPException(400, { message: "Invalid push subscription" });
   }
+  let subscription: ReturnType<typeof parsePushSubscription>;
   try {
-    const subscription = parsePushSubscription(body);
-    await savePushSubscription(c.env.DB, user.id, subscription);
-    return c.json({ ok: true });
-  } catch (err) {
-    throw new HTTPException(400, {
-      message: err instanceof Error ? err.message : "Invalid push subscription",
-    });
+    subscription = parsePushSubscription(body);
+  } catch {
+    throw new HTTPException(400, { message: "Invalid push subscription" });
   }
+  // Outside the try: a storage failure is a 500 with a reference, not a 400 carrying D1 text.
+  await savePushSubscription(c.env.DB, user.id, subscription);
+  return c.json({ ok: true });
 });
 
 app.delete("/api/push/subscribe", async (c) => {

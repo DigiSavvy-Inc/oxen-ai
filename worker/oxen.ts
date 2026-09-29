@@ -11,6 +11,14 @@ export {
 
 const OXEN_BASE = "https://hub.oxen.ai/api/ai";
 
+/**
+ * Oxen's answer about the user's own request (credits, moderation, bad params). Safe and
+ * useful to show them, unlike internal errors, which the API hides behind a reference id.
+ */
+export class OxenApiError extends Error {
+  override name = "OxenApiError";
+}
+
 export const POLL_FAILURE_THRESHOLD = 3;
 
 export type OxenModel = {
@@ -323,7 +331,7 @@ async function readOxenJson<T>(res: Response): Promise<T> {
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new Error(text || `Oxen request failed (${res.status})`);
+    throw new OxenApiError(text || `Oxen request failed (${res.status})`);
   }
 }
 
@@ -348,7 +356,7 @@ export async function listModels(apiKey: string): Promise<OxenModel[]> {
   const res = await oxenFetch("/models", apiKey);
   const data = await readOxenJson<{ data?: OxenModel[] } & OxenErrorBody>(res);
   if (!res.ok) {
-    throw new Error(oxenErrorText(data, `Oxen models failed (${res.status})`));
+    throw new OxenApiError(oxenErrorText(data, `Oxen models failed (${res.status})`));
   }
   return modelsFromListPayload(data);
 }
@@ -358,7 +366,7 @@ export async function searchModels(apiKey: string, query: string): Promise<OxenM
   const res = await oxenFetch(`/models/search?${params.toString()}`, apiKey);
   const data = await readOxenJson<{ data?: OxenModel[] } & OxenErrorBody>(res);
   if (!res.ok) {
-    throw new Error(oxenErrorText(data, `Oxen model search failed (${res.status})`));
+    throw new OxenApiError(oxenErrorText(data, `Oxen model search failed (${res.status})`));
   }
   return modelsFromListPayload(data);
 }
@@ -371,11 +379,11 @@ export async function getModel(apiKey: string, id: string): Promise<OxenModel> {
   const res = await oxenFetch(`/models/${encodeURIComponent(id)}`, apiKey);
   const data = await readOxenJson<OxenModel & OxenErrorBody & { data?: OxenModel }>(res);
   if (!res.ok) {
-    throw new Error(oxenErrorText(data, `Oxen model detail failed (${res.status})`));
+    throw new OxenApiError(oxenErrorText(data, `Oxen model detail failed (${res.status})`));
   }
   const model = data.data ?? data;
   if (!model.id) {
-    throw new Error(oxenErrorText(data, "Oxen model detail returned no id"));
+    throw new OxenApiError(oxenErrorText(data, "Oxen model detail returned no id"));
   }
   modelDetailCache.set(id, { at: Date.now(), model });
   return model;
@@ -385,7 +393,7 @@ export async function listFavoriteModels(apiKey: string): Promise<OxenModel[]> {
   const res = await oxenFetch("/models/favorites", apiKey);
   const data = await readOxenJson<{ data?: OxenModel[] } & OxenErrorBody>(res);
   if (!res.ok) {
-    throw new Error(oxenErrorText(data, `Oxen favorites failed (${res.status})`));
+    throw new OxenApiError(oxenErrorText(data, `Oxen favorites failed (${res.status})`));
   }
   return modelsFromListPayload(data);
 }
@@ -396,7 +404,7 @@ export async function favoriteModel(apiKey: string, id: string): Promise<void> {
   });
   if (!res.ok) {
     const data = await readOxenJson<OxenErrorBody>(res);
-    throw new Error(oxenErrorText(data, `Oxen favorite failed (${res.status})`));
+    throw new OxenApiError(oxenErrorText(data, `Oxen favorite failed (${res.status})`));
   }
 }
 
@@ -406,7 +414,7 @@ export async function unfavoriteModel(apiKey: string, id: string): Promise<void>
   });
   if (!res.ok) {
     const data = await readOxenJson<OxenErrorBody>(res);
-    throw new Error(oxenErrorText(data, `Oxen unfavorite failed (${res.status})`));
+    throw new OxenApiError(oxenErrorText(data, `Oxen unfavorite failed (${res.status})`));
   }
 }
 
@@ -422,11 +430,11 @@ export async function enqueueGeneration(
     { generations?: OxenQueuedGeneration[] } & OxenErrorBody
   >(res);
   if (!res.ok) {
-    throw new Error(oxenErrorText(data, `Oxen enqueue failed (${res.status})`));
+    throw new OxenApiError(oxenErrorText(data, `Oxen enqueue failed (${res.status})`));
   }
   const generations = data.generations ?? [];
   if (generations.length === 0) {
-    throw new Error(
+    throw new OxenApiError(
       oxenErrorText(data, "Oxen enqueue returned no generations"),
     );
   }
@@ -440,7 +448,7 @@ export async function getGeneration(
   const res = await oxenFetch(`/queue/${encodeURIComponent(generationId)}`, apiKey);
   const data = await readOxenJson<Record<string, unknown> & OxenErrorBody>(res);
   if (!res.ok) {
-    throw new Error(oxenErrorText(data, `Oxen status failed (${res.status})`));
+    throw new OxenApiError(oxenErrorText(data, `Oxen status failed (${res.status})`));
   }
   return data;
 }
@@ -453,7 +461,7 @@ export async function listQueue(
   const res = await oxenFetch(`/queue${qs ? `?${qs}` : ""}`, apiKey);
   const data = await readOxenJson<Record<string, unknown> & OxenErrorBody>(res);
   if (!res.ok) {
-    throw new Error(oxenErrorText(data, `Oxen queue list failed (${res.status})`));
+    throw new OxenApiError(oxenErrorText(data, `Oxen queue list failed (${res.status})`));
   }
   return data;
 }
@@ -467,7 +475,7 @@ export async function cancelGeneration(
   });
   if (!res.ok) {
     const data = await readOxenJson<OxenErrorBody>(res);
-    throw new Error(oxenErrorText(data, `Oxen cancel failed (${res.status})`));
+    throw new OxenApiError(oxenErrorText(data, `Oxen cancel failed (${res.status})`));
   }
 }
 
@@ -503,12 +511,12 @@ export async function downloadOxenResult(
       continue;
     }
     if (!res.ok) {
-      throw new Error(`Oxen result download failed (${res.status})`);
+      throw new OxenApiError(`Oxen result download failed (${res.status})`);
     }
     return {
       bytes: await res.arrayBuffer(),
       contentType: res.headers.get("content-type") || "application/octet-stream",
     };
   }
-  throw new Error("Oxen result download redirected too many times");
+  throw new OxenApiError("Oxen result download redirected too many times");
 }

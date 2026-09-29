@@ -101,6 +101,10 @@ export function createMockDb(user: UserRow, sessionId: string): D1Database {
               if (sql.includes("FROM sessions") && args[0] === sessionId) {
                 return user;
               }
+              // Quota logic has its own SQLite-backed tests; here every upload fits.
+              if (sql.includes("INSERT INTO upload_usage")) {
+                return { bytes: Number(args[2]) };
+              }
               return null;
             },
             async all() {
