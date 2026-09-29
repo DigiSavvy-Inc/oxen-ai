@@ -47,4 +47,27 @@ describe("API error responses", () => {
     expect(res.status).toBe(502);
     expect(((await res.json()) as { error: string }).error).toContain("Insufficient credits");
   });
+
+  it("uses the bundled Seed Audio schema when live model detail fails", async () => {
+    const sealed = await encryptSecret("sk-user", TEST_SECRET);
+    const user = { ...TEST_USER, oxen_key_ciphertext: sealed.ciphertext, oxen_key_iv: sealed.iv };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: { message: "upstream down" } }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      })) as unknown as typeof fetch;
+    const res = await app.request(
+      "https://studio.digisavvy.dev/api/models/bytedance-seed-audio-1-0",
+      { headers: COOKIE },
+      createEnv({ DB: createMockDb(user, TEST_SESSION_ID) }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      model: { id: string };
+      controls: { sampleRate?: { defaultValue?: string }; outputFormat?: string[] };
+    };
+    expect(body.model.id).toBe("bytedance-seed-audio-1-0");
+    expect(body.controls.outputFormat?.[0]).toBe("mp3");
+    expect(body.controls.sampleRate?.defaultValue).toBe("24000");
+  });
 });

@@ -2031,9 +2031,8 @@ button.history-expand-preview {
 .library-audio {
   position: absolute;
   left: 12px;
-  right: 12px;
   top: 50%;
-  width: auto;
+  width: calc(100% - 24px);
   height: 40px;
   transform: translateY(-50%);
 }

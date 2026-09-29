@@ -1236,8 +1236,20 @@ app.get("/api/models/search", async (c) => {
 app.get("/api/models/:id", async (c) => {
   const user = await requireUser(c);
   const apiKey = await requireOxenKey(user, c.env);
-  const model = await getModel(apiKey, c.req.param("id"));
-  return c.json({ model, controls: parseModelControls(model) });
+  const modelId = c.req.param("id");
+  try {
+    const model = await getModel(apiKey, modelId);
+    return c.json({ model, controls: parseModelControls(model) });
+  } catch (err) {
+    // Generate already uses the bundled schema when live detail fails. The composer
+    // needs the same controls, or a schema outage blanks every option.
+    console.error("model schema error", err);
+    const fallback = fallbackModelsFor(null).find((item) => item.id === modelId);
+    if (fallback?.request_schema) {
+      return c.json({ model: fallback, controls: parseModelControls(fallback) });
+    }
+    throw err;
+  }
 });
 
 app.get("/api/models", async (c) => {
