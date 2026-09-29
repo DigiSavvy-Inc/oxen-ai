@@ -137,7 +137,11 @@ export type SealedGithubToken = { ciphertext: string; iv: string };
 type SessionRecord = UserRow & {
   github_token_ciphertext?: string | null;
   github_token_iv?: string | null;
+  org_checked_at?: number | null;
 };
+
+/** How long a GitHub org-membership confirmation is trusted before asking GitHub again. */
+export const ORG_RECHECK_SECONDS = 15 * 60;
 
 export async function sealGithubToken(
   token: string,
@@ -215,10 +219,10 @@ export async function getUserBySession(
 ): Promise<SessionRecord | null> {
   const now = Math.floor(Date.now() / 1000);
   try {
-    // Token columns arrive in migration 0012. Until then, sessions still load.
+    // Token columns arrive in migrations 0012/0013. Until then, sessions still load.
     const row = await db
       .prepare(
-        `SELECT u.*, s.github_token_ciphertext, s.github_token_iv
+        `SELECT u.*, s.github_token_ciphertext, s.github_token_iv, s.org_checked_at
          FROM sessions s
          JOIN users u ON u.id = s.user_id
          WHERE s.id = ? AND s.expires_at > ?`,
@@ -270,10 +274,22 @@ export async function loadAuthorizedUser(env: Env, sessionId: string): Promise<U
   const row = await getUserBySession(env.DB, sessionId);
   if (!row) return null;
   const token = await githubTokenFromSession(row, env.ENCRYPTION_KEY);
-  const access = await userHasAccess(env.DB, { id: row.github_id, login: row.login }, token, env);
+  // Admin and allowlist checks are cheap D1 reads and run every request. The GitHub org
+  // call runs at most once per ORG_RECHECK_SECONDS so polling cannot hit GitHub rate limits.
+  const now = Math.floor(Date.now() / 1000);
+  const orgRecentlyConfirmed =
+    typeof row.org_checked_at === "number" && now - row.org_checked_at < ORG_RECHECK_SECONDS;
+  const access = await userHasAccess(env.DB, { id: row.github_id, login: row.login }, token, env, {
+    orgRecentlyConfirmed,
+  });
   if (!access.allowed && access.revoke) {
     await deleteSession(env.DB, sessionId);
     return null;
+  }
+  if (access.orgConfirmed) {
+    await env.DB.prepare(`UPDATE sessions SET org_checked_at = ? WHERE id = ?`)
+      .bind(now, sessionId)
+      .run();
   }
   return sessionUserRow(row);
 }
@@ -325,8 +341,10 @@ async function matchAllowlist(
 
 export type AccessDecision = {
   allowed: boolean;
-  /** Drop the session. False when GitHub could not be reached. */
+  /** Drop the session. False when GitHub could not be reached or rate-limited us. */
   revoke: boolean;
+  /** GitHub just confirmed active org membership. */
+  orgConfirmed?: boolean;
   reason?: string;
 };
 
@@ -335,6 +353,7 @@ export async function userHasAccess(
   ghUser: { id: number; login: string },
   accessToken: string,
   env: Env,
+  options: { orgRecentlyConfirmed?: boolean } = {},
 ): Promise<AccessDecision> {
   const login = ghUser.login;
   if (isAdminUser({ githubId: ghUser.id, login }, env)) {
@@ -348,6 +367,9 @@ export async function userHasAccess(
   const org = env.GITHUB_ORG?.trim();
   if (!org) {
     return { allowed: false, revoke: true, reason: "Not on the allowlist" };
+  }
+  if (options.orgRecentlyConfirmed) {
+    return { allowed: true, revoke: false };
   }
   if (!accessToken) {
     return {
@@ -390,7 +412,7 @@ export async function userHasAccess(
         reason: `Unable to verify ${org} membership`,
       };
     }
-    if (state === "active") return { allowed: true, revoke: false };
+    if (state === "active") return { allowed: true, revoke: false, orgConfirmed: true };
     return {
       allowed: false,
       revoke: true,
@@ -398,7 +420,9 @@ export async function userHasAccess(
     };
   }
 
-  if (membership.status === 404 || membership.status === 401 || membership.status === 403) {
+  // 404: not a member. 401: the user revoked Studio's token. A 403 is usually GitHub's
+  // rate limit, so it falls through to "unable to verify" and keeps the session.
+  if (membership.status === 404 || membership.status === 401) {
     return {
       allowed: false,
       revoke: true,
