@@ -14,6 +14,7 @@ export function aspectCatalog(
   if (controls?.aspectRatios && controls.aspectRatios.length > 0) {
     return controls.aspectRatios;
   }
+  if (mode === "text-to-audio") return [];
   if (mode && modeIsVideo(mode)) return ["16:9", "9:16", "1:1"];
   return ["1:1", "16:9", "9:16", "4:3", "3:4"];
 }

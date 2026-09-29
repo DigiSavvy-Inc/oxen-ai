@@ -1,8 +1,11 @@
 export const OXEN_TYPICAL_IMAGE_SECONDS = 18;
 export const OXEN_TYPICAL_VIDEO_SECONDS = 180;
+export const OXEN_TYPICAL_AUDIO_SECONDS = 20;
 
 export function typicalWaitSeconds(mediaType: string | null | undefined): number {
-  return mediaType === "video" ? OXEN_TYPICAL_VIDEO_SECONDS : OXEN_TYPICAL_IMAGE_SECONDS;
+  if (mediaType === "video") return OXEN_TYPICAL_VIDEO_SECONDS;
+  if (mediaType === "audio") return OXEN_TYPICAL_AUDIO_SECONDS;
+  return OXEN_TYPICAL_IMAGE_SECONDS;
 }
 
 export function formatWaitDuration(seconds: number): string {
@@ -21,7 +24,7 @@ export function remainingLabel(seconds: number): string {
 }
 
 export function typicalWaitLabel(mediaType: string | null | undefined, seconds: number): string {
-  const kind = mediaType === "video" ? "Videos" : "Images";
+  const kind = mediaType === "video" ? "Videos" : mediaType === "audio" ? "Audio" : "Images";
   return `${kind} usually generate in ${formatWaitDuration(seconds)}`;
 }
 
@@ -99,7 +102,9 @@ function waitHeadline(
       const lines =
         mediaType === "video"
           ? ["Rendering frames…", "Stitching the shot…", "Still cooking…"]
-          : ["Plowing through pixels…", "Composing the shot…", "Waiting on Oxen…"];
+          : mediaType === "audio"
+            ? ["Shaping the sound…", "Mixing the take…", "Waiting on Oxen…"]
+            : ["Plowing through pixels…", "Composing the shot…", "Waiting on Oxen…"];
       return lines[Math.floor(elapsedSeconds / 8) % lines.length] ?? "Generating…";
     }
     default: {

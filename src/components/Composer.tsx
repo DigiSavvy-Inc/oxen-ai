@@ -37,7 +37,14 @@ import {
 import { shortenFileName } from "../lib/files";
 import { acceptedMediaKinds, fileAcceptValue, mediaKindPhrase, attachKindCap } from "../lib/library-refs";
 import { aspectCatalog, aspectSelectOptions } from "../lib/params";
-import { durationFieldValue, durationToSend, nearestDurationValue } from "../../worker/schema";
+import {
+  durationFieldValue,
+  durationToSend,
+  nearestDurationValue,
+  numericControlValue,
+  snapNumericControl,
+  type DurationControl,
+} from "../../worker/schema";
 import type { GallerySummary } from "../lib/api";
 import { AudioAttachControl, ExpandMediaButton } from "./MediaLightbox";
 import { GalleryDrawer, type GalleryDraftItem } from "./GalleryDrawer";
@@ -72,6 +79,40 @@ function ToolbarField({ label, children }: { label: string; children: ReactNode 
       <span className="toolbar-field-label">{label}</span>
       {children}
     </label>
+  );
+}
+
+function RangeField({
+  label,
+  control,
+  value,
+  onChange,
+}: {
+  label: string;
+  control: DurationControl | null;
+  value: string;
+  onChange?: (value: string) => void;
+}) {
+  if (!control || control.kind !== "int" || !onChange) return null;
+  return (
+    <ToolbarField label={label}>
+      <input
+        className="field"
+        type="number"
+        inputMode="decimal"
+        aria-label={label}
+        min={control.min}
+        max={control.max}
+        step={control.step ?? 1}
+        value={value}
+        onChange={(event) => onChange(numericControlValue(event.target.value, control))}
+        onBlur={() => {
+          const next = snapNumericControl(value, control);
+          if (next !== value) onChange(next);
+        }}
+        style={{ width: 72 }}
+      />
+    </ToolbarField>
   );
 }
 
@@ -144,6 +185,14 @@ type Props = {
   onResolutionChange: (value: string) => void;
   outputFormat: string;
   onOutputFormatChange: (value: string) => void;
+  sampleRate?: string;
+  onSampleRateChange?: (value: string) => void;
+  speed?: string;
+  onSpeedChange?: (value: string) => void;
+  volume?: string;
+  onVolumeChange?: (value: string) => void;
+  pitch?: string;
+  onPitchChange?: (value: string) => void;
   background: string;
   onBackgroundChange: (value: string) => void;
   attachments: AttachItem[];
@@ -207,6 +256,10 @@ export function Composer(props: Props) {
     aspectCatalog(props.controls, props.mode),
     props.aspectRatio,
   );
+  const showAspect =
+    props.mode === "text-to-audio"
+      ? Boolean(props.controls?.aspectRatios && props.controls.aspectRatios.length > 0)
+      : aspectOptions.length > 0;
   const durationControl =
     props.mode && modeIsVideo(props.mode) ? (props.controls?.duration ?? null) : null;
   const billableDuration = durationControl ? durationToSend(props.duration, durationControl) : undefined;
@@ -943,19 +996,21 @@ export function Composer(props: Props) {
             </button>
           </ToolbarField>
 
-          <ToolbarField label="Aspect">
-            <select
-              className="select"
-              value={props.aspectRatio}
-              onChange={(e) => props.onAspectRatioChange(e.target.value)}
-            >
-              {aspectOptions.map((ratio) => (
-                <option key={ratio} value={ratio}>
-                  {ratio}
-                </option>
-              ))}
-            </select>
-          </ToolbarField>
+          {showAspect ? (
+            <ToolbarField label="Aspect">
+              <select
+                className="select"
+                value={props.aspectRatio}
+                onChange={(e) => props.onAspectRatioChange(e.target.value)}
+              >
+                {aspectOptions.map((ratio) => (
+                  <option key={ratio} value={ratio}>
+                    {ratio}
+                  </option>
+                ))}
+              </select>
+            </ToolbarField>
+          ) : null}
 
           {durationControl?.kind === "enum" ? (
               <ToolbarField label="Duration">
@@ -1046,6 +1101,46 @@ export function Composer(props: Props) {
               </select>
             </ToolbarField>
           ) : null}
+
+          {props.controls?.sampleRate?.kind === "enum" ? (
+            <ToolbarField label="Rate">
+              <select
+                className="select"
+                aria-label="Sample rate"
+                value={
+                  props.controls.sampleRate.values.includes(props.sampleRate ?? "")
+                    ? props.sampleRate
+                    : nearestDurationValue(props.sampleRate ?? "", props.controls.sampleRate)
+                }
+                onChange={(e) => props.onSampleRateChange?.(e.target.value)}
+              >
+                {props.controls.sampleRate.values.map((value) => (
+                  <option key={value} value={value}>
+                    {value} Hz
+                  </option>
+                ))}
+              </select>
+            </ToolbarField>
+          ) : null}
+
+          <RangeField
+            label="Speed"
+            control={props.controls?.speed ?? null}
+            value={props.speed ?? ""}
+            onChange={props.onSpeedChange}
+          />
+          <RangeField
+            label="Volume"
+            control={props.controls?.volume ?? null}
+            value={props.volume ?? ""}
+            onChange={props.onVolumeChange}
+          />
+          <RangeField
+            label="Pitch"
+            control={props.controls?.pitch ?? null}
+            value={props.pitch ?? ""}
+            onChange={props.onPitchChange}
+          />
 
           {props.controls?.background ? (
             <ToolbarField label="Background">

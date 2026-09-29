@@ -3,7 +3,8 @@ export type GenerationMode =
   | "image-to-image"
   | "text-to-video"
   | "reference-to-video"
-  | "video-to-video";
+  | "video-to-video"
+  | "text-to-audio";
 
 export type ModeFilterModel = {
   id: string;
@@ -18,6 +19,7 @@ export const GENERATION_MODES: GenerationMode[] = [
   "text-to-video",
   "reference-to-video",
   "video-to-video",
+  "text-to-audio",
 ];
 
 function normalizeEndpoint(endpoint: string): string {
@@ -45,6 +47,10 @@ function isImageEditPath(endpoint: string): boolean {
 
 function isVideoGeneratePath(endpoint: string): boolean {
   return endpointMatches(endpoint, /videos?\/(generat|edits?)/);
+}
+
+function isAudioGeneratePath(endpoint: string): boolean {
+  return endpointMatches(endpoint, /audio\/generat/);
 }
 
 function modalities(model: ModeFilterModel): {
@@ -162,6 +168,11 @@ export function modelSupportsMode(model: ModeFilterModel, mode: GenerationMode):
     case "video-to-video":
       if (isVideoToVideoId(model) && caps.videoOut) return true;
       return caps.videoOut && caps.hasVideoIn && videoCapable;
+    case "text-to-audio":
+      return (
+        caps.hasText &&
+        (isAudioGeneratePath(endpoint) || (!caps.noCaps && caps.outputs.includes("audio")))
+      );
     default: {
       const _exhaustive: never = mode;
       throw new Error(`Unhandled generation mode: ${_exhaustive}`);
@@ -171,7 +182,9 @@ export function modelSupportsMode(model: ModeFilterModel, mode: GenerationMode):
 
 export function isMediaGenerationModel(model: ModeFilterModel): boolean {
   const endpoint = (model.endpoint || "").toLowerCase();
-  if (endpoint.includes("image") || endpoint.includes("video")) return true;
+  if (endpoint.includes("image") || endpoint.includes("video") || endpoint.includes("/audio")) {
+    return true;
+  }
   return GENERATION_MODES.some((mode) => modelSupportsMode(model, mode));
 }
 

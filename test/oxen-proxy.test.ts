@@ -297,6 +297,7 @@ describe("filterModelsForMode", () => {
       "text-to-video",
       "reference-to-video",
       "video-to-video",
+      "text-to-audio",
     ] as const) {
       expect(filterModelsForMode(catalog, mode).some((m) => m.id === "claude-chat")).toBe(false);
     }
@@ -399,6 +400,60 @@ describe("buildEnqueuePayload", () => {
     expect(stored.input_images[0]?.includes("omitted")).toBe(true);
     expect(stored.input_images[1]).toBe("https://studio.digisavvy.dev/api/media/a.png");
     expect(stored.input_audios[0]?.startsWith("data:audio/mpeg;base64,<omitted")).toBe(true);
+  });
+
+  it("enqueues Seed Audio on the async queue with the catalog fields and no reference", () => {
+    const bare = buildEnqueuePayload("audio", {
+      model: "bytedance-seed-audio-1-0",
+      prompt: "rain on a tin roof",
+      aspect_ratio: "1:1",
+      duration: 5,
+      generate_audio: true,
+      input_video: "https://example.com/clip.mp4",
+    });
+    expect(bare).toEqual({
+      model: "bytedance-seed-audio-1-0",
+      prompt: "rain on a tin roof",
+      num_generations: 1,
+    });
+
+    const withRefs = buildEnqueuePayload("audio", {
+      model: "bytedance-seed-audio-1-0",
+      prompt: "@Audio1 says hello",
+      audio_urls: ["https://studio.example/voice.mp3"],
+      output_format: "mp3",
+      sample_rate: 24000,
+      speed: 1,
+      volume: 1,
+      pitch: 0,
+      num_generations: 2,
+    });
+    expect(withRefs).toEqual({
+      model: "bytedance-seed-audio-1-0",
+      prompt: "@Audio1 says hello",
+      num_generations: 2,
+      audio_urls: ["https://studio.example/voice.mp3"],
+      output_format: "mp3",
+      sample_rate: 24000,
+      speed: 1,
+      volume: 1,
+      pitch: 0,
+    });
+    expect(withRefs).not.toHaveProperty("image_url");
+  });
+
+  it("keeps Seed Audio 1.0 on text-to-audio", () => {
+    const seed = {
+      id: "bytedance-seed-audio-1-0",
+      display_name: "Seed Audio 1.0",
+      endpoint: "/audio/generate",
+      capabilities: { input: ["text", "audio", "image"], output: ["audio"] },
+    };
+    expect(ids(filterModelsForMode([seed, ...catalog], "text-to-audio"))).toEqual([
+      "bytedance-seed-audio-1-0",
+    ]);
+    expect(filterModelsForMode([seed], "text-to-image")).toEqual([]);
+    expect(isMediaGenerationModel(seed)).toBe(true);
   });
 
   it("sends Seedream size instead of resolution when provided", () => {

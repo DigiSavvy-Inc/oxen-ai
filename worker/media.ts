@@ -33,6 +33,14 @@ function extensionFor(contentType: string): string {
   if (contentType.includes("webp")) return ".webp";
   if (contentType.includes("avif")) return ".avif";
   if (contentType.includes("gif")) return ".gif";
+  if (contentType.includes("mpeg") || contentType.includes("mp3")) return ".mp3";
+  if (contentType.includes("wav")) return ".wav";
+  if (contentType.includes("ogg") || contentType.includes("opus")) return ".ogg";
+  if (contentType.includes("flac")) return ".flac";
+  if (contentType.includes("aac")) return ".aac";
+  if (contentType.startsWith("audio/") && (contentType.includes("mp4") || contentType.includes("m4a"))) {
+    return ".m4a";
+  }
   if (contentType.includes("mp4")) return ".mp4";
   if (contentType.includes("webm")) return ".webm";
   if (contentType.includes("quicktime")) return ".mov";
@@ -259,6 +267,9 @@ export function guessMediaContentType(key: string): string {
   if (lower.endsWith(".mp3")) return "audio/mpeg";
   if (lower.endsWith(".wav")) return "audio/wav";
   if (lower.endsWith(".m4a")) return "audio/mp4";
+  if (lower.endsWith(".ogg") || lower.endsWith(".opus")) return "audio/ogg";
+  if (lower.endsWith(".flac")) return "audio/flac";
+  if (lower.endsWith(".aac")) return "audio/aac";
   return "application/octet-stream";
 }
 

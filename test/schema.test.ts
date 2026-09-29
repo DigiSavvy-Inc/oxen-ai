@@ -8,8 +8,10 @@ import {
   resolveEnqueueAspectRatio,
   resolutionPayloadFields,
   showGetLastFrame,
+  unsupportedReferenceMessage,
 } from "../worker/schema";
 import type { OxenModel } from "../worker/oxen";
+import { seedAudioModel } from "../worker/seed-audio";
 
 describe("parseModelControls", () => {
   it("reads GPT Image 2.5 optional input_image array and shared fields", () => {
@@ -392,6 +394,92 @@ describe("clampDuration", () => {
     expect(clampDuration(8, duration)).toBe(8);
     expect(clampDuration(1, duration)).toBe(3);
     expect(clampDuration("auto", duration)).toBe(5);
+  });
+});
+
+describe("Seed Audio 1.0 controls", () => {
+  it("reads the live catalog slots and does not require a reference", () => {
+    const controls = parseModelControls(seedAudioModel);
+    expect(controls.modelId).toBe("bytedance-seed-audio-1-0");
+    expect(controls.slots).toEqual([
+      {
+        field: "audio_urls",
+        kind: "audio",
+        required: false,
+        maxItems: 3,
+        asArray: true,
+      },
+      {
+        field: "image_url",
+        kind: "image",
+        required: false,
+        maxItems: 1,
+        asArray: false,
+      },
+    ]);
+    expect(controls.outputFormat?.[0]).toBe("mp3");
+    expect(controls.sampleRate).toMatchObject({ kind: "enum", defaultValue: "24000" });
+    expect(controls.speed).toMatchObject({ kind: "int", min: 0.5, max: 2, step: 0.1, defaultValue: 1 });
+    expect(controls.volume).toMatchObject({ kind: "int", min: 0.5, max: 2, defaultValue: 1 });
+    expect(controls.pitch).toMatchObject({ kind: "int", min: -12, max: 12, defaultValue: 0 });
+    expect(controls.imageAudioExclusive).toBe(true);
+    expect(controls.mentionKinds).toEqual(["audio"]);
+    expect(controls.aspectRatios).toBeNull();
+    expect(controls.seed).toBe(false);
+    expect(
+      mapMediaUrls(controls.slots, {
+        image: [],
+        video: [],
+        audio: ["https://studio.example/a.mp3", "https://studio.example/b.mp3"],
+      }),
+    ).toEqual({
+      audio_urls: ["https://studio.example/a.mp3", "https://studio.example/b.mp3"],
+    });
+  });
+
+  it("rejects video for Seed Audio and rejects a non-audio file for an audio-only model", () => {
+    const seed = parseModelControls(seedAudioModel);
+    expect(
+      unsupportedReferenceMessage(
+        seed.slots,
+        { image: 0, video: 1, audio: 0 },
+        seed.imageAudioExclusive,
+      ),
+    ).toBe("This model does not accept video");
+    expect(
+      unsupportedReferenceMessage(
+        seed.slots,
+        { image: 1, video: 0, audio: 1 },
+        seed.imageAudioExclusive,
+      ),
+    ).toMatch(/not both/);
+    expect(
+      unsupportedReferenceMessage(
+        seed.slots,
+        { image: 0, video: 0, audio: 0 },
+        seed.imageAudioExclusive,
+      ),
+    ).toBeNull();
+
+    const audioOnly = parseModelControls({
+      id: "audio-only",
+      capabilities: { input: ["text", "audio"], output: ["audio"] },
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          input_audios: { type: "array", maxItems: 1, items: { type: "string" } },
+        },
+      },
+    });
+    expect(audioOnly.slots.map((slot) => slot.kind)).toEqual(["audio"]);
+    expect(
+      unsupportedReferenceMessage(
+        audioOnly.slots,
+        { image: 1, video: 0, audio: 0 },
+        false,
+      ),
+    ).toBe("This model does not accept images");
   });
 });
 

@@ -27,7 +27,8 @@ export function generationNotifyCopy(
   tag: string;
   url: string;
 } {
-  const kind = generation.mediaType === "video" ? "Video" : "Image";
+  const kind =
+    generation.mediaType === "video" ? "Video" : generation.mediaType === "audio" ? "Audio" : "Image";
   const snippet = (generation.prompt || "").replace(/\s+/g, " ").trim();
   const short = snippet.length > 80 ? `${snippet.slice(0, 77)}…` : snippet;
 

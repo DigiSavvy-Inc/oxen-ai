@@ -10,6 +10,10 @@ export type SharedOxenParams = {
   resolution?: string;
   output_format?: string;
   background?: string;
+  sample_rate?: number;
+  speed?: number;
+  volume?: number;
+  pitch?: number;
 };
 
 export type StudioSettings = {
@@ -60,6 +64,12 @@ function asParams(raw: Record<string, unknown>): SharedOxenParams {
   if (typeof raw.resolution === "string") params.resolution = raw.resolution;
   if (typeof raw.output_format === "string") params.output_format = raw.output_format;
   if (typeof raw.background === "string") params.background = raw.background;
+  if (typeof raw.sample_rate === "number" && Number.isFinite(raw.sample_rate)) {
+    params.sample_rate = raw.sample_rate;
+  }
+  if (typeof raw.speed === "number" && Number.isFinite(raw.speed)) params.speed = raw.speed;
+  if (typeof raw.volume === "number" && Number.isFinite(raw.volume)) params.volume = raw.volume;
+  if (typeof raw.pitch === "number" && Number.isFinite(raw.pitch)) params.pitch = raw.pitch;
   return params;
 }
 

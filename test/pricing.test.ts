@@ -150,6 +150,22 @@ describe("estimateGenerationCost", () => {
     ).toBeCloseTo(2.845);
   });
 
+  it("prices Seed Audio per output second without inventing a duration", () => {
+    expect(
+      estimateGenerationCost({
+        pricing: { method: "per_audio_output_second", cost_per_second: 0.003125 },
+        numGenerations: 1,
+      }),
+    ).toEqual({ amount: 0.003125, label: "≈$0.003125/s" });
+    expect(
+      estimateGenerationCost({
+        pricing: { method: "per_audio_output_second", cost_per_second: 0.003125 },
+        numGenerations: 2,
+        duration: 5,
+      }).label,
+    ).toBe("≈$0.003125/s × 2");
+  });
+
   it("returns unavailable when pricing is missing", () => {
     expect(estimateGenerationCost({ pricing: null, numGenerations: 1 })).toEqual({
       amount: null,

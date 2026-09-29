@@ -2022,6 +2022,27 @@ button.history-expand-preview {
   max-height: min(70vh, 720px);
 }
 
+.result-audio {
+  display: block;
+  width: min(100%, 28rem);
+  margin: 1.5rem auto;
+}
+
+.library-audio {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 50%;
+  width: auto;
+  height: 40px;
+  transform: translateY(-50%);
+}
+
+.audio-mark {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
 .result-expand {
   position: relative;
   z-index: 1;

@@ -67,6 +67,7 @@ import {
   asSingleString,
   asStringList,
   clampDuration,
+  clampNumericControl,
   imageSlotRequired,
   mapMediaUrls,
   parseGenerationListScope,
@@ -75,6 +76,7 @@ import {
   pickCompatible,
   resolveEnqueueAspectRatio,
   resolutionPayloadFields,
+  unsupportedReferenceMessage,
   videoSlotRequired,
   type GenerationListScope,
 } from "./schema";
@@ -109,6 +111,7 @@ import {
   removeStudioGeneration,
 } from "./library";
 import { GENERATION_MODES } from "./model-modes";
+import { seedAudioModel } from "./seed-audio";
 import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
 import { getStudioSettings, saveStudioSettings } from "./user-settings";
 import { reserveUploadBytes } from "./upload-quota";
@@ -138,13 +141,14 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const MODE_META: Record<
   GenerationMode,
-  { mediaType: "image" | "video"; needsImage?: boolean; needsVideo?: boolean }
+  { mediaType: "image" | "video" | "audio"; needsImage?: boolean; needsVideo?: boolean }
 > = {
   "text-to-image": { mediaType: "image" },
   "image-to-image": { mediaType: "image", needsImage: true },
   "text-to-video": { mediaType: "video" },
   "reference-to-video": { mediaType: "video", needsImage: true },
   "video-to-video": { mediaType: "video", needsVideo: true },
+  "text-to-audio": { mediaType: "audio" },
 };
 
 app.onError((err, c) => {
@@ -448,6 +452,7 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         capabilities: { input: ["text", "image", "video"], output: ["video"] },
       },
     ],
+    "text-to-audio": [seedAudioModel],
   };
   return catalog[mode];
 }
@@ -628,7 +633,7 @@ async function typicalWaitByMedia(
   const rows = await env.DB.prepare(
     `SELECT media_type as mediaType, AVG(updated_at - created_at) as avgSecs
      FROM generations
-     WHERE user_id = ? AND status = 'succeeded' AND media_type IN ('image', 'video')
+     WHERE user_id = ? AND status = 'succeeded' AND media_type IN ('image', 'video', 'audio')
        AND updated_at > created_at
      GROUP BY media_type`,
   )
@@ -1376,6 +1381,12 @@ app.post("/api/generate", async (c) => {
     output_format?: string;
     background?: string;
     moderation?: string;
+    sample_rate?: number;
+    speed?: number;
+    volume?: number;
+    pitch?: number;
+    image_url?: string;
+    audio_urls?: string[];
   }>();
 
   const mode = body.mode;
@@ -1390,14 +1401,20 @@ app.post("/api/generate", async (c) => {
   }
 
   const meta = MODE_META[mode];
-  let controls = parseModelControls({ id: body.model.trim() });
+  const modelId = body.model.trim();
+  let controls = parseModelControls({ id: modelId });
   let displayName: string | null = null;
   try {
-    const detail = await getModel(apiKey, body.model.trim());
+    const detail = await getModel(apiKey, modelId);
     controls = parseModelControls(detail);
     displayName = detail.display_name ?? null;
   } catch (err) {
     console.error("model schema error", err);
+    const fallback = fallbackModelsFor(null).find((item) => item.id === modelId);
+    if (fallback?.request_schema) {
+      controls = parseModelControls(fallback);
+      displayName = fallback.display_name ?? null;
+    }
   }
 
   const imageHasFace = controls.slots.some((slot) => slot.field === "input_face_images");
@@ -1489,11 +1506,32 @@ app.post("/api/generate", async (c) => {
   if (needsVideo && videoUrls.length === 0) {
     throw new HTTPException(400, { message: "input_video is required for this mode" });
   }
+  const rejectedMedia = unsupportedReferenceMessage(
+    controls.slots,
+    { image: imageUrls.length, video: videoUrls.length, audio: audioUrls.length },
+    controls.imageAudioExclusive,
+  );
+  if (rejectedMedia) {
+    throw new HTTPException(400, { message: rejectedMedia });
+  }
+
+  const audioFieldUrls =
+    asStringList(mapped.audio_urls) ??
+    asStringList(mapped.input_audios) ??
+    asStringList(mapped.input_audio) ??
+    (useFallback && audioUrls.length > 0 ? audioUrls : undefined);
+  const sampleRate = clampNumericControl(body.sample_rate, controls.sampleRate);
+  const speed = clampNumericControl(body.speed, controls.speed);
+  const volume = clampNumericControl(body.volume, controls.volume);
+  const pitch = clampNumericControl(body.pitch, controls.pitch);
 
   const payload = buildEnqueuePayload(meta.mediaType, {
-    model: body.model.trim(),
+    model: modelId,
     prompt: body.prompt.trim(),
-    aspect_ratio: resolveEnqueueAspectRatio(body.aspect_ratio, controls.aspectRatios),
+    aspect_ratio:
+      meta.mediaType === "audio" && !controls.aspectRatios?.length
+        ? undefined
+        : resolveEnqueueAspectRatio(body.aspect_ratio, controls.aspectRatios),
     duration: controls.duration ? clampDuration(body.duration, controls.duration) : undefined,
     seed: controls.seed || useFallback ? body.seed : undefined,
     generate_audio: controls.generateAudio || useFallback ? body.generate_audio : undefined,
@@ -1524,10 +1562,14 @@ app.post("/api/generate", async (c) => {
       asStringList(mapped.input_videos) ??
       (useFallback && videoUrls.length > 1 ? videoUrls : undefined),
     input_face_videos: asStringList(mapped.input_face_videos),
-    input_audios:
-      asStringList(mapped.input_audios) ??
-      asStringList(mapped.input_audio) ??
-      (useFallback && audioUrls.length > 0 ? audioUrls : undefined),
+    input_audios: meta.mediaType === "audio" ? undefined : audioFieldUrls,
+    audio_urls: meta.mediaType === "audio" ? audioFieldUrls : undefined,
+    image_url:
+      meta.mediaType === "audio" ? asSingleString(mapped.image_url) : undefined,
+    sample_rate: typeof sampleRate === "number" ? sampleRate : undefined,
+    speed,
+    volume,
+    pitch,
   });
   const captureLastFrame =
     body.get_last_frame === true &&
@@ -1626,6 +1668,10 @@ app.post("/api/generate", async (c) => {
         resolution: body.resolution,
         output_format: body.output_format,
         background: body.background,
+        sample_rate: typeof sampleRate === "number" ? sampleRate : undefined,
+        speed,
+        volume,
+        pitch,
       },
     });
   } catch (err) {

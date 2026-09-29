@@ -41,6 +41,10 @@ export const FEATURED_VIDEO_SEARCHES = [
   { query: "wan 3", present: /wan-3-0/i },
 ] as const;
 
+export const FEATURED_AUDIO_SEARCHES = [
+  { query: "seed audio", present: /seed-audio-1/i },
+] as const;
+
 const modelDetailCache = new Map<string, { at: number; model: OxenModel }>();
 const MODEL_DETAIL_TTL_MS = 5 * 60 * 1000;
 
@@ -68,6 +72,12 @@ export type EnqueueBody = {
   input_videos?: string[];
   input_face_videos?: string[];
   input_audios?: string[];
+  audio_urls?: string[];
+  image_url?: string;
+  sample_rate?: number;
+  speed?: number;
+  volume?: number;
+  pitch?: number;
   generate_audio?: boolean;
   num_generations?: number;
   quality?: string;
@@ -125,6 +135,8 @@ export function paramsJsonForStorage(payload: Record<string, unknown>): string {
   delete slim.input_videos;
   delete slim.input_face_videos;
   delete slim.input_audios;
+  delete slim.audio_urls;
+  delete slim.image_url;
   json = JSON.stringify(slim);
   if (utf8Bytes(json) <= D1_MAX_TEXT_BYTES) return json;
   const prompt = typeof payload.prompt === "string" ? payload.prompt.slice(0, 20_000) : "";
@@ -159,15 +171,21 @@ function firstTrimmedUrl(...candidates: unknown[]): string | null {
 export function extractResultUrl(remote: Record<string, unknown>): string | null {
   const images = remote.images as { url?: string }[] | undefined;
   const videos = remote.videos as { url?: string }[] | undefined;
+  const audios = remote.audios as { url?: string }[] | undefined;
   const video = remote.video as { url?: string } | undefined;
   const image = remote.image as { url?: string } | undefined;
+  const audio = remote.audio as { url?: string } | string | undefined;
   const result = remote.result as { url?: string } | undefined;
+  const audioUrl = typeof audio === "string" ? audio : audio?.url;
   return firstTrimmedUrl(
     remote.result_url,
     images?.[0]?.url,
     videos?.[0]?.url,
     video?.url,
     image?.url,
+    audios?.[0]?.url,
+    audioUrl,
+    remote.audio_url,
     result?.url,
   );
 }
@@ -250,9 +268,9 @@ function assignIfPresent(
   payload[key] = value;
 }
 
-/** Image and video jobs share POST /api/ai/queue; extra fields are Oxen passthrough. */
+/** Image, video, and audio jobs share POST /api/ai/queue. There is no sync generate path. */
 export function buildEnqueuePayload(
-  mediaType: "image" | "video",
+  mediaType: "image" | "video" | "audio",
   body: EnqueueBody,
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {
@@ -260,29 +278,39 @@ export function buildEnqueuePayload(
     prompt: body.prompt.trim(),
     num_generations: Math.min(Math.max(body.num_generations ?? 1, 1), 4),
   };
-  assignIfPresent(payload, "aspect_ratio", body.aspect_ratio);
-  if (body.seed != null) payload.seed = body.seed;
-  assignIfPresent(payload, "input_image", body.input_image);
-  assignIfPresent(payload, "input_images", body.input_images);
-  assignIfPresent(payload, "input_face_images", body.input_face_images);
-  assignIfPresent(payload, "quality", body.quality);
-  assignIfPresent(payload, "resolution", body.resolution);
-  assignIfPresent(payload, "size", body.size);
-  assignIfPresent(payload, "image_size", body.image_size);
-  assignIfPresent(payload, "output_format", body.output_format);
-  assignIfPresent(payload, "background", body.background);
-  assignIfPresent(payload, "moderation", body.moderation);
 
   switch (mediaType) {
     case "image":
-      break;
     case "video":
-      assignIfPresent(payload, "input_video", body.input_video);
-      assignIfPresent(payload, "input_videos", body.input_videos);
-      assignIfPresent(payload, "input_face_videos", body.input_face_videos);
-      assignIfPresent(payload, "input_audios", body.input_audios);
-      assignIfPresent(payload, "duration", body.duration);
-      if (body.generate_audio != null) payload.generate_audio = body.generate_audio;
+      assignIfPresent(payload, "aspect_ratio", body.aspect_ratio);
+      if (body.seed != null) payload.seed = body.seed;
+      assignIfPresent(payload, "input_image", body.input_image);
+      assignIfPresent(payload, "input_images", body.input_images);
+      assignIfPresent(payload, "input_face_images", body.input_face_images);
+      assignIfPresent(payload, "quality", body.quality);
+      assignIfPresent(payload, "resolution", body.resolution);
+      assignIfPresent(payload, "size", body.size);
+      assignIfPresent(payload, "image_size", body.image_size);
+      assignIfPresent(payload, "output_format", body.output_format);
+      assignIfPresent(payload, "background", body.background);
+      assignIfPresent(payload, "moderation", body.moderation);
+      if (mediaType === "video") {
+        assignIfPresent(payload, "input_video", body.input_video);
+        assignIfPresent(payload, "input_videos", body.input_videos);
+        assignIfPresent(payload, "input_face_videos", body.input_face_videos);
+        assignIfPresent(payload, "input_audios", body.input_audios);
+        assignIfPresent(payload, "duration", body.duration);
+        if (body.generate_audio != null) payload.generate_audio = body.generate_audio;
+      }
+      break;
+    case "audio":
+      assignIfPresent(payload, "audio_urls", body.audio_urls);
+      assignIfPresent(payload, "image_url", body.image_url);
+      assignIfPresent(payload, "output_format", body.output_format);
+      if (body.sample_rate != null) payload.sample_rate = body.sample_rate;
+      if (body.speed != null) payload.speed = body.speed;
+      if (body.volume != null) payload.volume = body.volume;
+      if (body.pitch != null) payload.pitch = body.pitch;
       break;
     default: {
       const _exhaustive: never = mediaType;
@@ -309,7 +337,7 @@ export async function mergeMissingFeaturedModels(
   apiKey: string,
   models: OxenModel[],
 ): Promise<OxenModel[]> {
-  const missing = FEATURED_VIDEO_SEARCHES.filter(
+  const missing = [...FEATURED_VIDEO_SEARCHES, ...FEATURED_AUDIO_SEARCHES].filter(
     ({ present }) =>
       !models.some((model) => present.test(model.id) || present.test(model.display_name ?? "")),
   );

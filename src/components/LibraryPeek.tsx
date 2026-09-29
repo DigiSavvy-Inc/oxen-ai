@@ -112,6 +112,8 @@ export function LibraryPeek({
                 {generation.lastFrameUrl ? <LastFrameStill src={generation.lastFrameUrl} /> : null}
                 <video src={generation.resultUrl} controls playsInline />
               </div>
+            ) : generation.mediaType === "audio" && generation.resultUrl ? (
+              <audio className="result-audio" src={generation.resultUrl} controls preload="metadata" />
             ) : generation.resultUrl ? (
               <button
                 type="button"

@@ -99,6 +99,10 @@ export default function App() {
   const [quality, setQuality] = useState("");
   const [resolution, setResolution] = useState("");
   const [outputFormat, setOutputFormat] = useState("");
+  const [sampleRate, setSampleRate] = useState("");
+  const [speed, setSpeed] = useState("");
+  const [volume, setVolume] = useState("");
+  const [pitch, setPitch] = useState("");
   const [background, setBackground] = useState("");
   const [generations, setGenerations] = useState<Generation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -229,6 +233,10 @@ export default function App() {
         if (data.lastParams.quality) setQuality(data.lastParams.quality);
         if (data.lastParams.resolution) setResolution(data.lastParams.resolution);
         if (data.lastParams.output_format) setOutputFormat(data.lastParams.output_format);
+        if (data.lastParams.sample_rate != null) setSampleRate(String(data.lastParams.sample_rate));
+        if (data.lastParams.speed != null) setSpeed(String(data.lastParams.speed));
+        if (data.lastParams.volume != null) setVolume(String(data.lastParams.volume));
+        if (data.lastParams.pitch != null) setPitch(String(data.lastParams.pitch));
         if (data.lastParams.background) setBackground(data.lastParams.background);
         if (typeof data.lastParams.seed === "number") setSeed(String(data.lastParams.seed));
       })
@@ -504,6 +512,18 @@ export default function App() {
         } else {
           setBackground("");
         }
+        const rate = data.controls.sampleRate;
+        if (rate) setSampleRate((prev) => nearestDurationValue(prev, rate));
+        else setSampleRate("");
+        const speedControl = data.controls.speed;
+        if (speedControl) setSpeed((prev) => nearestDurationValue(prev, speedControl));
+        else setSpeed("");
+        const volumeControl = data.controls.volume;
+        if (volumeControl) setVolume((prev) => nearestDurationValue(prev, volumeControl));
+        else setVolume("");
+        const pitchControl = data.controls.pitch;
+        if (pitchControl) setPitch((prev) => nearestDurationValue(prev, pitchControl));
+        else setPitch("");
       })
       .catch(() => {
         if (!cancelled) setControls(null);
@@ -573,8 +593,14 @@ export default function App() {
     return existing.filter((item) => item.role !== "scene").length;
   }
 
+  function mentionAllowed(kind: "image" | "video" | "audio") {
+    const kinds = controls?.mentionKinds;
+    if (!kinds) return true;
+    return kinds.includes(kind);
+  }
+
   function appendMentionTokens(kind: "image" | "video" | "audio", existingCount: number, addedCount: number) {
-    if (addedCount <= 0) return;
+    if (addedCount <= 0 || !mentionAllowed(kind)) return;
     const tokens: string[] = [];
     for (let offset = 0; offset < addedCount; offset += 1) {
       tokens.push(mentionToken(kind, existingCount + offset));
@@ -624,15 +650,44 @@ export default function App() {
     const images = accepted.filter((item) => item.kind === "image").map((item) => item.file);
     const videos = accepted.filter((item) => item.kind === "video").map((item) => item.file);
     const audios = accepted.filter((item) => item.kind === "audio").map((item) => item.file);
-    addFilesOfKind("image", images);
+    const exclusive = controls?.imageAudioExclusive === true;
+    let nextImages = images;
+    let nextAudios = audios;
+    let exclusiveConflict = false;
+    if (exclusive && nextAudios.length > 0 && (nextImages.length > 0 || staged.some((item) => item.kind === "image"))) {
+      exclusiveConflict = true;
+      rejected.push(...nextImages);
+      nextImages = [];
+      setStaged((prev) => {
+        for (const item of prev) {
+          if (item.kind === "image") releasePreview(item.preview);
+        }
+        return prev.filter((item) => item.kind !== "image");
+      });
+      setError("This model accepts a reference image or reference audio, not both.");
+    } else if (exclusive && nextImages.length > 0 && staged.some((item) => item.kind === "audio")) {
+      exclusiveConflict = true;
+      rejected.push(...nextImages);
+      nextImages = [];
+      setError("This model accepts a reference image or reference audio, not both.");
+    }
+    addFilesOfKind("image", nextImages);
     addFilesOfKind("video", videos);
-    addFilesOfKind("audio", audios);
-    noteRejectedMedia(rejected);
+    addFilesOfKind("audio", nextAudios);
+    if (!exclusiveConflict) noteRejectedMedia(rejected);
   }
 
   function addLibraryItem(generation: Generation) {
     const ref = libraryRefFromGeneration(generation);
     if (!ref) return;
+    if (
+      controls?.imageAudioExclusive &&
+      ((ref.kind === "image" && staged.some((item) => item.kind === "audio")) ||
+        (ref.kind === "audio" && staged.some((item) => item.kind === "image")))
+    ) {
+      setError("This model accepts a reference image or reference audio, not both.");
+      return;
+    }
     const cap = capForKind(ref.kind);
     if (cap <= 0) return;
     if (staged.some((item) => item.generationId === ref.generationId)) return;
@@ -701,6 +756,7 @@ export default function App() {
 
   const imageCount = staged.filter((item) => item.kind === "image").length;
   const videoCount = staged.filter((item) => item.kind === "video").length;
+  const audioCount = staged.filter((item) => item.kind === "audio").length;
   const peekKind = peek ? kindFromMediaType(peek.mediaType) : null;
   const peekAttachSupported = peekKind ? capForKind(peekKind) > 0 : false;
   const readyMedia = useMemo(() => completedMedia(generations), [generations]);
@@ -718,7 +774,8 @@ export default function App() {
       mode &&
       model &&
       (!slotRequired(controls, "image", mode) || imageCount > 0) &&
-      (!slotRequired(controls, "video", mode) || videoCount > 0),
+      (!slotRequired(controls, "video", mode) || videoCount > 0) &&
+      (!slotRequired(controls, "audio", mode) || audioCount > 0),
   );
 
   async function onSavePrompt(name: string, body: string) {
@@ -1063,9 +1120,12 @@ export default function App() {
         mode,
         model,
         prompt: prompt.trim(),
-        aspect_ratio: aspectRatio,
         num_generations: numGenerations,
       };
+      const sendAspect =
+        mode !== "text-to-audio" ||
+        Boolean(controls?.aspectRatios && controls.aspectRatios.length > 0);
+      if (sendAspect) payload.aspect_ratio = aspectRatio;
       if (modeIsVideo(mode)) {
         const sent = durationToSend(duration, controls?.duration ?? null);
         if (sent != null && sent !== "") payload.duration = sent;
@@ -1076,6 +1136,10 @@ export default function App() {
       if (quality) payload.quality = quality;
       if (resolution) payload.resolution = resolution;
       if (outputFormat) payload.output_format = outputFormat;
+      if (controls?.sampleRate && sampleRate) payload.sample_rate = Number(sampleRate);
+      if (controls?.speed && speed) payload.speed = Number(speed);
+      if (controls?.volume && volume) payload.volume = Number(volume);
+      if (controls?.pitch && pitch !== "") payload.pitch = Number(pitch);
       if (background) payload.background = background;
       if (images.length) {
         payload.images = images;
@@ -1267,6 +1331,14 @@ export default function App() {
           onResolutionChange={rememberParam(setResolution)}
           outputFormat={outputFormat}
           onOutputFormatChange={rememberParam(setOutputFormat)}
+          sampleRate={sampleRate}
+          onSampleRateChange={rememberParam(setSampleRate)}
+          speed={speed}
+          onSpeedChange={rememberParam(setSpeed)}
+          volume={volume}
+          onVolumeChange={rememberParam(setVolume)}
+          pitch={pitch}
+          onPitchChange={rememberParam(setPitch)}
           background={background}
           onBackgroundChange={rememberParam(setBackground)}
           attachments={staged.map((item) => ({

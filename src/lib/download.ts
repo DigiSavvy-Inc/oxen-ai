@@ -25,9 +25,22 @@ export function mediaAssetId(id: string): string {
   return String((hash >>> 0) % 100_000).padStart(5, "0");
 }
 
-export function downloadFilename(generation: Pick<Generation, "id" | "mediaType" | "prompt">): string {
+function audioExtension(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const path = url.startsWith("data:") ? "" : url.split("?")[0] ?? "";
+  const match = path.match(/\.(mp3|wav|ogg|opus|flac|m4a|aac)$/i);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+export function downloadFilename(
+  generation: Pick<Generation, "id" | "mediaType" | "prompt"> & { resultUrl?: string | null },
+): string {
   const ext =
-    generation.mediaType === "video" ? "mp4" : generation.mediaType === "audio" ? "mp3" : "png";
+    generation.mediaType === "video"
+      ? "mp4"
+      : generation.mediaType === "audio"
+        ? (audioExtension(generation.resultUrl) ?? "mp3")
+        : "png";
   const prompt = (generation.prompt || "media")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

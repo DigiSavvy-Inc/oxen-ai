@@ -9,7 +9,8 @@ export type GenerationMode =
   | "image-to-image"
   | "text-to-video"
   | "reference-to-video"
-  | "video-to-video";
+  | "video-to-video"
+  | "text-to-audio";
 
 export type SessionUser = {
   id: string;
@@ -54,6 +55,12 @@ export type ModelControls = {
   resolutionField?: "resolution" | "size" | "image_size";
   outputFormat: string[] | null;
   background: string[] | null;
+  sampleRate?: DurationControl | null;
+  speed?: DurationControl | null;
+  volume?: DurationControl | null;
+  pitch?: DurationControl | null;
+  imageAudioExclusive?: boolean;
+  mentionKinds?: Array<"image" | "video" | "audio">;
   slots: MediaSlot[];
   mentions: boolean;
   pricing: OxenPricing | null;
@@ -69,6 +76,10 @@ export type SharedOxenParams = {
   resolution?: string;
   output_format?: string;
   background?: string;
+  sample_rate?: number;
+  speed?: number;
+  volume?: number;
+  pitch?: number;
 };
 
 export type StudioSettings = {
@@ -149,6 +160,7 @@ export const MODE_LABELS: Record<GenerationMode, string> = {
   "text-to-video": "Text \u2192 Video",
   "reference-to-video": "Image \u2192 Video",
   "video-to-video": "Video \u2192 Video",
+  "text-to-audio": "Text \u2192 Audio",
 };
 
 export const ALL_MODES: GenerationMode[] = [
@@ -157,6 +169,7 @@ export const ALL_MODES: GenerationMode[] = [
   "text-to-video",
   "reference-to-video",
   "video-to-video",
+  "text-to-audio",
 ];
 
 export function modeNeedsVideo(mode: GenerationMode): boolean {
@@ -171,10 +184,10 @@ export function modeIsVideo(mode: GenerationMode): boolean {
   );
 }
 
-/** Saved reference galleries for image edit and every video mode. */
+/** Saved reference galleries for image edit, every video mode, and text-to-audio. */
 export function modeHasReferenceGallery(mode: GenerationMode | null | undefined): boolean {
   if (!mode) return false;
-  return mode === "image-to-image" || modeIsVideo(mode);
+  return mode === "image-to-image" || mode === "text-to-audio" || modeIsVideo(mode);
 }
 
 export function slotMax(controls: Pick<ModelControls, "slots"> | null, kind: MediaSlot["kind"]): number {

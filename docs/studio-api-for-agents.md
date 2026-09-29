@@ -35,7 +35,7 @@ Do not send the Oxen key on `/api/generate`. Do not log it.
 
 ## What is async
 
-Image and video jobs go through the Oxen queue only (`POST https://hub.oxen.ai/api/ai/queue` inside the Worker). There is no synchronous generate route. `POST /api/generate` returns as soon as Oxen accepts the job. `resultUrl` is null until a later poll.
+Image, video, and audio jobs go through the Oxen queue only (`POST https://hub.oxen.ai/api/ai/queue` inside the Worker). There is no synchronous generate route. Audio does not call `/api/ai/audio/generate`. `POST /api/generate` returns as soon as Oxen accepts the job. `resultUrl` is null until a later poll.
 
 A cron (`* * * * *`) also polls in-flight rows. Do not rely on it. Poll the generation id.
 
@@ -47,7 +47,7 @@ Send `Content-Type: application/json` and the session cookie on every step excep
 
 `GET /api/models?mode=<mode>` with a saved Oxen key returns the live catalog (`{ "mode", "models": [{ "id", "display_name", "capabilities", ... }] }`).
 
-`GET /api/models/<id>` returns `{ "model", "controls" }`. `controls.slots` is the media the model accepts (`kind`: `image` | `video` | `audio`, `required`, `maxItems`). `controls` also lists `aspectRatios`, `duration`, `resolution`, `quality`, `outputFormat`, `background`, `seed`, and `generateAudio` when the model schema has them.
+`GET /api/models/<id>` returns `{ "model", "controls" }`. `controls.slots` is the media the model accepts (`kind`: `image` | `video` | `audio`, `required`, `maxItems`). `controls` also lists `aspectRatios`, `duration`, `resolution`, `quality`, `outputFormat`, `background`, `seed`, `generateAudio`, and for Seed Audio `sampleRate`, `speed`, `volume`, and `pitch` when the model schema has them.
 
 Modes:
 
@@ -58,6 +58,7 @@ Modes:
 | `text-to-video` | `video` | none |
 | `reference-to-video` | `video` | image only when that model’s image slot is `required`. Optional-ref models (including Seedance 2.5) run with no file. |
 | `video-to-video` | `video` | video required when the model slot is required |
+| `text-to-audio` | `audio` | none. Seed Audio 1.0 (`bytedance-seed-audio-1-0`) runs from a prompt. Optional `audio_urls` (up to 3, `@Audio1`…) or one `image_url`. Those two references cannot be combined. The model does not accept video. |
 
 If the model schema cannot be loaded, `image-to-image` and `reference-to-video` require an image, and `video-to-video` requires a video.
 

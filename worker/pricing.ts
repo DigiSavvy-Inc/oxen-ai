@@ -235,7 +235,12 @@ function isImagePricing(pricing: OxenPricing): boolean {
   );
 }
 
+function isAudioOutputPricing(pricing: OxenPricing): boolean {
+  return pricing.method === "per_audio_output_second" && pricing.cost_per_second != null;
+}
+
 function isVideoPricing(pricing: OxenPricing): boolean {
+  if (pricing.method === "per_audio_output_second") return false;
   return (
     pricing.method === "per_video_output_second" ||
     pricing.cost_per_second != null ||
@@ -243,6 +248,11 @@ function isVideoPricing(pricing: OxenPricing): boolean {
     pricing.cost_per_second_with_audio != null ||
     pricing.cost_per_second_high_res != null
   );
+}
+
+function formatAudioRate(unit: number): string {
+  const text = unit.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+  return `≈$${text}/s`;
 }
 
 export function formatUsd(amount: number, decimals?: number): string {
@@ -269,6 +279,13 @@ export function estimateGenerationCost(opts: {
       : durationRaw && durationRaw !== "auto" && Number.isFinite(Number(durationRaw))
         ? Number(durationRaw)
         : 5;
+
+  if (isAudioOutputPricing(pricing) && pricing.cost_per_second != null) {
+    const unit = pricing.cost_per_second;
+    const amount = unit * count;
+    const rate = formatAudioRate(unit);
+    return { amount, label: count > 1 ? `${rate} × ${count}` : rate };
+  }
 
   if (isImagePricing(pricing) && !isVideoPricing(pricing)) {
     const unit = imageUnitCost(pricing, opts.quality, opts.resolution);

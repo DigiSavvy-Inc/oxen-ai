@@ -44,6 +44,11 @@ function MediaPreview({
         </div>
       );
     }
+    if (generation.mediaType === "audio") {
+      return (
+        <audio className={`result-audio ${className ?? ""}`} src={generation.resultUrl} controls preload="metadata" />
+      );
+    }
     const alt = generation.prompt || "Generated";
     return (
       <>
@@ -218,7 +223,7 @@ export function Canvas({
         <div className="canvas-empty">
           <h2>What do you want to make?</h2>
           <p>
-            Pick a mode, choose a model, and describe the image or video. This canvas stays on the
+            Pick a mode, choose a model, and describe the image, video, or audio. This canvas stays on the
             current session — open Library when you want past work.
           </p>
         </div>
@@ -294,7 +299,7 @@ export function Canvas({
                     className="variation-thumb-hit"
                     onClick={() => onSelect(item.id)}
                     title={`Variation ${index + 1}`}
-                    aria-label={`Variation ${index + 1}${item.mediaType === "video" ? ", video" : ""}`}
+                    aria-label={`Variation ${index + 1}${item.mediaType === "video" ? ", video" : item.mediaType === "audio" ? ", audio" : ""}`}
                     aria-current={item.id === generation.id ? "true" : undefined}
                   >
                     {item.mediaType === "image" && item.thumbUrl ? (

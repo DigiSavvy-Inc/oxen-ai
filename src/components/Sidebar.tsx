@@ -51,6 +51,9 @@ function TileFace({ item, allowFull = false }: { item: Generation; allowFull?: b
       </>
     );
   }
+  if (item.mediaType === "audio") {
+    return <span className="audio-mark">Audio</span>;
+  }
   if (isActiveGeneration(item) && !src) {
     return <Loader size="sm" />;
   }
@@ -58,6 +61,9 @@ function TileFace({ item, allowFull = false }: { item: Generation; allowFull?: b
 }
 
 function PreviewFace({ item }: { item: Generation }) {
+  if (item.mediaType === "audio" && item.resultUrl) {
+    return <audio className="library-audio" src={item.resultUrl} controls preload="metadata" />;
+  }
   if (item.mediaType === "image" && item.resultUrl) {
     return <img src={item.resultUrl} alt="" />;
   }

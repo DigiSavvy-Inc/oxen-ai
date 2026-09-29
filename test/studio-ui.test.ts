@@ -748,6 +748,49 @@ describe("library refs", () => {
     expect(split.rejected.map((file) => file.name)).toEqual(["clip.mp4"]);
   });
 
+  it("rejects a non-audio upload when the model only accepts audio", () => {
+    const audioOnly = { capabilities: { input: ["text", "audio"] } };
+    const slots = {
+      slots: [
+        { field: "input_audios" as const, kind: "audio" as const, required: false, maxItems: 3, asArray: true },
+      ],
+    };
+    expect(attachKindCap(slots, "text-to-audio", "audio", audioOnly)).toBe(3);
+    expect(attachKindCap(slots, "text-to-audio", "image", audioOnly)).toBe(0);
+    expect(attachKindCap(slots, "text-to-audio", "video", audioOnly)).toBe(0);
+    expect(fileAcceptValue(acceptedMediaKinds(slots, "text-to-audio", audioOnly))).toBe("audio/*");
+    const image = new File(["x"], "still.png", { type: "image/png" });
+    const video = new File(["x"], "clip.mp4", { type: "video/mp4" });
+    const audio = new File(["x"], "voice.mp3", { type: "audio/mpeg" });
+    const split = partitionMediaFiles(
+      [image, video, audio],
+      acceptedMediaKinds(slots, "text-to-audio", audioOnly),
+    );
+    expect(split.accepted.map((item) => item.file.name)).toEqual(["voice.mp3"]);
+    expect(split.rejected.map((file) => file.name)).toEqual(["still.png", "clip.mp4"]);
+  });
+
+  it("lets Seed Audio take a prompt with optional audio or image, and rejects video", () => {
+    const seed = {
+      capabilities: { input: ["text", "audio", "image"], output: ["audio"] },
+    };
+    const slots = {
+      slots: [
+        { field: "audio_urls" as const, kind: "audio" as const, required: false, maxItems: 3, asArray: true },
+        { field: "image_url" as const, kind: "image" as const, required: false, maxItems: 1, asArray: false },
+      ],
+    };
+    expect(attachKindCap(slots, "text-to-audio", "audio", seed)).toBe(3);
+    expect(attachKindCap(slots, "text-to-audio", "image", seed)).toBe(1);
+    expect(attachKindCap(slots, "text-to-audio", "video", seed)).toBe(0);
+    expect(slotRequired(slots, "audio", "text-to-audio")).toBe(false);
+    expect(slotRequired(slots, "image", "text-to-audio")).toBe(false);
+    const video = new File(["x"], "clip.mp4", { type: "video/mp4" });
+    const split = partitionMediaFiles([video], acceptedMediaKinds(slots, "text-to-audio", seed));
+    expect(split.accepted).toEqual([]);
+    expect(split.rejected.map((file) => file.name)).toEqual(["clip.mp4"]);
+  });
+
   it("always writes mention tokens when a library item is newly staged", () => {
     expect(appendAttachMention("", "image", 0, 1)).toBe("@Image1");
     expect(appendAttachMention("a red ox", "image", 0, 1)).toBe("a red ox @Image1");

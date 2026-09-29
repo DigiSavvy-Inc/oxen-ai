@@ -33,7 +33,9 @@ export type MediaField =
   | "input_videos"
   | "input_face_videos"
   | "input_audio"
-  | "input_audios";
+  | "input_audios"
+  | "audio_urls"
+  | "image_url";
 
 export const DEFAULT_AUDIO_ARRAY_MAX = 16;
 
@@ -62,6 +64,14 @@ export type ModelControls = {
   resolutionField: ResolutionField;
   outputFormat: string[] | null;
   background: string[] | null;
+  sampleRate: DurationControl | null;
+  speed: DurationControl | null;
+  volume: DurationControl | null;
+  pitch: DurationControl | null;
+  /** Seed Audio accepts a reference image or reference audio, not both. */
+  imageAudioExclusive: boolean;
+  /** Kinds the prompt may cite with @Image / @Video / @Audio. */
+  mentionKinds: MediaKind[];
   slots: MediaSlot[];
   mentions: boolean;
   pricing: OxenPricing | null;
@@ -76,6 +86,8 @@ const FIELD_KIND: Record<MediaField, MediaKind> = {
   input_face_videos: "video",
   input_audio: "audio",
   input_audios: "audio",
+  audio_urls: "audio",
+  image_url: "image",
 };
 
 function modelListsAudioInput(model: OxenModel): boolean {
@@ -165,7 +177,7 @@ function enrichAudioSlots(model: OxenModel, schema: JsonSchema, slots: MediaSlot
     return next;
   }
   for (const slot of audioSlots) {
-    if (slot.asArray) {
+    if (slot.asArray && (slot.field === "input_audio" || slot.field === "input_audios")) {
       slot.field = "input_audios";
     }
   }
@@ -328,6 +340,51 @@ function isNumericDurationToken(value: string): boolean {
   return value.trim() !== "" && value !== "auto" && Number.isFinite(Number(value));
 }
 
+function enumWithDefault(schema: JsonSchema | undefined): string[] {
+  const values = enumStrings(schema);
+  const fallback = schemaDefault(schema);
+  if (fallback == null) return values;
+  const token = String(fallback);
+  if (!values.includes(token)) return values;
+  return [token, ...values.filter((value) => value !== token)];
+}
+
+function numberControl(schema: JsonSchema | undefined): DurationControl | null {
+  if (!schema) return null;
+  const control = durationFromSchema(schema);
+  if (!control || control.kind !== "int") return control;
+  const types = typeList(schema);
+  if (types.includes("number") && !types.includes("integer") && control.step == null) {
+    return { ...control, step: 0.1 };
+  }
+  return control;
+}
+
+function promptReferenceKinds(schema: JsonSchema): MediaKind[] | null {
+  const prompt = schema.properties?.prompt as
+    | (JsonSchema & { "x-media-references"?: { groups?: { field?: string }[] } })
+    | undefined;
+  const groups = prompt?.["x-media-references"]?.groups;
+  if (!groups?.length) return null;
+  const kinds: MediaKind[] = [];
+  for (const group of groups) {
+    const field = (group.field ?? "").toLowerCase();
+    const kind: MediaKind | null = field.includes("audio")
+      ? "audio"
+      : field.includes("video")
+        ? "video"
+        : field.includes("image")
+          ? "image"
+          : null;
+    if (kind && !kinds.includes(kind)) kinds.push(kind);
+  }
+  return kinds.length > 0 ? kinds : null;
+}
+
+function uniqueKinds(kinds: MediaKind[]): MediaKind[] {
+  return kinds.filter((kind, index) => kinds.indexOf(kind) === index);
+}
+
 function durationFromSchema(schema: JsonSchema): DurationControl | null {
   const listed = enumStrings(schema);
   const numericListed = listed.filter(isNumericDurationToken);
@@ -455,7 +512,8 @@ export function nearestDurationValue(value: string, duration: DurationControl): 
   if (value.trim() === "") return String(duration.defaultValue ?? duration.min);
   const numeric = numericDurationToken(value);
   if (numeric == null) return String(duration.defaultValue ?? duration.min);
-  return String(alignDuration(Math.round(numeric), duration));
+  const snapped = duration.step != null && duration.step < 1 ? numeric : Math.round(numeric);
+  return String(alignDuration(snapped, duration));
 }
 
 function prefixCanReach(prefix: string, min: number, max: number): boolean {
@@ -610,6 +668,8 @@ export function parseModelControls(model: OxenModel): ModelControls {
     "input_videos",
     "input_audio",
     "input_audios",
+    "audio_urls",
+    "image_url",
   ];
   for (const field of fields) {
     const prop = property(root, field);
@@ -622,8 +682,12 @@ export function parseModelControls(model: OxenModel): ModelControls {
   const resolutionFromSchema = enumStrings(property(root, "resolution"));
   const sizeFromSchema = enumStrings(property(root, "size"));
   const imageSizeFromSchema = enumStrings(property(root, "image_size"));
-  const outputFormat = enumStrings(property(root, "output_format"));
+  const outputFormat = enumWithDefault(property(root, "output_format"));
   const background = enumStrings(property(root, "background"));
+  const sampleRate = numberControl(property(root, "sample_rate"));
+  const speed = numberControl(property(root, "speed"));
+  const volume = numberControl(property(root, "volume"));
+  const pitch = numberControl(property(root, "pitch"));
   const pricing = parseOxenPricing(model.pricing);
   const priced = controlOptionsFromPricing(pricing);
 
@@ -661,8 +725,16 @@ export function parseModelControls(model: OxenModel): ModelControls {
   const duration = durationProp ? durationFromSchema(durationProp) : null;
 
   const nextSlots = enrichImageSlots(model, root, enrichAudioSlots(model, root, slots));
+  const schemaTexts: string[] = [];
+  collectSchemaText(root, schemaTexts);
+  const imageAudioExclusive = /incompatible with audio/i.test(schemaTexts.join("\n"));
+  const referenced = promptReferenceKinds(root);
+  const mentionKinds =
+    referenced ??
+    uniqueKinds(nextSlots.map((slot) => slot.kind));
   const mentions =
     schemaMentionsMedia(root) ||
+    mentionKinds.length > 0 ||
     nextSlots.some((slot) => slot.kind === "image" || slot.kind === "video" || slot.kind === "audio");
 
   return {
@@ -676,10 +748,32 @@ export function parseModelControls(model: OxenModel): ModelControls {
     resolutionField,
     outputFormat: outputFormat.length > 0 ? outputFormat : null,
     background: background.length > 0 ? background : null,
+    sampleRate,
+    speed,
+    volume,
+    pitch,
+    imageAudioExclusive,
+    mentionKinds,
     slots: nextSlots,
     mentions,
     pricing,
   };
+}
+
+export function unsupportedReferenceMessage(
+  slots: MediaSlot[],
+  counts: { image: number; video: number; audio: number },
+  imageAudioExclusive: boolean,
+): string | null {
+  if (slots.length === 0) return null;
+  const allowed = new Set(slots.map((slot) => slot.kind));
+  if (counts.image > 0 && !allowed.has("image")) return "This model does not accept images";
+  if (counts.video > 0 && !allowed.has("video")) return "This model does not accept video";
+  if (counts.audio > 0 && !allowed.has("audio")) return "This model does not accept audio";
+  if (imageAudioExclusive && counts.image > 0 && counts.audio > 0) {
+    return "This model accepts a reference image or reference audio, not both";
+  }
+  return null;
 }
 
 export function resolutionPayloadFields(
@@ -853,5 +947,43 @@ export function clampDuration(
   if (duration.kind === "enum") return nearestDurationValue(String(value), duration);
   const numeric = typeof value === "number" ? value : numericDurationToken(String(value));
   if (numeric == null) return duration.defaultValue ?? duration.min;
-  return alignDuration(Math.round(numeric), duration);
+  const snapped = duration.step != null && duration.step < 1 ? numeric : Math.round(numeric);
+  return alignDuration(snapped, duration);
+}
+
+/** Keep a fractional control editable while the user is still typing. */
+export function numericControlValue(raw: string, control: DurationControl): string {
+  if (control.kind === "enum") return nearestDurationValue(raw, control);
+  const trimmed = raw.trim();
+  if (trimmed === "" || trimmed === "-" || trimmed === "." || trimmed === "-.") return trimmed;
+  if (!/^-?\d*\.?\d*$/.test(trimmed)) {
+    return String(control.defaultValue ?? control.min);
+  }
+  const numeric = Number(trimmed);
+  if (!Number.isFinite(numeric)) return String(control.defaultValue ?? control.min);
+  if (numeric > control.max) return String(alignDuration(control.max, control));
+  if (numeric < control.min) return trimmed;
+  return trimmed;
+}
+
+export function snapNumericControl(raw: string, control: DurationControl): string {
+  if (control.kind === "enum") return nearestDurationValue(raw, control);
+  if (raw.trim() === "" || raw === "-" || raw === "." || raw === "-.") {
+    return String(control.defaultValue ?? control.min);
+  }
+  const numeric = numericDurationToken(raw);
+  if (numeric == null) return String(control.defaultValue ?? control.min);
+  return String(alignDuration(numeric, control));
+}
+
+/** Value generate will enqueue for a numeric or enum control. */
+export function clampNumericControl(
+  value: number | string | undefined,
+  control: DurationControl | null,
+): number | undefined {
+  if (!control || value == null || value === "") return undefined;
+  const token = snapNumericControl(String(value), control);
+  const numeric = numericDurationToken(token);
+  if (numeric == null) return undefined;
+  return numeric;
 }
