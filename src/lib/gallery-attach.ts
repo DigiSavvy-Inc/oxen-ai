@@ -1,10 +1,24 @@
 import type { MediaKind } from "./files";
 import { mentionOrdered, promptContainsToken, tokenForItem, type MentionItem } from "./mentions";
 
+/** Drag payload for one gallery tile. Distinct from chip reorder, which uses text/plain. */
+export const GALLERY_ITEM_DRAG_TYPE = "application/x-oxen-gallery-item";
+
 export type GalleryAttachItem = MentionItem & {
   key?: string;
   url?: string;
 };
+
+export function isGalleryItemDrag(types: ArrayLike<string> | readonly string[]): boolean {
+  return Array.from(types).includes(GALLERY_ITEM_DRAG_TYPE);
+}
+
+/** The one tile the user dragged. An unknown id attaches nothing. */
+export function galleryItemsForDrop<T extends { id: string }>(items: readonly T[], id: string): T[] {
+  if (!id) return [];
+  const item = items.find((entry) => entry.id === id);
+  return item ? [item] : [];
+}
 
 export type GalleryAttachPlan<T extends GalleryAttachItem> = {
   add: T[];

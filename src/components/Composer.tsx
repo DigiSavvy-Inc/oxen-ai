@@ -35,6 +35,7 @@ import {
   type PromptMention,
 } from "../lib/mentions";
 import { shortenFileName } from "../lib/files";
+import { GALLERY_ITEM_DRAG_TYPE, galleryItemsForDrop, isGalleryItemDrag } from "../lib/gallery-attach";
 import { acceptedMediaKinds, fileAcceptValue, mediaKindPhrase, attachKindCap } from "../lib/library-refs";
 import { aspectCatalog, aspectSelectOptions } from "../lib/params";
 import {
@@ -178,7 +179,7 @@ type Props = {
   onGallerySave?: () => Promise<void> | void;
   onGalleryNew?: () => void;
   onGalleryLoad?: (id: string) => Promise<void> | void;
-  onGalleryAttach?: () => string[];
+  onGalleryAttach?: (items?: GalleryDraftItem[], caret?: number | null) => string[];
   quality: string;
   onQualityChange: (value: string) => void;
   resolution: string;
@@ -234,6 +235,7 @@ export function Composer(props: Props) {
   const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
   const savedMenuRef = useRef<HTMLDivElement>(null);
   const pendingCaret = useRef<{ caret: number; prompt: string } | null>(null);
+  const promptCaretReady = useRef(false);
 
   const selectedModel = props.models.find((item) => item.id === props.model);
   const imageMax = attachKindCap(props.controls, props.mode, "image", selectedModel);
@@ -328,6 +330,7 @@ export function Composer(props: Props) {
     mentionItems.length === 0 ? 0 : Math.min(hotMention ?? 0, mentionItems.length - 1);
 
   function placeCaret(nextCaret: number, prompt: string) {
+    promptCaretReady.current = true;
     pendingCaret.current = { caret: nextCaret, prompt };
     setCaret(nextCaret);
   }
@@ -523,22 +526,35 @@ export function Composer(props: Props) {
     });
   }
 
+  function promptDragKind(event: DragEvent): "file" | "gallery" | null {
+    if (isFileDrag(event)) return "file";
+    if (isGalleryItemDrag(event.dataTransfer.types)) return "gallery";
+    return null;
+  }
+
+  function galleryDropCaret(): number | null {
+    const el = promptRef.current;
+    if (el && document.activeElement === el) return el.selectionStart;
+    if (promptCaretReady.current) return caret;
+    return null;
+  }
+
   function onFileDragEnter(event: DragEvent) {
-    if (!isFileDrag(event)) return;
+    if (!promptDragKind(event)) return;
     event.preventDefault();
     dragDepth.current += 1;
     setDragging(true);
   }
 
   function onFileDragOver(event: DragEvent) {
-    if (!isFileDrag(event)) return;
+    if (!promptDragKind(event)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
     setDragging(true);
   }
 
   function onFileDragLeave(event: DragEvent) {
-    if (!isFileDrag(event)) return;
+    if (!promptDragKind(event)) return;
     dragDepth.current -= 1;
     if (dragDepth.current <= 0) {
       dragDepth.current = 0;
@@ -547,10 +563,18 @@ export function Composer(props: Props) {
   }
 
   function onFileDrop(event: DragEvent) {
-    if (!isFileDrag(event)) return;
+    const kind = promptDragKind(event);
+    if (!kind) return;
     event.preventDefault();
     dragDepth.current = 0;
     setDragging(false);
+    if (kind === "gallery") {
+      const id = event.dataTransfer.getData(GALLERY_ITEM_DRAG_TYPE);
+      const picked = galleryItemsForDrop(props.galleryItems ?? [], id);
+      if (picked.length !== 1) return;
+      setGallerySkipped(props.onGalleryAttach?.(picked, galleryDropCaret()) ?? []);
+      return;
+    }
     props.onAddFiles(event.dataTransfer.files);
   }
 
@@ -657,10 +681,21 @@ export function Composer(props: Props) {
               onChange={(e) => {
                 setMentionOpen(true);
                 props.onPromptChange(e.target.value);
+                promptCaretReady.current = true;
                 setCaret(e.target.selectionStart);
               }}
-              onClick={(e) => setCaret(e.currentTarget.selectionStart)}
-              onKeyUp={(e) => setCaret(e.currentTarget.selectionStart)}
+              onFocus={(e) => {
+                promptCaretReady.current = true;
+                setCaret(e.currentTarget.selectionStart);
+              }}
+              onClick={(e) => {
+                promptCaretReady.current = true;
+                setCaret(e.currentTarget.selectionStart);
+              }}
+              onKeyUp={(e) => {
+                promptCaretReady.current = true;
+                setCaret(e.currentTarget.selectionStart);
+              }}
               onPointerMove={(e) => hoverMentionAtPoint(e.clientX, e.clientY)}
               onPointerLeave={() => setHoveredMention(null)}
               placeholder={
@@ -842,12 +877,12 @@ export function Composer(props: Props) {
           <div
             className="attach-preview"
             onDragOver={(event) => {
-              if (isFileDrag(event) || dragIndex == null) return;
+              if (isFileDrag(event) || isGalleryItemDrag(event.dataTransfer.types) || dragIndex == null) return;
               event.preventDefault();
               event.dataTransfer.dropEffect = "move";
             }}
             onDrop={(event) => {
-              if (isFileDrag(event)) return;
+              if (isFileDrag(event) || isGalleryItemDrag(event.dataTransfer.types)) return;
               event.preventDefault();
               const from = Number(event.dataTransfer.getData("text/plain"));
               const insertBefore = dropInsertBefore ?? props.attachments.length;
@@ -891,7 +926,7 @@ export function Composer(props: Props) {
                       setDragIndex(index);
                     }}
                     onDragOver={(event) => {
-                      if (isFileDrag(event)) return;
+                      if (isFileDrag(event) || isGalleryItemDrag(event.dataTransfer.types)) return;
                       event.preventDefault();
                       event.stopPropagation();
                       event.dataTransfer.dropEffect = "move";

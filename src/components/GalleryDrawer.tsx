@@ -2,6 +2,7 @@ import { useEffect, useState, type DragEvent } from "react";
 import { createPortal } from "react-dom";
 import type { GallerySummary } from "../lib/api";
 import { shortenFileName } from "../lib/files";
+import { GALLERY_ITEM_DRAG_TYPE } from "../lib/gallery-attach";
 import { indexAfterInsertBefore } from "../lib/mentions";
 
 export type GalleryDraftItem = {
@@ -178,6 +179,7 @@ export function GalleryDrawer(props: Props) {
         onDragOver={(event) => {
           if (isFileDrag(event) || dragIndex == null) return;
           event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
         }}
         onDrop={(event) => {
           if (isFileDrag(event)) return;
@@ -200,14 +202,16 @@ export function GalleryDrawer(props: Props) {
                 event.preventDefault();
                 return;
               }
-              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.effectAllowed = "copyMove";
               event.dataTransfer.setData("text/plain", String(index));
+              event.dataTransfer.setData(GALLERY_ITEM_DRAG_TYPE, item.id);
               setDragIndex(index);
             }}
             onDragOver={(event) => {
               if (isFileDrag(event)) return;
               event.preventDefault();
               event.stopPropagation();
+              event.dataTransfer.dropEffect = "move";
               const rect = event.currentTarget.getBoundingClientRect();
               const insertBefore = event.clientX < rect.left + rect.width / 2 ? index : index + 1;
               if (dropInsertBefore !== insertBefore) setDropInsertBefore(insertBefore);

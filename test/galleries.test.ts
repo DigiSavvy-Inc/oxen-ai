@@ -9,7 +9,12 @@ import {
   listGalleries,
   saveGallery,
 } from "../worker/galleries";
-import { planGalleryAttach } from "../src/lib/gallery-attach";
+import {
+  GALLERY_ITEM_DRAG_TYPE,
+  galleryItemsForDrop,
+  isGalleryItemDrag,
+  planGalleryAttach,
+} from "../src/lib/gallery-attach";
 import { insertAttachMentions, promptContainsToken } from "../src/lib/mentions";
 import { createEnv, TEST_SESSION_ID, TEST_USER } from "./helpers";
 
@@ -240,6 +245,42 @@ describe("gallery attach", () => {
     expect(promptContainsToken("see @Image10", "@Image1")).toBe(false);
     expect(promptContainsToken("see @Image1", "@Image1")).toBe(true);
     expect(insertAttachMentions("see @Image10", null, ["@Image1"]).next).toBe("see @Image10 @Image1 ");
+  });
+
+  it("drags one gallery tile and leaves the rest of the set alone", () => {
+    const imageItem = { ...image, id: "img" };
+    const audioItem = { ...audio, id: "aud" };
+    expect(isGalleryItemDrag([GALLERY_ITEM_DRAG_TYPE])).toBe(true);
+    expect(isGalleryItemDrag(["text/plain", "Files"])).toBe(false);
+    const picked = galleryItemsForDrop([imageItem, audioItem], "img");
+    expect(picked.map((item) => item.name)).toEqual(["hero.png"]);
+    expect(galleryItemsForDrop([imageItem, audioItem], "missing")).toEqual([]);
+    const plan = planGalleryAttach({
+      items: picked,
+      staged: [],
+      caps: { image: 2, video: 1, audio: 1 },
+      prompt: "hold",
+      faceFirst: false,
+    });
+    expect(plan.add.map((item) => item.name)).toEqual(["hero.png"]);
+    expect(plan.tokens).toEqual(["@Image1"]);
+    expect(plan.skipped).toEqual([]);
+    const placed = insertAttachMentions("hold", 4, plan.tokens);
+    expect(placed.next).toBe("hold @Image1 ");
+  });
+
+  it("does not attach a dragged item the model cannot take", () => {
+    const audioItem = { ...audio, id: "aud" };
+    const plan = planGalleryAttach({
+      items: galleryItemsForDrop([audioItem], "aud"),
+      staged: [],
+      caps: { image: 2, video: 0, audio: 0 },
+      prompt: "wide shot",
+      faceFirst: false,
+    });
+    expect(plan.add).toEqual([]);
+    expect(plan.tokens).toEqual([]);
+    expect(plan.skipped.map((item) => item.name)).toEqual(["bed.mp3"]);
   });
 
   it("does not attach the same media twice", () => {

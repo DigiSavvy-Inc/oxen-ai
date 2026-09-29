@@ -919,14 +919,14 @@ export default function App() {
     }
   }
 
-  function onGalleryAttach(): string[] {
+  function onGalleryAttach(items?: GalleryDraftItem[], caret?: number | null): string[] {
     const faceFirst = Boolean(
       controls?.slots.some(
         (slot) => slot.field === "input_face_images" || slot.field === "input_face_videos",
       ),
     );
     const plan = planGalleryAttach({
-      items: galleryItems,
+      items: items ?? galleryItems,
       staged,
       caps: {
         image: capForKind("image"),
@@ -952,7 +952,12 @@ export default function App() {
     if (plan.tokens.length > 0) {
       const field = promptField.current;
       const el = field?.element ?? null;
-      const liveCaret = el && document.activeElement === el ? el.selectionStart : null;
+      const liveCaret =
+        caret !== undefined
+          ? caret
+          : el && document.activeElement === el
+            ? el.selectionStart
+            : null;
       const result = insertAttachMentions(prompt, liveCaret, plan.tokens);
       setPrompt(result.next);
       field?.place(result.caret, result.next);
