@@ -46,8 +46,20 @@ function triggerDownload(url: string, filename: string) {
   link.remove();
 }
 
+function sameOriginUrl(url: string): boolean {
+  if (url.startsWith("/") || url.startsWith("data:") || url.startsWith("blob:")) return true;
+  if (typeof window === "undefined") return false;
+  try {
+    return new URL(url, window.location.href).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/** Save one file. Same-origin URLs download immediately so the click still counts. */
 export async function downloadMedia(url: string, filename: string): Promise<void> {
-  if (url.startsWith("data:")) {
+  if (!url) return;
+  if (sameOriginUrl(url)) {
     triggerDownload(url, filename);
     return;
   }
@@ -65,7 +77,8 @@ export async function downloadMedia(url: string, filename: string): Promise<void
 
 export async function downloadAllMedia(generations: Generation[]): Promise<void> {
   const ready = completedMedia(generations);
-  await Promise.all(
-    ready.map((item) => downloadMedia(item.resultUrl ?? "", downloadFilename(item))),
-  );
+  for (const item of ready) {
+    if (!item.resultUrl) continue;
+    await downloadMedia(item.resultUrl, downloadFilename(item));
+  }
 }

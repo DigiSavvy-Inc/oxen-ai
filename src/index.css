@@ -1176,6 +1176,8 @@ button.history-expand-preview {
 
 .history-tile.is-expanded .history-expand-frame .media-download {
   display: inline-flex;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .history-expand-frame .media-actions {
@@ -1765,6 +1767,12 @@ button.history-expand-preview {
   .history-tile .media-delete-group,
   .history-tile .history-status {
     display: none;
+  }
+
+  .history-tile.is-expanded .history-expand-frame .media-download {
+    display: inline-flex;
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .library-peek {

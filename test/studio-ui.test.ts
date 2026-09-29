@@ -916,6 +916,13 @@ describe("library history layout", () => {
     expect(css).toMatch(
       /\.history-tile\.is-expanded \.history-expand-frame \.media-download\s*\{[^}]*display:\s*inline-flex/,
     );
+    const phone = css.slice(css.indexOf("@media (max-width: 860px)"));
+    expect(phone).toMatch(
+      /\.history-tile\.is-expanded \.history-expand-frame \.media-download\s*\{[^}]*display:\s*inline-flex/,
+    );
+    expect(phone).toMatch(
+      /\.history-tile\.is-expanded \.history-expand-frame \.media-download\s*\{[^}]*pointer-events:\s*auto/,
+    );
     expect(css).toMatch(/\.history-expand-frame \.expand-corner-tr\s*\{[^}]*left:\s*0/);
     expect(css).toMatch(/\.history-expand-frame \.expand-corner-bl\s*\{[^}]*right:\s*0/);
     expect(css).toMatch(/\.history-expand-frame \.expand-corner-bl\s*\{[^}]*border-color:\s*var\(--text\)/);
