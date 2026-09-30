@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MODE_LABELS, type Generation, type GenerationMode } from "../lib/api";
 import { isActiveGeneration } from "../lib/batches";
 import {
@@ -240,6 +240,27 @@ export function Canvas({
   onTagsChange: (id: string, tags: string[]) => void;
   onDelete?: (id: string) => void;
 }) {
+  const frameRef = useRef<HTMLDivElement>(null);
+  const generationId = generation?.id ?? null;
+  const resultUrl = generation?.resultUrl ?? null;
+
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame || !generationId) return;
+    if (!window.matchMedia("(max-width: 860px)").matches) return;
+    const scrollport = frame.closest(".main");
+    if (!(scrollport instanceof HTMLElement)) return;
+    const frameBox = frame.getBoundingClientRect();
+    const portBox = scrollport.getBoundingClientRect();
+    const topIsVisible = frameBox.top >= portBox.top && frameBox.top < portBox.bottom;
+    if (topIsVisible) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    frame.scrollIntoView({
+      block: resultUrl ? "start" : "nearest",
+      behavior: reduce ? "auto" : "smooth",
+    });
+  }, [generationId, resultUrl]);
+
   if (!generation) {
     return (
       <div className="canvas">
@@ -263,7 +284,7 @@ export function Canvas({
 
   return (
     <div className="canvas">
-      <div className="result-frame">
+      <div className="result-frame" ref={frameRef}>
         <div className="frame-head">
           <h3>
             {label} · {generation.model}
