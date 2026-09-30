@@ -1376,6 +1376,25 @@ describe("get last frame control", () => {
   });
 });
 
+describe("mobile result stays reachable", () => {
+  it("scrolls the column instead of letting a tall composer cover the output", () => {
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    const phone = css.slice(css.indexOf("@media (max-width: 860px)"));
+    expect(phone).toMatch(/\.main\s*\{[^}]*overflow-y:\s*auto/);
+    expect(phone).toMatch(
+      /\.main:has\(\.result-frame\)\s*\{[^}]*grid-template-rows:\s*auto minmax\(min-content,\s*1fr\) auto/,
+    );
+    expect(phone).toMatch(
+      /\.main:has\(\.result-frame\) \.workspace,\s*\.main:has\(\.result-frame\) \.canvas\s*\{[^}]*min-height:\s*min-content/,
+    );
+    expect(phone).toMatch(/\.attach-preview\s*\{[^}]*max-height:\s*min\(30dvh,\s*220px\)/);
+    expect(phone).toMatch(/\.attach-preview\s*\{[^}]*overflow-y:\s*auto/);
+    const canvas = readFileSync(new URL("../src/components/Canvas.tsx", import.meta.url), "utf8");
+    expect(canvas).toContain('matchMedia("(max-width: 860px)")');
+    expect(canvas).toContain("scrollIntoView");
+  });
+});
+
 describe("gallery drawer", () => {
   it("is a side drawer on desktop and a full-screen sheet on a phone", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");

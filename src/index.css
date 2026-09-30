@@ -1908,8 +1908,52 @@ button.history-expand-preview {
     scroll-snap-align: start;
   }
 
+  .main {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Keep the result at its content height so a tall composer cannot cover it. */
+  .main:has(.result-frame) {
+    --result-max: min(52dvh, calc(100dvh - 320px));
+    grid-template-rows: auto minmax(min-content, 1fr) auto;
+  }
+
+  .main:has(.result-frame) .workspace,
+  .main:has(.result-frame) .canvas {
+    min-height: min-content;
+    overflow: visible;
+  }
+
+  .main:has(.result-frame) .canvas {
+    place-items: start center;
+  }
+
+  .main:has(.result-frame) .result-frame {
+    scroll-margin-top: 8px;
+  }
+
+  .main:has(.result-frame) .result-media img.result-preview,
+  .main:has(.result-frame) .result-media video.result-preview,
+  .main:has(.result-frame) .result-media .staged-still.is-scaled {
+    max-height: var(--result-max);
+  }
+
+  .main:has(.result-frame) .result-media .staged-still.is-scaled {
+    width: calc(var(--result-max) * var(--still-ratio, 1));
+  }
+
   .canvas {
     padding: 12px;
+  }
+
+  .attach-preview {
+    max-height: min(30dvh, 220px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
   }
 
   .composer {
