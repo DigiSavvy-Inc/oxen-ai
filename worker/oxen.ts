@@ -199,6 +199,22 @@ export function extractOxenErrorMessage(
   return null;
 }
 
+/**
+ * Wan's Green Net check reports `text (input)` when it refuses the prompt itself.
+ * Say that plainly. Leave image and output refusals unchanged.
+ */
+export function presentGenerationError(message: string | null | undefined): string | null {
+  if (message == null) return null;
+  const trimmed = message.trim();
+  if (!trimmed) return null;
+  const inspection = /data\s*inspection\s*failed/i.test(trimmed) || /green\s*net/i.test(trimmed);
+  const textInput = /text\s*\(\s*input\s*\)/i.test(trimmed);
+  if (inspection && textInput) {
+    return "This model rejected the prompt text. Its content check blocked the text, so edit the prompt and try again.";
+  }
+  return trimmed;
+}
+
 function asUnixSeconds(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value > 1e12 ? Math.floor(value / 1000) : Math.floor(value);

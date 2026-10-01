@@ -56,6 +56,7 @@ import {
   mergeMissingFeaturedModels,
   notePollFailure,
   pollErrorMessage,
+  presentGenerationError,
   resetPollFailures,
   searchModels,
   shouldPersistPollFailure,
@@ -539,7 +540,9 @@ function toGenerationJson(
     thumbUrl: extras?.thumbUrl ?? null,
     captureLastFrame: captureLastFrameRequested(row.params_json),
     lastFrameUrl: extras?.lastFrameUrl ?? null,
-    errorMessage: extras?.errorMessage === undefined ? row.error_message : extras.errorMessage,
+    errorMessage: presentGenerationError(
+      extras?.errorMessage === undefined ? row.error_message : extras.errorMessage,
+    ),
     batchId: row.batch_id ?? null,
     createdAt: row.created_at,
     updatedAt: extras?.updatedAt ?? row.updated_at,
@@ -1560,7 +1563,7 @@ app.post("/api/generate", async (c) => {
     background:
       pickCompatible(body.background, controls.background) ??
       (useFallback ? body.background : undefined),
-    moderation: body.moderation,
+    moderation: controls.moderation || useFallback ? body.moderation : undefined,
     input_image:
       mapped.input_image ?? (useFallback && imageUrls.length === 1 ? imageUrls[0] : undefined),
     input_images:

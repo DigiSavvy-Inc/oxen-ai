@@ -1,3 +1,5 @@
+import { presentGenerationError } from "./oxen";
+
 export type GenerationNotifyInput = {
   id: string;
   status: string;
@@ -35,7 +37,7 @@ export function generationNotifyCopy(
   if (generation.status === "failed") {
     return {
       title: `${kind} generation failed`,
-      body: generation.errorMessage?.trim() || short || "Oxen could not finish this job.",
+      body: presentGenerationError(generation.errorMessage) || short || "Oxen could not finish this job.",
       tag: generation.id,
       url: "/",
     };

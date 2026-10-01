@@ -159,4 +159,61 @@ describe("GET /api/generations", () => {
       releaseDownload();
     }
   });
+
+  it("explains a Wan text rejection already stored on the job", async () => {
+    const row = {
+      id: "gen-wan",
+      user_id: TEST_USER.id,
+      oxen_generation_id: "oxen-wan",
+      mode: "reference-to-video",
+      model: "wan-v3-0-video-prime",
+      prompt: "stored separately",
+      status: "failed",
+      media_type: "video",
+      result_url: null,
+      result_key: null,
+      thumb_key: null,
+      last_frame_key: null,
+      params_json: null,
+      error_message: "Task failed: DataInspectionFailed - Green net check rejected text (input)",
+      batch_id: "batch-wan",
+      created_at: 1_700_000_100,
+      updated_at: 1_700_000_100,
+    };
+    const env = createEnv({
+      DB: {
+        prepare(sql: string) {
+          return {
+            bind(...args: unknown[]) {
+              return {
+                async first() {
+                  if (sql.includes("FROM sessions") && args[0] === TEST_SESSION_ID) return TEST_USER;
+                  return null;
+                },
+                async all() {
+                  if (sql.includes("FROM generations") && args[0] === TEST_USER.id) {
+                    return { results: [row] };
+                  }
+                  return { results: [] };
+                },
+                async run() {
+                  return { success: true };
+                },
+              };
+            },
+          };
+        },
+      } as unknown as D1Database,
+    });
+    const res = await app.request(
+      "https://studio.digisavvy.dev/api/generations?scope=library",
+      { headers: { Cookie: cookieHeader() } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { generations: Array<{ errorMessage: string | null }> };
+    expect(body.generations[0]?.errorMessage).toBe(
+      "This model rejected the prompt text. Its content check blocked the text, so edit the prompt and try again.",
+    );
+  });
 });

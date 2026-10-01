@@ -49,6 +49,20 @@ describe("generationNotifyCopy", () => {
     });
   });
 
+  it("says the model rejected the prompt when Wan blocks the text", () => {
+    expect(
+      generationNotifyCopy({
+        id: "gen-wan",
+        status: "failed",
+        prompt: "unused",
+        mediaType: "video",
+        errorMessage: "Task failed: DataInspectionFailed - Green net check rejected text (input)",
+      }).body,
+    ).toBe(
+      "This model rejected the prompt text. Its content check blocked the text, so edit the prompt and try again.",
+    );
+  });
+
   it("uses the Oxen error for a failed video", () => {
     expect(
       generationNotifyCopy({

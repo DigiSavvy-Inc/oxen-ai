@@ -64,6 +64,8 @@ export type ModelControls = {
   resolutionField: ResolutionField;
   outputFormat: string[] | null;
   background: string[] | null;
+  /** True when the request schema has a moderation field. */
+  moderation: boolean;
   sampleRate: DurationControl | null;
   speed: DurationControl | null;
   volume: DurationControl | null;
@@ -748,6 +750,7 @@ export function parseModelControls(model: OxenModel): ModelControls {
     resolutionField,
     outputFormat: outputFormat.length > 0 ? outputFormat : null,
     background: background.length > 0 ? background : null,
+    moderation: Boolean(property(root, "moderation")),
     sampleRate,
     speed,
     volume,

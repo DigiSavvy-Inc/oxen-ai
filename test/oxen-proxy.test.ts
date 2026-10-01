@@ -1,4 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { app } from "../worker/index";
+import { SESSION_COOKIE } from "../worker/auth";
+import { encryptSecret } from "../worker/crypto";
+import { createEnv, TEST_SECRET, TEST_SESSION_ID, TEST_USER } from "./helpers";
+import type { UserRow } from "../worker/types";
 import {
   POLL_FAILURE_THRESHOLD,
   buildEnqueuePayload,
@@ -6,6 +11,7 @@ import {
   enqueueGeneration,
   extractResultUrl,
   filterModelsForMode,
+  presentGenerationError,
   isMediaGenerationModel,
   notePollFailure,
   paramsJsonForStorage,
@@ -526,5 +532,177 @@ describe("downloadOxenResult", () => {
     await expect(downloadOxenResult("sk-user", "https://hub.oxen.ai/loop")).rejects.toThrow(
       /too many times/,
     );
+  });
+});
+
+describe("presentGenerationError", () => {
+  it("says the model rejected the prompt when Wan blocks text input", () => {
+    expect(
+      presentGenerationError(
+        "Task failed: DataInspectionFailed - Green net check rejected text (input)",
+      ),
+    ).toBe(
+      "This model rejected the prompt text. Its content check blocked the text, so edit the prompt and try again.",
+    );
+    expect(
+      presentGenerationError(
+        "DataInspectionFailed - Green net check failed for text (input): Input data may contain inappropriate content.",
+      ),
+    ).toBe(
+      "This model rejected the prompt text. Its content check blocked the text, so edit the prompt and try again.",
+    );
+  });
+
+  it("leaves image and output inspections and other failures unchanged", () => {
+    expect(
+      presentGenerationError("DataInspectionFailed - Green net check failed for image (input)"),
+    ).toBe("DataInspectionFailed - Green net check failed for image (input)");
+    expect(
+      presentGenerationError("DataInspectionFailed - Green net check failed for image (output)"),
+    ).toBe("DataInspectionFailed - Green net check failed for image (output)");
+    expect(presentGenerationError("safety filter")).toBe("safety filter");
+    expect(presentGenerationError(null)).toBeNull();
+  });
+});
+
+describe("Wan 3.0 reference-to-video enqueue", () => {
+  it("sends the prompt once and no other free-text fields", async () => {
+    const { ciphertext, iv } = await encryptSecret("sk-user", TEST_SECRET);
+    const user: UserRow = { ...TEST_USER, oxen_key_ciphertext: ciphertext, oxen_key_iv: iv };
+    const prompt = "the subject walks forward @Video1";
+    const modelId = "wan-v3-0-video-prime";
+    let queued: Record<string, unknown> | null = null;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `https://hub.oxen.ai/api/ai/models/${modelId}`) {
+        return jsonResponse({
+          id: modelId,
+          display_name: "Wan 3.0 Prime",
+          endpoint: "/videos/generate",
+          capabilities: { input: ["text", "image", "video", "audio"], output: ["video"] },
+          request_schema: {
+            type: "object",
+            required: ["prompt"],
+            properties: {
+              prompt: {
+                type: "string",
+                description: "Refer to assets as @Image 1, @Video 1, and @Audio 1.",
+              },
+              input_images: { type: "array", maxItems: 10, items: { type: "string" } },
+              input_image: { type: "string", description: "First frame. Not a reference." },
+              input_videos: { type: "array", maxItems: 5, items: { type: "string" } },
+              input_audios: { type: "array", maxItems: 5, items: { type: "string" } },
+              generate_audio: { type: "boolean", default: true },
+              aspect_ratio: {
+                type: "string",
+                enum: ["adaptive", "16:9", "9:16", "1:1", "4:3", "3:4"],
+                default: "adaptive",
+              },
+              resolution: { type: "string", enum: ["480P", "720P", "1080P"], default: "1080P" },
+              duration: { type: "integer", minimum: 2, maximum: 30, default: 5 },
+              enable_thinking: { type: "boolean", default: false },
+              seed: { type: "integer" },
+              watermark: { type: "boolean", default: false },
+            },
+          },
+        });
+      }
+      if (url === "https://hub.oxen.ai/api/ai/queue" && init?.method === "POST") {
+        queued = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return jsonResponse({ generations: [{ generation_id: "gen-wan", status: "queued" }] });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const res = await app.request(
+      "https://studio.digisavvy.dev/api/generate",
+      {
+        method: "POST",
+        headers: {
+          Cookie: `${SESSION_COOKIE}=${TEST_SESSION_ID}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: "reference-to-video",
+          model: modelId,
+          prompt,
+          num_generations: 1,
+          aspect_ratio: "16:9",
+          duration: 5,
+          resolution: "720P",
+          generate_audio: false,
+          videos: ["https://cdn.example.com/media/clip"],
+          filename: "walk-plate.mov",
+          name: "walk-plate.mov",
+          label: "character",
+          negative_prompt: "do not send",
+          text: "do not send",
+          background: "studio backdrop",
+          moderation: "low",
+        }),
+      },
+      createEnv({
+        DB: {
+          prepare(sql: string) {
+            return {
+              bind(...args: unknown[]) {
+                return {
+                  async first() {
+                    if (sql.includes("FROM sessions") && args[0] === TEST_SESSION_ID) return user;
+                    return null;
+                  },
+                  async all() {
+                    return { results: [] };
+                  },
+                  async run() {
+                    return { success: true };
+                  },
+                };
+              },
+            };
+          },
+        } as unknown as D1Database,
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(queued).not.toBeNull();
+    const payload = queued as unknown as Record<string, unknown>;
+    expect(payload.prompt).toBe(prompt);
+    expect(payload.model).toBe(modelId);
+    expect(payload.input_videos).toEqual(["https://cdn.example.com/media/clip"]);
+    expect(payload.aspect_ratio).toBe("16:9");
+    expect(payload.resolution).toBe("720P");
+    expect(payload.duration).toBe(5);
+    expect(payload.generate_audio).toBe(false);
+    expect(payload.num_generations).toBe(1);
+    const stringKeys = Object.entries(payload)
+      .filter(([, value]) => typeof value === "string")
+      .map(([key]) => key)
+      .sort();
+    expect(stringKeys).toEqual(["aspect_ratio", "model", "prompt", "resolution"]);
+    for (const key of [
+      "background",
+      "moderation",
+      "negative_prompt",
+      "text",
+      "input",
+      "filename",
+      "name",
+      "label",
+      "caption",
+      "input_video",
+      "input_image",
+      "enable_thinking",
+      "watermark",
+    ]) {
+      expect(payload).not.toHaveProperty(key);
+    }
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain("walk-plate.mov");
+    expect(serialized).not.toContain("character");
+    expect(serialized).not.toContain("studio backdrop");
+    expect(serialized).not.toContain("do not send");
+    expect(serialized).not.toContain("low");
   });
 });
