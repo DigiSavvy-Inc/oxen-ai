@@ -383,87 +383,89 @@ export function Sidebar({
                   {openBatch && preview ? (
                     <div className="history-tile is-expanded" ref={expandedTileRef} key={`${openBatch.id}-open`}>
                       <div className="history-expand">
-                        <div className="history-expand-frame">
-                          {canFit ? (
-                            <button
-                              type="button"
-                              className="history-expand-preview"
-                              aria-label="View full size"
-                              data-preview-id={preview.id}
-                              onClick={() => commit({ type: "preview" })}
-                            >
-                              <div className="history-tile-media">
-                                <PreviewFace item={preview} />
+                        <div className="selected-collection history-expand-set">
+                          <div className="history-expand-frame">
+                            {canFit ? (
+                              <button
+                                type="button"
+                                className="history-expand-preview"
+                                aria-label="View full size"
+                                data-preview-id={preview.id}
+                                onClick={() => commit({ type: "preview" })}
+                              >
+                                <div className="history-tile-media">
+                                  <PreviewFace item={preview} />
+                                </div>
+                              </button>
+                            ) : (
+                              <div className="history-expand-preview" data-preview-id={preview.id}>
+                                <div className="history-tile-media">
+                                  <PreviewFace item={preview} />
+                                </div>
                               </div>
-                            </button>
-                          ) : (
-                            <div className="history-expand-preview" data-preview-id={preview.id}>
-                              <div className="history-tile-media">
-                                <PreviewFace item={preview} />
-                              </div>
-                            </div>
-                          )}
-                          {preview.status === "succeeded" && preview.resultUrl ? (
-                            <div className="media-actions">
-                              <DownloadButton
-                                label="Download"
-                                onDownload={() =>
-                                  void downloadMedia(
-                                    preview.resultUrl ?? "",
-                                    downloadFilename(preview),
-                                  )
-                                }
-                              />
-                              {readyInGroup.length > 1 ? (
+                            )}
+                            {preview.status === "succeeded" && preview.resultUrl ? (
+                              <div className="media-actions">
                                 <DownloadButton
-                                  className="media-download-all"
-                                  caption="All"
-                                  label={`Download all ${readyInGroup.length} completed`}
-                                  onDownload={() => void downloadAllMedia(readyInGroup)}
+                                  label="Download"
+                                  onDownload={() =>
+                                    void downloadMedia(
+                                      preview.resultUrl ?? "",
+                                      downloadFilename(preview),
+                                    )
+                                  }
                                 />
-                              ) : null}
+                                {readyInGroup.length > 1 ? (
+                                  <DownloadButton
+                                    className="media-download-all"
+                                    caption="All"
+                                    label={`Download all ${readyInGroup.length} completed`}
+                                    onDownload={() => void downloadAllMedia(readyInGroup)}
+                                  />
+                                ) : null}
+                              </div>
+                            ) : null}
+                            {onAttach ? (
+                              <button
+                                type="button"
+                                className={`history-expand-attach${attachedIds?.has(preview.id) ? " is-attached" : ""}`}
+                                disabled={!attachSupported?.(preview)}
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => {
+                                  if (!attachSupported?.(preview)) return;
+                                  onAttach(preview);
+                                }}
+                              >
+                                {attachedIds?.has(preview.id)
+                                  ? "Attached"
+                                  : attachSupported?.(preview)
+                                    ? "Click to attach"
+                                    : `Can't attach ${attachKindLabel(preview)}`}
+                              </button>
+                            ) : null}
+                            {canFit ? <ExpandCorners /> : null}
+                          </div>
+                          {openBatch.items.length > 1 ? (
+                            <div className="history-expand-versions" role="list" aria-label="Versions">
+                              {versionsBesidePreview(openBatch.items, preview.id).map((item) => {
+                                const index = openBatch.items.findIndex((entry) => entry.id === item.id);
+                                return (
+                                  <button
+                                    key={item.id}
+                                    type="button"
+                                    className="history-version"
+                                    aria-label={`Show variation ${index + 1}`}
+                                    onClick={() => commit({ type: "version", versionId: item.id })}
+                                  >
+                                    <div className="history-tile-media">
+                                      <TileFace item={item} allowFull />
+                                    </div>
+                                  </button>
+                                );
+                              })}
                             </div>
                           ) : null}
-                          {onAttach ? (
-                            <button
-                              type="button"
-                              className={`history-expand-attach${attachedIds?.has(preview.id) ? " is-attached" : ""}`}
-                              disabled={!attachSupported?.(preview)}
-                              onMouseDown={(event) => event.preventDefault()}
-                              onClick={() => {
-                                if (!attachSupported?.(preview)) return;
-                                onAttach(preview);
-                              }}
-                            >
-                              {attachedIds?.has(preview.id)
-                                ? "Attached"
-                                : attachSupported?.(preview)
-                                  ? "Click to attach"
-                                  : `Can't attach ${attachKindLabel(preview)}`}
-                            </button>
-                          ) : null}
-                          {canFit ? <ExpandCorners /> : null}
                         </div>
-                        {openBatch.items.length > 1 ? (
-                          <div className="history-expand-versions" role="list" aria-label="Versions">
-                            {versionsBesidePreview(openBatch.items, preview.id).map((item) => {
-                              const index = openBatch.items.findIndex((entry) => entry.id === item.id);
-                              return (
-                                <button
-                                  key={item.id}
-                                  type="button"
-                                  className="history-version"
-                                  aria-label={`Show variation ${index + 1}`}
-                                  onClick={() => commit({ type: "version", versionId: item.id })}
-                                >
-                                  <div className="history-tile-media">
-                                    <TileFace item={item} allowFull />
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : null}
                         {preview.prompt || preview.model ? (
                           <ExpandPrompt prompt={preview.prompt ?? ""} model={preview.model} />
                         ) : null}

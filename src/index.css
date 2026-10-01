@@ -930,6 +930,20 @@ a {
   max-width: 100%;
 }
 
+.selected-collection {
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--bg-hover);
+}
+
+.history-expand-set {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .history-expand {
   display: flex;
   flex-direction: column;

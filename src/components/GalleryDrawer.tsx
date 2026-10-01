@@ -175,7 +175,7 @@ export function GalleryDrawer(props: Props) {
       {props.status ? <p className="gallery-status">{props.status}</p> : null}
       <div className="gallery-scroll">
       <div
-        className="gallery-grid"
+        className={`gallery-grid${props.items.length > 0 ? " selected-collection" : ""}`}
         onDragOver={(event) => {
           if (isFileDrag(event) || dragIndex == null) return;
           event.preventDefault();
