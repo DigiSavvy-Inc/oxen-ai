@@ -1,5 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { coverGeneration, groupGenerationBatches, isActiveGeneration } from "../lib/batches";
+import {
+  coverGeneration,
+  groupGenerationBatches,
+  isActiveGeneration,
+  type GenerationBatch,
+} from "../lib/batches";
 import type { Generation } from "../lib/api";
 import {
   completedMedia,
@@ -237,6 +242,67 @@ export function Sidebar({
     if (next.peek !== undefined) onSelect(next.peek);
   }
 
+  function batchTile(batch: GenerationBatch, anchor = false) {
+    const cover = coverGeneration(batch.items);
+    const openId = batch.items[0]?.id ?? batch.id;
+    const mediaType = batch.items.some((item) => item.mediaType === "video")
+      ? "video"
+      : (cover?.mediaType ?? null);
+    const multi = batch.items.length > 1;
+    const expanded = expandVisible.expandedId === batch.id;
+    const singleLabel = mediaType === "video" ? "video" : mediaType === "audio" ? "audio" : "image";
+    const selected = batch.items.some((item) => item.id === selectedId);
+    const previewItem = expanded
+      ? (batch.items.find((item) => item.id === expandVisible.previewId) ?? batch.items[0] ?? null)
+      : null;
+    const face = expanded && previewItem ? previewItem : cover;
+    return (
+      <div
+        key={batch.id}
+        className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}${anchor ? " history-expand-anchor" : ""}`}
+        data-batch-id={batch.id}
+      >
+        <div className="history-tile-square">
+          <button
+            type="button"
+            className="history-tile-hit"
+            aria-expanded={expanded}
+            aria-label={
+              expanded
+                ? multi
+                  ? `Collapse ${batch.items.length} variations`
+                  : `Collapse ${singleLabel}`
+                : multi
+                  ? `${batch.items.length} variations`
+                  : `Open ${singleLabel}`
+            }
+            title={cover?.prompt || "Generation"}
+            onClick={() =>
+              commit({
+                type: "tile",
+                batchId: batch.id,
+                count: batch.items.length,
+                openId,
+                mediaType,
+              })
+            }
+          >
+            <div className="history-tile-media">
+              {face ? <TileFace item={face} allowFull /> : null}
+            </div>
+          </button>
+          {multi ? <span className="history-count">{batch.items.length}</span> : null}
+          {onDelete ? (
+            <MediaDeleteGroup
+              onStudio={() => onDelete(batch.items.map((item) => item.id))}
+              onOxen={() => onDelete(batch.items.map((item) => item.id), true)}
+            />
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <aside className="sidebar" id="media-library">
       <div className="sidebar-header">
@@ -321,69 +387,14 @@ export function Sidebar({
               const canFit = canOpenFit(preview);
               return (
                 <Fragment key={row.map((batch) => batch.id).join(":")}>
-                  {row.map((batch) => {
-                    const cover = coverGeneration(batch.items);
-                    const openId = batch.items[0]?.id ?? batch.id;
-                    const mediaType = batch.items.some((item) => item.mediaType === "video")
-                      ? "video"
-                      : (cover?.mediaType ?? null);
-                    const multi = batch.items.length > 1;
-                    const expanded = expandVisible.expandedId === batch.id;
-                    const singleLabel = mediaType === "video" ? "video" : mediaType === "audio" ? "audio" : "image";
-                    const selected = batch.items.some((item) => item.id === selectedId);
-                    const face = expanded && preview ? preview : cover;
-                    return (
-                      <div
-                        key={batch.id}
-                        className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}`}
-                        data-batch-id={batch.id}
-                      >
-                        <div className="history-tile-square">
-                          <button
-                            type="button"
-                            className="history-tile-hit"
-                            aria-expanded={expanded}
-                            aria-label={
-                              expanded
-                                ? multi
-                                  ? `Collapse ${batch.items.length} variations`
-                                  : `Collapse ${singleLabel}`
-                                : multi
-                                  ? `${batch.items.length} variations`
-                                  : `Open ${singleLabel}`
-                            }
-                            title={cover?.prompt || "Generation"}
-                            onClick={() =>
-                              commit({
-                                type: "tile",
-                                batchId: batch.id,
-                                count: batch.items.length,
-                                openId,
-                                mediaType,
-                              })
-                            }
-                          >
-                            <div className="history-tile-media">
-                              {face ? <TileFace item={face} allowFull /> : null}
-                            </div>
-                          </button>
-                          {multi ? (
-                            <span className="history-count">{batch.items.length}</span>
-                          ) : null}
-                          {onDelete ? (
-                            <MediaDeleteGroup
-                              onStudio={() => onDelete(batch.items.map((item) => item.id))}
-                              onOxen={() => onDelete(batch.items.map((item) => item.id), true)}
-                            />
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {row.map((batch) =>
+                    batch.id === expandVisible.expandedId ? null : batchTile(batch),
+                  )}
                   {openBatch && preview ? (
                     <div className="history-tile is-expanded" ref={expandedTileRef} key={`${openBatch.id}-open`}>
                       <div className="history-expand">
                         <div className="selected-collection history-expand-set">
+                          {batchTile(openBatch, true)}
                           <div className="history-expand-frame">
                             {canFit ? (
                               <button

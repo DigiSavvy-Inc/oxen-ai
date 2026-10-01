@@ -933,15 +933,24 @@ a {
 .selected-collection {
   padding: 8px;
   border-radius: 12px;
-  background: var(--bg-hover);
+  background: var(--bg-active);
 }
 
 .history-expand-set {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   min-width: 0;
   max-width: 100%;
+}
+
+.history-expand-anchor {
+  grid-column: 1;
+}
+
+.history-expand-set > .history-expand-frame,
+.history-expand-set > .history-expand-versions {
+  grid-column: 1 / -1;
 }
 
 .history-expand {

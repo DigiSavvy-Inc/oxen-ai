@@ -895,12 +895,16 @@ describe("in-gallery version expand", () => {
     const peek = readFileSync(new URL("../src/components/LibraryPeek.tsx", import.meta.url), "utf8");
     expect(sidebar).toContain('className="history"');
     expect(sidebar).toContain("history-expand-versions");
-    expect(sidebar).toContain('className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}`}');
+    expect(sidebar).toContain(
+      'className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}${anchor ? " history-expand-anchor" : ""}`}',
+    );
+    expect(sidebar).toContain("batch.id === expandVisible.expandedId ? null : batchTile(batch)");
     expect(sidebar).toContain("selected-collection history-expand-set");
     const collection = sidebar.slice(
       sidebar.indexOf("selected-collection history-expand-set"),
       sidebar.indexOf("<ExpandPrompt"),
     );
+    expect(collection).toContain("batchTile(openBatch, true)");
     expect(collection).toContain("history-expand-frame");
     expect(collection).toContain("history-expand-versions");
     expect(collection).not.toContain("history-prompt-toggle");
@@ -998,7 +1002,11 @@ describe("library history layout", () => {
     expect(css).not.toMatch(/\.history\s*\{[^}]*display:\s*(flex|grid)/);
     expect(css).toMatch(/\.history\s*\{[^}]*overflow-x:\s*hidden/);
     expect(css).toMatch(/\.selected-collection\s*\{[^}]*padding:\s*8px/);
-    expect(css).toMatch(/\.selected-collection\s*\{[^}]*background:\s*var\(--bg-hover\)/);
+    expect(css).toMatch(/\.selected-collection\s*\{[^}]*background:\s*var\(--bg-active\)/);
+    expect(css).toMatch(/\.history-expand-anchor\s*\{[^}]*grid-column:\s*1/);
+    expect(css).toMatch(
+      /\.history-expand-set > \.history-expand-frame,\s*\.history-expand-set > \.history-expand-versions\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/,
+    );
     expect(css).not.toMatch(/\.history-tile-square\s*\{[^}]*selected-collection/);
     const drawer = readFileSync(new URL("../src/components/GalleryDrawer.tsx", import.meta.url), "utf8");
     expect(drawer).toContain("selected-collection");
