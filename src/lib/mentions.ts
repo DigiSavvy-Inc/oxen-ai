@@ -98,6 +98,43 @@ export function cycleHotIndex(current: number | null, delta: number, length: num
   return (from + delta + length * 4) % length;
 }
 
+/**
+ * Move from the row the picker is already showing.
+ * A null index still paints the first option, so the next step must leave that row
+ * — otherwise Arrow Down stays on the leading image and never reaches audio or video.
+ */
+export function stepMentionHot(current: number | null, delta: number, length: number): number {
+  if (length <= 0) return 0;
+  return cycleHotIndex(current ?? 0, delta, length);
+}
+
+export type MentionKeyAction =
+  | { type: "move"; delta: number }
+  | { type: "confirm" }
+  | { type: "close" };
+
+/** Keys while the mention picker is open. Tab moves; Enter confirms. */
+export function mentionKeyAction(
+  key: string,
+  modifiers: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean } = {},
+): MentionKeyAction | null {
+  switch (key) {
+    case "ArrowDown":
+      return { type: "move", delta: 1 };
+    case "ArrowUp":
+      return { type: "move", delta: -1 };
+    case "Tab":
+      return { type: "move", delta: modifiers.shiftKey ? -1 : 1 };
+    case "Enter":
+      if (modifiers.metaKey || modifiers.ctrlKey) return null;
+      return { type: "confirm" };
+    case "Escape":
+      return { type: "close" };
+    default:
+      return null;
+  }
+}
+
 export function attachmentForMention<T extends MentionItem>(
   attachments: T[],
   mention: Pick<PromptMention, "kind" | "index">,

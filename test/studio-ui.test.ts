@@ -50,7 +50,9 @@ import {
   insertMentionToken,
   mentionAtCaret,
   mentionAtOffset,
+  mentionKeyAction,
   mentionOrdered,
+  stepMentionHot,
   moveItem,
   tokenForItem,
   promptHighlightParts,
@@ -293,6 +295,32 @@ describe("mentions and cost", () => {
     expect(cycleHotIndex(0, 1, 3)).toBe(1);
     expect(cycleHotIndex(2, 1, 3)).toBe(0);
     expect(cycleHotIndex(0, -1, 3)).toBe(2);
+  });
+
+  it("steps from the highlighted row through image, video, and audio", () => {
+    const kinds = ["image", "video", "audio"] as const;
+    let hot: number | null = null;
+    const visited = [kinds[0]];
+    for (let step = 0; step < kinds.length - 1; step += 1) {
+      hot = stepMentionHot(hot, 1, kinds.length);
+      visited.push(kinds[hot]);
+    }
+    expect(visited).toEqual(["image", "video", "audio"]);
+    expect(stepMentionHot(null, 1, 3)).toBe(1);
+    expect(stepMentionHot(1, 1, 3)).toBe(2);
+    expect(stepMentionHot(2, -1, 3)).toBe(1);
+    expect(stepMentionHot(null, -1, 3)).toBe(2);
+    expect(kinds[stepMentionHot(null, -1, 3)]).toBe("audio");
+
+    expect(mentionKeyAction("ArrowDown")).toEqual({ type: "move", delta: 1 });
+    expect(mentionKeyAction("ArrowUp")).toEqual({ type: "move", delta: -1 });
+    expect(mentionKeyAction("Tab")).toEqual({ type: "move", delta: 1 });
+    expect(mentionKeyAction("Tab", { shiftKey: true })).toEqual({ type: "move", delta: -1 });
+    expect(mentionKeyAction("Enter")).toEqual({ type: "confirm" });
+    expect(mentionKeyAction("Enter", { metaKey: true })).toBeNull();
+    expect(mentionKeyAction("Enter", { ctrlKey: true })).toBeNull();
+    expect(mentionKeyAction("Escape")).toEqual({ type: "close" });
+    expect(mentionKeyAction("a")).toBeNull();
   });
 
   it("resolves a prompt mention to the matching attachment", () => {

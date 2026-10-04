@@ -23,13 +23,14 @@ import {
 } from "../lib/api";
 import {
   attachmentForMention,
-  cycleHotIndex,
   deleteMentionToken,
   filterMentionItems,
   indexAfterInsertBefore,
   insertMentionToken,
   mentionAtCaret,
+  mentionKeyAction,
   mentionOrdered,
+  stepMentionHot,
   promptHighlightParts,
   tokenForItem,
   type PromptMention,
@@ -238,6 +239,7 @@ export function Composer(props: Props) {
   const [galleryForMode, setGalleryForMode] = useState<GenerationMode | null>(null);
   const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
   const savedMenuRef = useRef<HTMLDivElement>(null);
+  const mentionMenuRef = useRef<HTMLDivElement>(null);
   const pendingCaret = useRef<{ caret: number; prompt: string } | null>(null);
   const promptCaretReady = useRef(false);
 
@@ -332,6 +334,19 @@ export function Composer(props: Props) {
   const highlightParts = useMemo(() => promptHighlightParts(props.prompt), [props.prompt]);
   const activeMention =
     mentionItems.length === 0 ? 0 : Math.min(hotMention ?? 0, mentionItems.length - 1);
+
+  useLayoutEffect(() => {
+    if (!showMentions) return;
+    const menu = mentionMenuRef.current;
+    const option = menu?.querySelectorAll<HTMLElement>(".mention-option")[activeMention];
+    if (!menu || !option) return;
+    const top = option.offsetTop;
+    const bottom = top + option.offsetHeight;
+    if (top < menu.scrollTop) menu.scrollTop = top;
+    else if (bottom > menu.scrollTop + menu.clientHeight) {
+      menu.scrollTop = bottom - menu.clientHeight;
+    }
+  }, [showMentions, activeMention, mentionItems]);
 
   function placeCaret(nextCaret: number, prompt: string) {
     promptCaretReady.current = true;
@@ -692,6 +707,11 @@ export function Composer(props: Props) {
             <textarea
               ref={promptRef}
               value={props.prompt}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={showMentions}
+              aria-controls={showMentions ? "mention-menu" : undefined}
+              aria-activedescendant={showMentions ? `mention-option-${activeMention}` : undefined}
               onScroll={syncPromptScroll}
               onChange={(e) => {
                 setMentionOpen(true);
@@ -736,33 +756,37 @@ export function Composer(props: Props) {
                   }
                 }
                 if (showMentions) {
-                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-                    e.preventDefault();
-                    const delta = e.key === "ArrowDown" ? 1 : -1;
-                    setHotMention((current) => cycleHotIndex(current, delta, mentionItems.length));
-                    return;
-                  }
-                  if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) {
-                    const item = mentionItems[activeMention];
-                    if (item) {
-                      e.preventDefault();
-                      insertMention(item);
-                      return;
+                  const action = mentionKeyAction(e.key, {
+                    shiftKey: e.shiftKey,
+                    metaKey: e.metaKey,
+                    ctrlKey: e.ctrlKey,
+                  });
+                  if (action) {
+                    switch (action.type) {
+                      case "move":
+                        e.preventDefault();
+                        setHotMention((current) =>
+                          stepMentionHot(current, action.delta, mentionItems.length),
+                        );
+                        return;
+                      case "confirm": {
+                        const item = mentionItems[activeMention];
+                        if (item) {
+                          e.preventDefault();
+                          insertMention(item);
+                        }
+                        return;
+                      }
+                      case "close":
+                        e.preventDefault();
+                        setMentionOpen(false);
+                        setHotMention(null);
+                        return;
+                      default: {
+                        const _exhaustive: never = action;
+                        return _exhaustive;
+                      }
                     }
-                  }
-                  if (e.key === "Tab") {
-                    const item = mentionItems[activeMention];
-                    if (item) {
-                      e.preventDefault();
-                      insertMention(item);
-                      return;
-                    }
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setMentionOpen(false);
-                    setHotMention(null);
-                    return;
                   }
                 }
                 if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && props.canGenerate) {
@@ -861,14 +885,20 @@ export function Composer(props: Props) {
           </div>
           </div>
           {showMentions ? (
-            <div className="mention-menu" role="listbox">
+            <div className="mention-menu" id="mention-menu" role="listbox" ref={mentionMenuRef}>
               {mentionItems.map((item, index) => (
                 <button
                   key={`${item.kind}-${item.name}-${index}`}
+                  id={`mention-option-${index}`}
                   type="button"
+                  role="option"
+                  aria-selected={activeMention === index}
+                  data-mention-kind={item.kind}
                   className={`mention-option${activeMention === index ? " is-hot" : ""}`}
-                  onPointerEnter={() => setHotMention(index)}
-                  onPointerLeave={() => setHotMention((current) => (current === index ? null : current))}
+                  onPointerMove={(event) => {
+                    if (event.movementX === 0 && event.movementY === 0) return;
+                    setHotMention(index);
+                  }}
                   onMouseDown={(event) => {
                     event.preventDefault();
                     insertMention(item);
