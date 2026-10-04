@@ -207,6 +207,10 @@ type Props = {
   canGenerate: boolean;
 };
 
+const PROMPT_HEIGHT_BASE = 96;
+const PROMPT_HEIGHT_MIN = 76;
+const PROMPT_HEIGHT_MAX = 420;
+
 export function Composer(props: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -224,7 +228,7 @@ export function Composer(props: Props) {
   } | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropInsertBefore, setDropInsertBefore] = useState<number | null>(null);
-  const [promptHeight, setPromptHeight] = useState(96);
+  const [promptHeight, setPromptHeight] = useState(PROMPT_HEIGHT_BASE);
   const [promptMenu, setPromptMenu] = useState<"save" | "load" | null>(null);
   const [savingPrompt, setSavingPrompt] = useState(false);
   const [promptDraft, setPromptDraft] = useState<{ id: string | null; name: string; body: string } | null>(
@@ -473,6 +477,17 @@ export function Composer(props: Props) {
     syncPromptScroll();
   }, [props.prompt, promptHeight]);
 
+  useLayoutEffect(() => {
+    const main = promptRef.current?.closest(".main");
+    if (!(main instanceof HTMLElement)) return;
+    const extra = Math.max(0, promptHeight - PROMPT_HEIGHT_BASE);
+    if (extra > 0) main.style.setProperty("--composer-grow", `${extra}px`);
+    else main.style.removeProperty("--composer-grow");
+    return () => {
+      main.style.removeProperty("--composer-grow");
+    };
+  }, [promptHeight]);
+
   function startPromptResize(event: PointerEvent<HTMLDivElement>) {
     event.preventDefault();
     const handle = event.currentTarget;
@@ -481,7 +496,7 @@ export function Composer(props: Props) {
     handle.setPointerCapture(event.pointerId);
     function onMove(move: globalThis.PointerEvent) {
       const next = Math.round(startHeight + (move.clientY - startY));
-      setPromptHeight(Math.min(420, Math.max(76, next)));
+      setPromptHeight(Math.min(PROMPT_HEIGHT_MAX, Math.max(PROMPT_HEIGHT_MIN, next)));
     }
     function onUp() {
       handle.releasePointerCapture(event.pointerId);

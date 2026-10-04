@@ -1399,13 +1399,34 @@ describe("get last frame control", () => {
   });
 });
 
+describe("prompt grows downward", () => {
+  it("lengthens the column instead of covering the media", () => {
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    const composer = readFileSync(new URL("../src/components/Composer.tsx", import.meta.url), "utf8");
+    const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+    expect(app).toContain('className="main-column"');
+    expect(css).toMatch(/\.main\s*\{[^}]*overflow-y:\s*auto/);
+    expect(css).toMatch(/\.main\s*\{[^}]*overflow-anchor:\s*none/);
+    expect(css).toMatch(
+      /\.main-column\s*\{[^}]*grid-template-rows:\s*auto minmax\(min-content,\s*1fr\) auto/,
+    );
+    expect(css).toMatch(/\.main-column\s*\{[^}]*var\(--composer-grow,\s*0px\)/);
+    expect(css).toMatch(/\.workspace\s*\{[^}]*min-height:\s*min-content/);
+    expect(css).toMatch(/\.canvas\s*\{[^}]*min-height:\s*min-content/);
+    expect(css).toMatch(/\.canvas\s*\{[^}]*overflow:\s*visible/);
+    expect(composer).toContain("PROMPT_HEIGHT_BASE");
+    expect(composer).toContain("--composer-grow");
+    expect(composer).toContain("startHeight + (move.clientY - startY)");
+  });
+});
+
 describe("mobile result stays reachable", () => {
   it("scrolls the column instead of letting a tall composer cover the output", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
     const phone = css.slice(css.indexOf("@media (max-width: 860px)"));
     expect(phone).toMatch(/\.main\s*\{[^}]*overflow-y:\s*auto/);
     expect(phone).toMatch(
-      /\.main:has\(\.result-frame\)\s*\{[^}]*grid-template-rows:\s*auto minmax\(min-content,\s*1fr\) auto/,
+      /\.main:has\(\.result-frame\) \.main-column\s*\{[^}]*grid-template-rows:\s*auto minmax\(min-content,\s*1fr\) auto/,
     );
     expect(phone).toMatch(
       /\.main:has\(\.result-frame\) \.workspace,\s*\.main:has\(\.result-frame\) \.canvas\s*\{[^}]*min-height:\s*min-content/,

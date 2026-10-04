@@ -1213,154 +1213,156 @@ export default function App() {
         />
       ) : null}
       <main className="main">
-        <div className="main-top">
-          <div className="main-top-left">
-            <div className="nav-brand">
-              <img className="brand-mark-img" src={branding.logoUrl} alt="" />
-              <strong>{branding.name}</strong>
+        <div className="main-column">
+          <div className="main-top">
+            <div className="main-top-left">
+              <div className="nav-brand">
+                <img className="brand-mark-img" src={branding.logoUrl} alt="" />
+                <strong>{branding.name}</strong>
+              </div>
+              <button
+                type="button"
+                className={`ghost-btn${libraryOpen ? " active" : ""}`}
+                aria-expanded={libraryOpen}
+                aria-controls="media-library"
+                aria-keyshortcuts="Meta+Shift+L"
+                title="Library (⌘⇧L)"
+                onClick={() => {
+                  if (libraryOpen) closeLibrary();
+                  else setLibraryOpen(true);
+                }}
+              >
+                Library
+                <span className="nav-shortcut" aria-hidden>
+                  <kbd>⌘</kbd>
+                  <kbd>⇧</kbd>
+                  <kbd>L</kbd>
+                </span>
+              </button>
+              <button type="button" className="ghost-btn" onClick={startNew}>
+                New
+              </button>
             </div>
-            <button
-              type="button"
-              className={`ghost-btn${libraryOpen ? " active" : ""}`}
-              aria-expanded={libraryOpen}
-              aria-controls="media-library"
-              aria-keyshortcuts="Meta+Shift+L"
-              title="Library (⌘⇧L)"
-              onClick={() => {
-                if (libraryOpen) closeLibrary();
-                else setLibraryOpen(true);
-              }}
-            >
-              Library
-              <span className="nav-shortcut" aria-hidden>
-                <kbd>⌘</kbd>
-                <kbd>⇧</kbd>
-                <kbd>L</kbd>
-              </span>
-            </button>
-            <button type="button" className="ghost-btn" onClick={startNew}>
-              New
-            </button>
+            <div className="main-top-right">
+              <CreditMeter credits={credits} />
+              <AccountMenu
+                userLogin={user.login}
+                avatarUrl={user.avatarUrl}
+                isAdmin={user.isAdmin}
+                hasOxenKey={user.hasOxenKey}
+                onOpenSettings={() => setShowSettings(true)}
+                onLogout={() => void logout()}
+              />
+            </div>
           </div>
-          <div className="main-top-right">
-            <CreditMeter credits={credits} />
-            <AccountMenu
-              userLogin={user.login}
-              avatarUrl={user.avatarUrl}
-              isAdmin={user.isAdmin}
-              hasOxenKey={user.hasOxenKey}
-              onOpenSettings={() => setShowSettings(true)}
-              onLogout={() => void logout()}
+          <div className={`workspace${peek ? " has-peek" : ""}`}>
+            <Canvas
+              generation={selected}
+              variants={selectedVariants}
+              onSelect={setSelectedId}
+              onTagsChange={(id, tags) => void onSaveTags(id, tags)}
+              onDelete={(id) => requestDeleteMedia([id], true)}
             />
+            {peek ? (
+              <LibraryPeek
+                generation={peek}
+                variants={peekVariants}
+                attachedIds={attachedIds}
+                attachSupported={peekAttachSupported}
+                onClose={() => setPeekId(null)}
+                onAttach={addLibraryItem}
+                onSelectVariant={setPeekId}
+                onDownload={() => {
+                  if (!peek.resultUrl) return;
+                  void downloadMedia(peek.resultUrl, downloadFilename(peek));
+                }}
+                onRemove={(ids, fromOxen) => {
+                  if (fromOxen) requestDeleteMedia(ids, true);
+                  else void onDeleteGenerations(ids, false);
+                }}
+              />
+            ) : null}
           </div>
-        </div>
-        <div className={`workspace${peek ? " has-peek" : ""}`}>
-          <Canvas
-            generation={selected}
-            variants={selectedVariants}
-            onSelect={setSelectedId}
-            onTagsChange={(id, tags) => void onSaveTags(id, tags)}
-            onDelete={(id) => requestDeleteMedia([id], true)}
+          <Composer
+            mode={mode}
+            onModeChange={handleModeChange}
+            models={models}
+            preferred={favorites}
+            model={model}
+            onModelChange={handleModelChange}
+            modelQuery={modelQuery}
+            onModelQueryChange={setModelQuery}
+            isFavorite={favoriteIds.has(model)}
+            onToggleFavorite={() => void onToggleFavorite()}
+            controls={controls}
+            prompt={prompt}
+            onPromptChange={setPrompt}
+            onPromptField={(field) => {
+              promptField.current = field;
+            }}
+            aspectRatio={aspectRatio}
+            onAspectRatioChange={rememberParam(setAspectRatio)}
+            duration={duration}
+            onDurationChange={rememberParam(setDuration)}
+            seed={seed}
+            onSeedChange={setSeed}
+            numGenerations={numGenerations}
+            onNumGenerationsChange={setNumGenerations}
+            generateAudio={generateAudio}
+            onGenerateAudioChange={rememberParam(setGenerateAudio)}
+            showLastFrame={lastFrameVisible}
+            getLastFrame={getLastFrame}
+            onGetLastFrameChange={setGetLastFrame}
+            savedPrompts={savedPrompts}
+            onSavePrompt={onSavePrompt}
+            onUpdateSavedPrompt={onUpdateSavedPrompt}
+            onDeleteSavedPrompt={onDeleteSavedPrompt}
+            galleryName={galleryName}
+            onGalleryNameChange={setGalleryName}
+            galleryItems={galleryItems}
+            gallerySummaries={gallerySummaries}
+            gallerySaving={gallerySaving}
+            galleryAdding={galleryAdding}
+            galleryStatus={galleryStatus}
+            onGalleryAddFiles={(files) => void onGalleryAddFiles(files)}
+            onGalleryRemove={(index) => setGalleryItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
+            onGalleryReorder={(from, to) => setGalleryItems((prev) => moveItem(prev, from, to))}
+            onGallerySave={onGallerySave}
+            onGalleryNew={onGalleryNew}
+            onGalleryLoad={onGalleryLoad}
+            onGalleryAttach={onGalleryAttach}
+            quality={quality}
+            onQualityChange={rememberParam(setQuality)}
+            resolution={resolution}
+            onResolutionChange={rememberParam(setResolution)}
+            outputFormat={outputFormat}
+            onOutputFormatChange={rememberParam(setOutputFormat)}
+            sampleRate={sampleRate}
+            onSampleRateChange={rememberParam(setSampleRate)}
+            speed={speed}
+            onSpeedChange={rememberParam(setSpeed)}
+            volume={volume}
+            onVolumeChange={rememberParam(setVolume)}
+            pitch={pitch}
+            onPitchChange={rememberParam(setPitch)}
+            background={background}
+            onBackgroundChange={rememberParam(setBackground)}
+            attachments={staged.map((item) => ({
+              name: item.name,
+              preview: item.preview,
+              kind: item.kind,
+              role: item.role,
+            }))}
+            onAddFiles={onAddFiles}
+            onClearAttachment={onClearAttachment}
+            onToggleAttachmentRole={onToggleAttachmentRole}
+            onReorderAttachments={onReorderAttachments}
+            busy={busy}
+            error={error}
+            onGenerate={() => void onGenerate()}
+            canGenerate={canGenerate}
           />
-          {peek ? (
-            <LibraryPeek
-              generation={peek}
-              variants={peekVariants}
-              attachedIds={attachedIds}
-              attachSupported={peekAttachSupported}
-              onClose={() => setPeekId(null)}
-              onAttach={addLibraryItem}
-              onSelectVariant={setPeekId}
-              onDownload={() => {
-                if (!peek.resultUrl) return;
-                void downloadMedia(peek.resultUrl, downloadFilename(peek));
-              }}
-              onRemove={(ids, fromOxen) => {
-                if (fromOxen) requestDeleteMedia(ids, true);
-                else void onDeleteGenerations(ids, false);
-              }}
-            />
-          ) : null}
         </div>
-        <Composer
-          mode={mode}
-          onModeChange={handleModeChange}
-          models={models}
-          preferred={favorites}
-          model={model}
-          onModelChange={handleModelChange}
-          modelQuery={modelQuery}
-          onModelQueryChange={setModelQuery}
-          isFavorite={favoriteIds.has(model)}
-          onToggleFavorite={() => void onToggleFavorite()}
-          controls={controls}
-          prompt={prompt}
-          onPromptChange={setPrompt}
-          onPromptField={(field) => {
-            promptField.current = field;
-          }}
-          aspectRatio={aspectRatio}
-          onAspectRatioChange={rememberParam(setAspectRatio)}
-          duration={duration}
-          onDurationChange={rememberParam(setDuration)}
-          seed={seed}
-          onSeedChange={setSeed}
-          numGenerations={numGenerations}
-          onNumGenerationsChange={setNumGenerations}
-          generateAudio={generateAudio}
-          onGenerateAudioChange={rememberParam(setGenerateAudio)}
-          showLastFrame={lastFrameVisible}
-          getLastFrame={getLastFrame}
-          onGetLastFrameChange={setGetLastFrame}
-          savedPrompts={savedPrompts}
-          onSavePrompt={onSavePrompt}
-          onUpdateSavedPrompt={onUpdateSavedPrompt}
-          onDeleteSavedPrompt={onDeleteSavedPrompt}
-          galleryName={galleryName}
-          onGalleryNameChange={setGalleryName}
-          galleryItems={galleryItems}
-          gallerySummaries={gallerySummaries}
-          gallerySaving={gallerySaving}
-          galleryAdding={galleryAdding}
-          galleryStatus={galleryStatus}
-          onGalleryAddFiles={(files) => void onGalleryAddFiles(files)}
-          onGalleryRemove={(index) => setGalleryItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
-          onGalleryReorder={(from, to) => setGalleryItems((prev) => moveItem(prev, from, to))}
-          onGallerySave={onGallerySave}
-          onGalleryNew={onGalleryNew}
-          onGalleryLoad={onGalleryLoad}
-          onGalleryAttach={onGalleryAttach}
-          quality={quality}
-          onQualityChange={rememberParam(setQuality)}
-          resolution={resolution}
-          onResolutionChange={rememberParam(setResolution)}
-          outputFormat={outputFormat}
-          onOutputFormatChange={rememberParam(setOutputFormat)}
-          sampleRate={sampleRate}
-          onSampleRateChange={rememberParam(setSampleRate)}
-          speed={speed}
-          onSpeedChange={rememberParam(setSpeed)}
-          volume={volume}
-          onVolumeChange={rememberParam(setVolume)}
-          pitch={pitch}
-          onPitchChange={rememberParam(setPitch)}
-          background={background}
-          onBackgroundChange={rememberParam(setBackground)}
-          attachments={staged.map((item) => ({
-            name: item.name,
-            preview: item.preview,
-            kind: item.kind,
-            role: item.role,
-          }))}
-          onAddFiles={onAddFiles}
-          onClearAttachment={onClearAttachment}
-          onToggleAttachmentRole={onToggleAttachmentRole}
-          onReorderAttachments={onReorderAttachments}
-          busy={busy}
-          error={error}
-          onGenerate={() => void onGenerate()}
-          canGenerate={canGenerate}
-        />
       </main>
       {showSettings ? (
         <SettingsModal

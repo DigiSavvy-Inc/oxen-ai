@@ -63,6 +63,7 @@ a {
 .app-shell {
   display: grid;
   grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, 1fr);
   width: 100%;
   max-width: var(--app-max);
   margin-inline: auto;
@@ -119,7 +120,7 @@ a {
 .workspace {
   position: relative;
   min-width: 0;
-  min-height: 0;
+  min-height: min-content;
 }
 
 .library-peek {
@@ -697,14 +698,24 @@ a {
 }
 
 .main {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
   min-width: 0;
   min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
   background:
     radial-gradient(ellipse 80% 50% at 50% -10%, rgba(255, 255, 255, 0.9), transparent),
     var(--bg);
   transition: padding 0.22s ease;
+}
+
+/* Extra prompt height lengthens this column instead of pushing the composer up over the media. */
+.main-column {
+  display: grid;
+  grid-template-rows: auto minmax(min-content, 1fr) auto;
+  min-height: calc(100% + var(--composer-grow, 0px));
+  min-width: 0;
 }
 
 .app-shell.has-peek .main {
@@ -1941,6 +1952,9 @@ button.history-expand-preview {
   /* Keep the result at its content height so a tall composer cannot cover it. */
   .main:has(.result-frame) {
     --result-max: min(52dvh, calc(100dvh - 320px));
+  }
+
+  .main:has(.result-frame) .main-column {
     grid-template-rows: auto minmax(min-content, 1fr) auto;
   }
 
@@ -1992,8 +2006,8 @@ button.history-expand-preview {
 }
 
 .canvas {
-  min-height: 0;
-  overflow: auto;
+  min-height: min-content;
+  overflow: visible;
   display: grid;
   place-items: center;
   padding: 28px;
