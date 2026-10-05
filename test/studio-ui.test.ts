@@ -52,6 +52,7 @@ import {
   mentionAtOffset,
   mentionKeyAction,
   mentionOrdered,
+  placeMentionPreview,
   stepMentionHot,
   moveItem,
   tokenForItem,
@@ -321,6 +322,29 @@ describe("mentions and cost", () => {
     expect(mentionKeyAction("Enter", { ctrlKey: true })).toBeNull();
     expect(mentionKeyAction("Escape")).toEqual({ type: "close" });
     expect(mentionKeyAction("a")).toBeNull();
+  });
+
+  it("places a mention preview under the token and flips above the viewport edge", () => {
+    const under = placeMentionPreview(
+      { left: 120, top: 40, bottom: 58 },
+      { width: 160, height: 90 },
+      { width: 1000, height: 800 },
+    );
+    expect(under).toEqual({ left: 120, top: 64 });
+    const above = placeMentionPreview(
+      { left: 120, top: 740, bottom: 758 },
+      { width: 160, height: 90 },
+      { width: 1000, height: 800 },
+    );
+    expect(above).toEqual({ left: 120, top: 644 });
+    expect(above.top + 90).toBeLessThanOrEqual(800 - 8);
+    const shifted = placeMentionPreview(
+      { left: 940, top: 40, bottom: 58 },
+      { width: 160, height: 90 },
+      { width: 1000, height: 800 },
+    );
+    expect(shifted.left).toBe(832);
+    expect(shifted.top).toBe(64);
   });
 
   it("resolves a prompt mention to the matching attachment", () => {

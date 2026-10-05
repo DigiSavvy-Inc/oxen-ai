@@ -8,6 +8,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   ALL_MODES,
   MODE_LABELS,
@@ -30,6 +31,7 @@ import {
   mentionAtCaret,
   mentionKeyAction,
   mentionOrdered,
+  placeMentionPreview,
   stepMentionHot,
   promptHighlightParts,
   tokenForItem,
@@ -224,9 +226,11 @@ export function Composer(props: Props) {
   const [hoveredMention, setHoveredMention] = useState<{
     mention: PromptMention;
     item: AttachItem;
-    left: number;
-    top: number;
   } | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ left: number; top: number } | null>(null);
+  const [hoverLayout, setHoverLayout] = useState(0);
+  const hoverAnchorRef = useRef<HTMLElement | null>(null);
+  const hoverTipRef = useRef<HTMLDivElement | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropInsertBefore, setDropInsertBefore] = useState<number | null>(null);
   const [promptHeight, setPromptHeight] = useState(PROMPT_HEIGHT_BASE);
@@ -533,28 +537,49 @@ export function Composer(props: Props) {
     placeCaret(result.caret, result.next);
   }
 
+  function clearMentionHover() {
+    hoverAnchorRef.current = null;
+    setHoveredMention(null);
+    setHoverPos(null);
+  }
+
   function openMentionHover(mention: PromptMention, el: HTMLElement) {
     const item = attachmentForMention(mentionSource, mention);
     if (!item || (item.kind !== "audio" && !item.preview)) {
-      setHoveredMention(null);
+      clearMentionHover();
       return;
     }
-    const rect = el.getBoundingClientRect();
-    const left = rect.left + rect.width / 2;
-    const top = rect.top;
+    hoverAnchorRef.current = el;
     setHoveredMention((current) => {
-      if (
-        current &&
-        current.mention.start === mention.start &&
-        current.item === item &&
-        current.left === left &&
-        current.top === top
-      ) {
-        return current;
-      }
-      return { mention, item, left, top };
+      if (current && current.mention.start === mention.start && current.item === item) return current;
+      return { mention, item };
     });
   }
+
+  useLayoutEffect(() => {
+    const anchor = hoverAnchorRef.current;
+    const tip = hoverTipRef.current;
+    if (!hoveredMention || !anchor || !tip) return;
+    const next = placeMentionPreview(
+      anchor.getBoundingClientRect(),
+      { width: tip.offsetWidth, height: tip.offsetHeight },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    setHoverPos((current) =>
+      current && current.left === next.left && current.top === next.top ? current : next,
+    );
+  }, [hoveredMention, hoverLayout]);
+
+  useEffect(() => {
+    if (!hoveredMention) return;
+    const bump = () => setHoverLayout((n) => n + 1);
+    window.addEventListener("resize", bump);
+    window.addEventListener("scroll", bump, true);
+    return () => {
+      window.removeEventListener("resize", bump);
+      window.removeEventListener("scroll", bump, true);
+    };
+  }, [hoveredMention]);
 
   function promptDragKind(event: DragEvent): "file" | "gallery" | null {
     if (isFileDrag(event)) return "file";
@@ -611,7 +636,7 @@ export function Composer(props: Props) {
   function hoverMentionAtPoint(clientX: number, clientY: number) {
     const spans = highlightRef.current?.querySelectorAll<HTMLElement>("[data-mention-start]");
     if (!spans) {
-      setHoveredMention(null);
+      clearMentionHover();
       return;
     }
     for (const span of spans) {
@@ -632,7 +657,7 @@ export function Composer(props: Props) {
       openMentionHover(part.mention, span);
       return;
     }
-    setHoveredMention(null);
+    clearMentionHover();
   }
 
   function attachGallery() {
@@ -732,7 +757,7 @@ export function Composer(props: Props) {
                 setCaret(e.currentTarget.selectionStart);
               }}
               onPointerMove={(e) => hoverMentionAtPoint(e.clientX, e.clientY)}
-              onPointerLeave={() => setHoveredMention(null)}
+              onPointerLeave={() => clearMentionHover()}
               placeholder={
                 showDropzone
                   ? "Describe the shot… drop refs here, then @Image1 / @Video1 / @Audio1"
@@ -1370,23 +1395,45 @@ export function Composer(props: Props) {
         />
       ) : null}
       </div>
-      {hoveredMention ? (
-        <div
-          className="mention-hover"
-          style={{ left: hoveredMention.left, top: hoveredMention.top }}
-          role="tooltip"
-        >
-          {hoveredMention.item.kind === "audio" ? (
-            <span className="pill">AUD</span>
-          ) : hoveredMention.item.kind === "video" ? (
-            <video src={hoveredMention.item.preview} muted playsInline />
-          ) : (
-            <img src={hoveredMention.item.preview} alt="" />
-          )}
-          <span>{hoveredMention.item.name}</span>
-          <span>{hoveredMention.mention.token}</span>
-        </div>
-      ) : null}
+      {hoveredMention
+        ? createPortal(
+            <div
+              ref={hoverTipRef}
+              className="mention-hover"
+              style={{
+                left: hoverPos?.left ?? 0,
+                top: hoverPos?.top ?? 0,
+                visibility: hoverPos ? "visible" : "hidden",
+              }}
+              role="tooltip"
+            >
+              {hoveredMention.item.kind === "audio" ? (
+                hoveredMention.item.preview ? (
+                  <audio src={hoveredMention.item.preview} controls preload="metadata" />
+                ) : (
+                  <span className="pill">AUD</span>
+                )
+              ) : hoveredMention.item.kind === "video" ? (
+                <video
+                  src={hoveredMention.item.preview}
+                  muted
+                  playsInline
+                  preload="auto"
+                  onLoadedData={() => setHoverLayout((n) => n + 1)}
+                />
+              ) : (
+                <img
+                  src={hoveredMention.item.preview}
+                  alt=""
+                  onLoad={() => setHoverLayout((n) => n + 1)}
+                />
+              )}
+              <span>{hoveredMention.item.name}</span>
+              <span>{hoveredMention.mention.token}</span>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

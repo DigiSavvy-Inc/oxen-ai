@@ -3305,8 +3305,8 @@ button.history-expand-preview {
 .mention-hover {
   position: fixed;
   z-index: 40;
-  transform: translate(-50%, calc(-100% - 10px));
-  width: 148px;
+  width: max-content;
+  max-width: min(200px, calc(100vw - 16px));
   padding: 6px;
   border: 1px solid var(--border-strong);
   border-radius: 12px;
@@ -3318,18 +3318,27 @@ button.history-expand-preview {
 .mention-hover img,
 .mention-hover video {
   display: block;
-  width: 100%;
-  height: 110px;
-  object-fit: cover;
+  width: auto;
+  height: auto;
+  max-width: 188px;
+  max-height: 120px;
   border-radius: 8px;
+}
+
+.mention-hover audio {
+  display: block;
+  width: 176px;
+  height: 32px;
 }
 
 .mention-hover span {
   display: block;
+  max-width: 188px;
   margin-top: 6px;
   font-size: 11px;
   font-family: var(--mono);
   color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 
 .error-banner {

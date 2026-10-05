@@ -135,6 +135,32 @@ export function mentionKeyAction(
   }
 }
 
+const MENTION_PREVIEW_GAP = 6;
+const MENTION_PREVIEW_MARGIN = 8;
+
+/**
+ * Put the mention preview just under the token, left-aligned with it.
+ * When that would run off the bottom of the viewport, sit it just above the token.
+ */
+export function placeMentionPreview(
+  anchor: { left: number; top: number; bottom: number },
+  preview: { width: number; height: number },
+  viewport: { width: number; height: number },
+): { left: number; top: number } {
+  const margin = MENTION_PREVIEW_MARGIN;
+  const gap = MENTION_PREVIEW_GAP;
+  const width = Math.max(0, preview.width);
+  const height = Math.max(0, preview.height);
+  let left = anchor.left;
+  const maxLeft = Math.max(margin, viewport.width - margin - width);
+  if (left > maxLeft) left = maxLeft;
+  if (left < margin) left = margin;
+  const below = anchor.bottom + gap;
+  const fitsBelow = below + height <= viewport.height - margin;
+  const top = fitsBelow ? below : Math.max(margin, anchor.top - gap - height);
+  return { left: Math.round(left), top: Math.round(top) };
+}
+
 export function attachmentForMention<T extends MentionItem>(
   attachments: T[],
   mention: Pick<PromptMention, "kind" | "index">,
