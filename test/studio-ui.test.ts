@@ -948,20 +948,23 @@ describe("in-gallery version expand", () => {
     expect(sidebar).toContain('className="history"');
     expect(sidebar).toContain("history-expand-versions");
     expect(sidebar).toContain(
-      'className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}${anchor ? " history-expand-anchor" : ""}`}',
+      'className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}`}',
     );
-    expect(sidebar).toContain("batch.id === expandVisible.expandedId ? null : batchTile(batch)");
-    expect(sidebar).toContain("selected-collection history-expand-set");
-    const collection = sidebar.slice(
-      sidebar.indexOf("selected-collection history-expand-set"),
+    expect(sidebar).toContain("row.map((batch) => batchTile(batch))");
+    expect(sidebar).not.toContain("expandVisible.expandedId ? null");
+    expect(sidebar).not.toContain("history-expand-anchor");
+    expect(sidebar).not.toContain("selected-collection");
+    expect(sidebar).toContain('className="history-row-detail"');
+    const detail = sidebar.slice(
+      sidebar.indexOf('className="history-row-detail"'),
       sidebar.indexOf("<ExpandPrompt"),
     );
-    expect(collection).toContain("batchTile(openBatch, true)");
-    expect(collection).toContain("history-expand-frame");
-    expect(collection).toContain("history-expand-versions");
-    expect(collection).not.toContain("history-prompt-toggle");
+    expect(detail).not.toContain("batchTile");
+    expect(detail).toContain("history-expand-frame");
+    expect(detail).toContain("history-expand-versions");
+    expect(detail).not.toContain("history-prompt-toggle");
     expect(sidebar).toContain("versionsBesidePreview(openBatch.items, preview.id)");
-    expect(sidebar).toContain("batch.items[0]?.id ?? batch.id");
+    expect(sidebar).toContain("cover?.id ?? batch.items[0]?.id ?? batch.id");
     expect(sidebar).toContain("DownloadButton");
     expect(sidebar).toContain("media-download-all");
     expect(sidebar).toContain("downloadAllMedia(readyInGroup)");
@@ -1053,27 +1056,30 @@ describe("library history layout", () => {
     expect(css).not.toContain("history-tile-media.mosaic");
     expect(css).not.toMatch(/\.history\s*\{[^}]*display:\s*(flex|grid)/);
     expect(css).toMatch(/\.history\s*\{[^}]*overflow-x:\s*hidden/);
+    expect(css).toMatch(/\.history-row-detail\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/);
+    expect(css).toMatch(/\.history-tile\.is-open \.history-tile-square\s*\{[^}]*outline:\s*2px solid/);
+    expect(css).toMatch(/\.history-tile\.is-open \.history-tile-square::after\s*\{[^}]*content:\s*none/);
+    expect(css).not.toMatch(/\.history-expand-anchor/);
+    expect(css).not.toMatch(/\.history-expand-set/);
+    expect(css).not.toMatch(/\.history-tile\.is-open \.history-tile-square::after\s*\{[^}]*inset 0 0 0 3px/);
     expect(css).toMatch(/\.selected-collection\s*\{[^}]*padding:\s*8px/);
     expect(css).toMatch(/\.selected-collection\s*\{[^}]*background:\s*var\(--bg-active\)/);
-    expect(css).toMatch(/\.history-expand-anchor\s*\{[^}]*grid-column:\s*1/);
-    expect(css).toMatch(
-      /\.history-expand-set > \.history-expand-frame,\s*\.history-expand-set > \.history-expand-versions\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/,
-    );
     expect(css).not.toMatch(/\.history-tile-square\s*\{[^}]*selected-collection/);
     const drawer = readFileSync(new URL("../src/components/GalleryDrawer.tsx", import.meta.url), "utf8");
     expect(drawer).toContain("selected-collection");
     expect(drawer).toContain("props.items.length > 0");
+    expect(sidebar).not.toContain("selected-collection");
     expect(css).toMatch(/\.history-expand\s*\{[^}]*overflow-x:\s*hidden/);
     expect(css).toMatch(/\.history-expand-versions\s*\{[^}]*overflow:\s*hidden/);
     expect(css).toMatch(
-      /\.history-tile\.is-expanded \.history-expand-frame \.media-download\s*\{[^}]*display:\s*inline-flex/,
+      /\.history-row-detail \.history-expand-frame \.media-download\s*\{[^}]*display:\s*inline-flex/,
     );
     const phone = css.slice(css.indexOf("@media (max-width: 860px)"));
     expect(phone).toMatch(
-      /\.history-tile\.is-expanded \.history-expand-frame \.media-download\s*\{[^}]*display:\s*inline-flex/,
+      /\.history-row-detail \.history-expand-frame \.media-download\s*\{[^}]*display:\s*inline-flex/,
     );
     expect(phone).toMatch(
-      /\.history-tile\.is-expanded \.history-expand-frame \.media-download\s*\{[^}]*pointer-events:\s*auto/,
+      /\.history-row-detail \.history-expand-frame \.media-download\s*\{[^}]*pointer-events:\s*auto/,
     );
     expect(css).toMatch(/\.history-expand-frame \.expand-corner-tr\s*\{[^}]*left:\s*0/);
     expect(css).toMatch(/\.history-expand-frame \.expand-corner-bl\s*\{[^}]*right:\s*0/);

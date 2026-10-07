@@ -1037,33 +1037,18 @@ a {
   pointer-events: none;
 }
 
-.history-tile.is-expanded {
+.history-row-detail {
   grid-column: 1 / -1;
   min-width: 0;
   max-width: 100%;
+  padding: 4px 0 2px;
+  border-top: 1px solid var(--border);
 }
 
 .selected-collection {
   padding: 8px;
   border-radius: 12px;
   background: var(--bg-active);
-}
-
-.history-expand-set {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.history-expand-anchor {
-  grid-column: 1;
-}
-
-.history-expand-set > .history-expand-frame,
-.history-expand-set > .history-expand-versions {
-  grid-column: 1 / -1;
 }
 
 .history-expand {
@@ -1087,16 +1072,18 @@ a {
 }
 
 .history-tile.active .history-tile-square,
-.history-tile.is-open .history-tile-square,
-.history-tile.is-expanded .history-expand-frame,
 .history-version.is-current,
 .library-peek-thumb.active {
   border-color: var(--color-1);
 }
 
+.history-tile.is-open .history-tile-square {
+  border-color: color-mix(in srgb, var(--color-1) 28%, var(--neutral-5));
+  outline: 2px solid color-mix(in srgb, var(--color-2) 78%, var(--color-1));
+  outline-offset: 1px;
+}
+
 .history-tile.active .history-tile-square::after,
-.history-tile.is-open .history-tile-square::after,
-.history-tile.is-expanded .history-expand-frame::after,
 .history-version.is-current::after,
 .library-peek-thumb.active::after {
   content: "";
@@ -1106,6 +1093,10 @@ a {
   border-radius: inherit;
   box-shadow: inset 0 0 0 3px var(--text);
   pointer-events: none;
+}
+
+.history-tile.is-open .history-tile-square::after {
+  content: none;
 }
 
 .history-expand-preview {
@@ -1327,7 +1318,7 @@ button.history-expand-preview {
   display: none;
 }
 
-.history-tile.is-expanded .history-expand-frame .media-download {
+.history-row-detail .history-expand-frame .media-download {
   display: inline-flex;
   opacity: 1;
   pointer-events: auto;
@@ -1926,7 +1917,7 @@ button.history-expand-preview {
     display: none;
   }
 
-  .history-tile.is-expanded .history-expand-frame .media-download {
+  .history-row-detail .history-expand-frame .media-download {
     display: inline-flex;
     opacity: 1;
     pointer-events: auto;
