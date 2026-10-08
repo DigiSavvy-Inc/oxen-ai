@@ -45,7 +45,12 @@ import { insertAttachMentions, moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 import { captureVideoLastFrame } from "./lib/last-frame";
 import { preferredAspectRatio, showGetLastFrame, takeStagedOfKind } from "./lib/params";
-import { durationFieldValue, durationToSend, nearestDurationValue } from "../worker/schema";
+import {
+  durationFieldValue,
+  durationToSend,
+  nearestDurationValue,
+  safetyToleranceSelection,
+} from "../worker/schema";
 
 type StagedMedia = {
   file?: File;
@@ -104,6 +109,7 @@ export default function App() {
   const [volume, setVolume] = useState("");
   const [pitch, setPitch] = useState("");
   const [background, setBackground] = useState("");
+  const [safetyTolerance, setSafetyTolerance] = useState("");
   const [generations, setGenerations] = useState<Generation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -511,6 +517,11 @@ export default function App() {
           );
         } else {
           setBackground("");
+        }
+        if (data.controls.safetyTolerance) {
+          setSafetyTolerance(safetyToleranceSelection(data.controls.safetyTolerance));
+        } else {
+          setSafetyTolerance("");
         }
         const rate = data.controls.sampleRate;
         if (rate) setSampleRate((prev) => nearestDurationValue(prev, rate));
@@ -1146,6 +1157,10 @@ export default function App() {
       if (controls?.volume && volume) payload.volume = Number(volume);
       if (controls?.pitch && pitch !== "") payload.pitch = Number(pitch);
       if (background) payload.background = background;
+      if (controls?.safetyTolerance) {
+        const chosen = safetyTolerance || safetyToleranceSelection(controls.safetyTolerance);
+        if (chosen !== "") payload.safety_tolerance = Number(chosen);
+      }
       if (images.length) {
         payload.images = images;
         if (modelHasFaceSlot("image")) payload.image_roles = imageRoles;
@@ -1347,6 +1362,8 @@ export default function App() {
             onPitchChange={rememberParam(setPitch)}
             background={background}
             onBackgroundChange={rememberParam(setBackground)}
+            safetyTolerance={safetyTolerance}
+            onSafetyToleranceChange={rememberParam(setSafetyTolerance)}
             attachments={staged.map((item) => ({
               name: item.name,
               preview: item.preview,

@@ -87,6 +87,7 @@ export type EnqueueBody = {
   output_format?: string;
   background?: string;
   moderation?: string;
+  safety_tolerance?: number;
 };
 
 const pollFailures = new Map<string, number>();
@@ -310,6 +311,7 @@ export function buildEnqueuePayload(
       assignIfPresent(payload, "output_format", body.output_format);
       assignIfPresent(payload, "background", body.background);
       assignIfPresent(payload, "moderation", body.moderation);
+      assignIfPresent(payload, "safety_tolerance", body.safety_tolerance);
       if (mediaType === "video") {
         assignIfPresent(payload, "input_video", body.input_video);
         assignIfPresent(payload, "input_videos", body.input_videos);
@@ -323,6 +325,7 @@ export function buildEnqueuePayload(
       assignIfPresent(payload, "audio_urls", body.audio_urls);
       assignIfPresent(payload, "image_url", body.image_url);
       assignIfPresent(payload, "output_format", body.output_format);
+      assignIfPresent(payload, "safety_tolerance", body.safety_tolerance);
       if (body.sample_rate != null) payload.sample_rate = body.sample_rate;
       if (body.speed != null) payload.speed = body.speed;
       if (body.volume != null) payload.volume = body.volume;

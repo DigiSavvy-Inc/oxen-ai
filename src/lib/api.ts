@@ -55,6 +55,7 @@ export type ModelControls = {
   resolutionField?: "resolution" | "size" | "image_size";
   outputFormat: string[] | null;
   background: string[] | null;
+  safetyTolerance?: DurationControl | null;
   sampleRate?: DurationControl | null;
   speed?: DurationControl | null;
   volume?: DurationControl | null;
@@ -76,6 +77,7 @@ export type SharedOxenParams = {
   resolution?: string;
   output_format?: string;
   background?: string;
+  safety_tolerance?: number;
   sample_rate?: number;
   speed?: number;
   volume?: number;

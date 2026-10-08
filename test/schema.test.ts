@@ -5,6 +5,7 @@ import {
   parseGenerationListScope,
   parseModelControls,
   preferredAspectRatio,
+  resolveSafetyTolerance,
   resolveEnqueueAspectRatio,
   resolutionPayloadFields,
   showGetLastFrame,
@@ -480,6 +481,124 @@ describe("Seed Audio 1.0 controls", () => {
         false,
       ),
     ).toBe("This model does not accept images");
+  });
+});
+
+function fluxSafetySchema(max: number, description = "Safety filter strictness, 0 is strictest.") {
+  const values: number[] = [];
+  for (let n = 0; n <= max; n += 1) values.push(n);
+  return {
+    type: "object",
+    properties: {
+      prompt: { type: "string" },
+      safety_tolerance: {
+        type: "integer",
+        enum: values,
+        default: 2,
+        description,
+      },
+    },
+  };
+}
+
+describe("safety_tolerance", () => {
+  it("defaults Flux schemas to the highest integer because 0 is strictest", () => {
+    const image = parseModelControls({
+      id: "flux-3-image",
+      request_schema: fluxSafetySchema(4),
+    });
+    expect(image.safetyTolerance).toEqual({
+      kind: "enum",
+      values: ["0", "1", "2", "3", "4"],
+      defaultValue: "4",
+    });
+    expect(image.safetyTolerance?.kind === "enum" ? image.safetyTolerance.defaultValue : "").not.toBe("2");
+
+    const deblur = parseModelControls({
+      id: "flux-deblur",
+      request_schema: fluxSafetySchema(5),
+    });
+    expect(deblur.safetyTolerance?.kind === "enum" ? deblur.safetyTolerance.defaultValue : "").toBe("5");
+
+    const wide = parseModelControls({
+      id: "flux-1-style",
+      request_schema: fluxSafetySchema(6),
+    });
+    expect(wide.safetyTolerance?.kind === "enum" ? wide.safetyTolerance.defaultValue : "").toBe("6");
+  });
+
+  it("reads an anyOf integer enum and a min/max range without using the schema default", () => {
+    const wrapped = parseModelControls({
+      id: "flux-3-video",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          safety_tolerance: {
+            description: "Safety filter strictness, 0 is strictest.",
+            anyOf: [
+              { type: "integer", enum: [0, 1, 2, 3, 4], default: 2 },
+              { type: "null" },
+            ],
+          },
+        },
+      },
+    });
+    expect(wrapped.safetyTolerance).toMatchObject({ kind: "enum", defaultValue: "4" });
+
+    const ranged = parseModelControls({
+      id: "flux-ranged",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          safety_tolerance: {
+            type: "integer",
+            minimum: 0,
+            maximum: 5,
+            default: 2,
+            description: "Safety filter strictness, 0 is strictest.",
+          },
+        },
+      },
+    });
+    expect(ranged.safetyTolerance).toMatchObject({ kind: "int", min: 0, max: 5, defaultValue: 5 });
+  });
+
+  it("picks the low end only when the schema says higher values are stricter", () => {
+    const controls = parseModelControls({
+      id: "custom-safety",
+      request_schema: fluxSafetySchema(4, "Higher is stricter."),
+    });
+    expect(controls.safetyTolerance?.kind === "enum" ? controls.safetyTolerance.defaultValue : "").toBe("0");
+  });
+
+  it("omits the control when the schema has no safety_tolerance field", () => {
+    const controls = parseModelControls({
+      id: "gpt-image-2-5-flare",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          quality: { type: "string", enum: ["low", "high"] },
+          disable_safety_checker: { type: "boolean", default: false },
+        },
+      },
+    });
+    expect(controls.safetyTolerance).toBeNull();
+    expect(resolveSafetyTolerance(6, controls.safetyTolerance)).toBeUndefined();
+  });
+
+  it("forwards a chosen allowed value and falls back to the most permissive value", () => {
+    const controls = parseModelControls({
+      id: "flux-3-image",
+      request_schema: fluxSafetySchema(4),
+    });
+    expect(resolveSafetyTolerance(undefined, controls.safetyTolerance)).toBe(4);
+    expect(resolveSafetyTolerance(1, controls.safetyTolerance)).toBe(1);
+    expect(resolveSafetyTolerance(0, controls.safetyTolerance)).toBe(0);
+    expect(resolveSafetyTolerance(9, controls.safetyTolerance)).toBe(4);
+    expect(resolveSafetyTolerance("2", controls.safetyTolerance)).toBe(2);
   });
 });
 

@@ -10,6 +10,7 @@ export type SharedOxenParams = {
   resolution?: string;
   output_format?: string;
   background?: string;
+  safety_tolerance?: number;
   sample_rate?: number;
   speed?: number;
   volume?: number;
@@ -64,6 +65,15 @@ function asParams(raw: Record<string, unknown>): SharedOxenParams {
   if (typeof raw.resolution === "string") params.resolution = raw.resolution;
   if (typeof raw.output_format === "string") params.output_format = raw.output_format;
   if (typeof raw.background === "string") params.background = raw.background;
+  if (typeof raw.safety_tolerance === "number" && Number.isFinite(raw.safety_tolerance)) {
+    params.safety_tolerance = raw.safety_tolerance;
+  } else if (
+    typeof raw.safety_tolerance === "string" &&
+    raw.safety_tolerance.trim() &&
+    Number.isFinite(Number(raw.safety_tolerance))
+  ) {
+    params.safety_tolerance = Number(raw.safety_tolerance);
+  }
   if (typeof raw.sample_rate === "number" && Number.isFinite(raw.sample_rate)) {
     params.sample_rate = raw.sample_rate;
   }

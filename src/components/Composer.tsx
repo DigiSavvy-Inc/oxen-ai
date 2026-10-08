@@ -199,6 +199,8 @@ type Props = {
   onPitchChange?: (value: string) => void;
   background: string;
   onBackgroundChange: (value: string) => void;
+  safetyTolerance?: string;
+  onSafetyToleranceChange?: (value: string) => void;
   attachments: AttachItem[];
   onAddFiles: (files: FileList | File[] | null) => void;
   onClearAttachment: (kind: "image" | "video" | "audio", index: number) => void;
@@ -1262,6 +1264,39 @@ export function Composer(props: Props) {
               </select>
             </ToolbarField>
           ) : null}
+
+          {props.controls?.safetyTolerance?.kind === "enum" ? (
+            <ToolbarField label="Safety">
+              <select
+                className="select"
+                aria-label="Safety tolerance"
+                title="Safety tolerance. 0 is strictest."
+                value={
+                  props.controls.safetyTolerance.values.includes(props.safetyTolerance ?? "")
+                    ? props.safetyTolerance
+                    : (props.controls.safetyTolerance.defaultValue ??
+                      props.controls.safetyTolerance.values[props.controls.safetyTolerance.values.length - 1] ??
+                      "")
+                }
+                onChange={(e) => props.onSafetyToleranceChange?.(e.target.value)}
+              >
+                {props.controls.safetyTolerance.values.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </ToolbarField>
+          ) : (
+            <RangeField
+              label="Safety"
+              control={
+                props.controls?.safetyTolerance?.kind === "int" ? props.controls.safetyTolerance : null
+              }
+              value={props.safetyTolerance ?? ""}
+              onChange={props.onSafetyToleranceChange}
+            />
+          )}
 
           <ToolbarField label="Count">
             <select

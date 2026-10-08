@@ -706,3 +706,138 @@ describe("Wan 3.0 reference-to-video enqueue", () => {
     expect(serialized).not.toContain("low");
   });
 });
+
+describe("safety_tolerance enqueue", () => {
+  function safetySchema(max: number) {
+    const values: number[] = [];
+    for (let n = 0; n <= max; n += 1) values.push(n);
+    return {
+      type: "object",
+      required: ["prompt"],
+      properties: {
+        prompt: { type: "string" },
+        safety_tolerance: {
+          type: "integer",
+          enum: values,
+          default: 2,
+          description: "Safety filter strictness, 0 is strictest.",
+        },
+      },
+    };
+  }
+
+  async function postGenerate(
+    modelId: string,
+    schema: Record<string, unknown> | null,
+    body: Record<string, unknown>,
+  ) {
+    const { ciphertext, iv } = await encryptSecret("sk-user", TEST_SECRET);
+    const user: UserRow = { ...TEST_USER, oxen_key_ciphertext: ciphertext, oxen_key_iv: iv };
+    let queued: Record<string, unknown> | null = null;
+    const stored: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `https://hub.oxen.ai/api/ai/models/${modelId}`) {
+        return jsonResponse({ id: modelId, request_schema: schema });
+      }
+      if (url === "https://hub.oxen.ai/api/ai/queue" && init?.method === "POST") {
+        queued = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return jsonResponse({ generations: [{ generation_id: "gen-safety", status: "queued" }] });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const res = await app.request(
+      "https://studio.digisavvy.dev/api/generate",
+      {
+        method: "POST",
+        headers: {
+          Cookie: `${SESSION_COOKIE}=${TEST_SESSION_ID}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: "text-to-image",
+          model: modelId,
+          prompt: "a red cube",
+          num_generations: 1,
+          ...body,
+        }),
+      },
+      createEnv({
+        DB: {
+          prepare(sql: string) {
+            return {
+              bind(...args: unknown[]) {
+                return {
+                  async first() {
+                    if (sql.includes("FROM sessions") && args[0] === TEST_SESSION_ID) return user;
+                    return null;
+                  },
+                  async all() {
+                    return { results: [] };
+                  },
+                  async run() {
+                    for (const arg of args) {
+                      if (typeof arg === "string" && arg.startsWith("{")) stored.push(arg);
+                    }
+                    return { success: true };
+                  },
+                };
+              },
+            };
+          },
+        } as unknown as D1Database,
+      }),
+    );
+    return { res, queued, stored };
+  }
+
+  it("forwards the chosen value and stores it as a scalar", async () => {
+    const { res, queued, stored } = await postGenerate("flux-3-image", safetySchema(4), {
+      safety_tolerance: 1,
+    });
+    expect(res.status).toBe(200);
+    expect(queued).toMatchObject({
+      model: "flux-3-image",
+      prompt: "a red cube",
+      num_generations: 1,
+      safety_tolerance: 1,
+    });
+    const params = stored.find((item) => item.includes("safety_tolerance"));
+    expect(params).toBeTruthy();
+    expect(params).toContain('"safety_tolerance":1');
+    expect(params).not.toContain("data:");
+  });
+
+  it("uses the most permissive value when the request omits the field", async () => {
+    const { res, queued } = await postGenerate("flux-deblur", safetySchema(5), {});
+    expect(res.status).toBe(200);
+    expect(queued?.safety_tolerance).toBe(5);
+    expect(queued?.num_generations).toBe(1);
+  });
+
+  it("sends 0 when that is the chosen value", async () => {
+    const { queued } = await postGenerate("flux-3-video", safetySchema(4), {
+      safety_tolerance: 0,
+    });
+    expect(queued?.safety_tolerance).toBe(0);
+  });
+
+  it("omits safety_tolerance for a model whose schema does not include it", async () => {
+    const { res, queued, stored } = await postGenerate(
+      "gpt-image-2-5-flare",
+      {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          quality: { type: "string", enum: ["low", "high"] },
+        },
+      },
+      { safety_tolerance: 6, quality: "high" },
+    );
+    expect(res.status).toBe(200);
+    expect(queued).not.toHaveProperty("safety_tolerance");
+    expect(queued).toMatchObject({ quality: "high", num_generations: 1 });
+    expect(stored.join("\n")).not.toContain("safety_tolerance");
+  });
+});

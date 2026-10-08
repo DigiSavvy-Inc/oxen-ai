@@ -64,6 +64,11 @@ export type ModelControls = {
   resolutionField: ResolutionField;
   outputFormat: string[] | null;
   background: string[] | null;
+  /**
+   * Allowed safety_tolerance values. `defaultValue` is the most permissive
+   * value, not the schema's stricter default.
+   */
+  safetyTolerance: DurationControl | null;
   /** True when the request schema has a moderation field. */
   moderation: boolean;
   sampleRate: DurationControl | null;
@@ -581,6 +586,103 @@ function property(schema: JsonSchema, name: string): JsonSchema | undefined {
   return undefined;
 }
 
+function findProperty(schema: JsonSchema, name: string): JsonSchema | undefined {
+  const direct = property(schema, name);
+  if (direct) return direct;
+  for (const part of [...(schema.anyOf ?? []), ...(schema.oneOf ?? [])]) {
+    const found = findProperty(part, name);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function safetyDescription(schema: JsonSchema): string {
+  const parts: string[] = [];
+  const visit = (node: JsonSchema | undefined) => {
+    if (!node) return;
+    if (typeof node.description === "string" && node.description.trim()) {
+      parts.push(node.description.trim());
+    }
+    for (const option of [...(node.anyOf ?? []), ...(node.oneOf ?? []), ...(node.allOf ?? [])]) {
+      visit(option);
+    }
+  };
+  visit(schema);
+  return parts.join("\n");
+}
+
+/**
+ * Flux schemas describe 0 as strictest and publish a stricter default (usually 2).
+ * The high end of the allowed integers is the most permissive value.
+ */
+function mostPermissiveSafetyToken(control: DurationControl, description: string): string {
+  const highIsStricter =
+    /(?:higher|larger|maximum|\bmax)\b[^.]{0,80}\bstrict/i.test(description) &&
+    !/0\s+is\s+strictest/i.test(description);
+  if (control.kind === "enum") {
+    const numeric = control.values
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value));
+    if (numeric.length === 0) {
+      return highIsStricter ? (control.values[0] ?? "") : (control.values[control.values.length - 1] ?? "");
+    }
+    const chosen = highIsStricter ? Math.min(...numeric) : Math.max(...numeric);
+    return String(chosen);
+  }
+  return String(highIsStricter ? control.min : control.max);
+}
+
+function safetyToleranceFromSchema(schema: JsonSchema | undefined): DurationControl | null {
+  if (!schema) return null;
+  const control = numberControl(schema);
+  if (!control) return null;
+  const token = mostPermissiveSafetyToken(control, safetyDescription(schema));
+  if (control.kind === "enum") {
+    return { kind: "enum", values: control.values, defaultValue: token };
+  }
+  const numeric = Number(token);
+  return {
+    ...control,
+    defaultValue: Number.isFinite(numeric) ? numeric : control.max,
+  };
+}
+
+/** Value shown when a model with safety_tolerance is selected. */
+export function safetyToleranceSelection(control: DurationControl | null | undefined): string {
+  if (!control) return "";
+  if (control.kind === "enum") {
+    if (control.defaultValue && control.values.includes(control.defaultValue)) {
+      return control.defaultValue;
+    }
+    const numeric = control.values
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value));
+    if (numeric.length > 0) return String(Math.max(...numeric));
+    return control.values[control.values.length - 1] ?? "";
+  }
+  if (control.defaultValue != null) return String(control.defaultValue);
+  return String(control.max);
+}
+
+/** Keep a chosen allowed value. Otherwise use the most permissive value, never the schema default. */
+export function resolveSafetyTolerance(
+  raw: number | string | undefined,
+  control: DurationControl | null,
+): number | undefined {
+  if (!control) return undefined;
+  const fallback = Number(safetyToleranceSelection(control));
+  if (!Number.isFinite(fallback)) return undefined;
+  if (raw == null || raw === "") return fallback;
+  const token = String(raw).trim();
+  if (control.kind === "enum") {
+    if (control.values.includes(token) && Number.isFinite(Number(token))) return Number(token);
+    return fallback;
+  }
+  const numeric = Number(token);
+  if (!Number.isFinite(numeric) || numeric < control.min || numeric > control.max) return fallback;
+  return numeric;
+}
+
 function isRequired(schema: JsonSchema, name: string): boolean {
   return (schema.required ?? []).includes(name);
 }
@@ -686,6 +788,7 @@ export function parseModelControls(model: OxenModel): ModelControls {
   const imageSizeFromSchema = enumStrings(property(root, "image_size"));
   const outputFormat = enumWithDefault(property(root, "output_format"));
   const background = enumStrings(property(root, "background"));
+  const safetyTolerance = safetyToleranceFromSchema(findProperty(root, "safety_tolerance"));
   const sampleRate = numberControl(property(root, "sample_rate"));
   const speed = numberControl(property(root, "speed"));
   const volume = numberControl(property(root, "volume"));
@@ -750,6 +853,7 @@ export function parseModelControls(model: OxenModel): ModelControls {
     resolutionField,
     outputFormat: outputFormat.length > 0 ? outputFormat : null,
     background: background.length > 0 ? background : null,
+    safetyTolerance,
     moderation: Boolean(property(root, "moderation")),
     sampleRate,
     speed,

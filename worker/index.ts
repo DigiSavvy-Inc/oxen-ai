@@ -76,6 +76,7 @@ import {
   showGetLastFrame,
   pickCompatible,
   resolveEnqueueAspectRatio,
+  resolveSafetyTolerance,
   resolutionPayloadFields,
   unsupportedReferenceMessage,
   videoSlotRequired,
@@ -1396,6 +1397,7 @@ app.post("/api/generate", async (c) => {
     output_format?: string;
     background?: string;
     moderation?: string;
+    safety_tolerance?: number | string;
     sample_rate?: number;
     speed?: number;
     volume?: number;
@@ -1535,6 +1537,7 @@ app.post("/api/generate", async (c) => {
     asStringList(mapped.input_audios) ??
     asStringList(mapped.input_audio) ??
     (useFallback && audioUrls.length > 0 ? audioUrls : undefined);
+  const safetyTolerance = resolveSafetyTolerance(body.safety_tolerance, controls.safetyTolerance);
   const sampleRate = clampNumericControl(body.sample_rate, controls.sampleRate);
   const speed = clampNumericControl(body.speed, controls.speed);
   const volume = clampNumericControl(body.volume, controls.volume);
@@ -1564,6 +1567,7 @@ app.post("/api/generate", async (c) => {
       pickCompatible(body.background, controls.background) ??
       (useFallback ? body.background : undefined),
     moderation: controls.moderation || useFallback ? body.moderation : undefined,
+    safety_tolerance: safetyTolerance,
     input_image:
       mapped.input_image ?? (useFallback && imageUrls.length === 1 ? imageUrls[0] : undefined),
     input_images:
@@ -1683,6 +1687,7 @@ app.post("/api/generate", async (c) => {
         resolution: body.resolution,
         output_format: body.output_format,
         background: body.background,
+        safety_tolerance: safetyTolerance,
         sample_rate: typeof sampleRate === "number" ? sampleRate : undefined,
         speed,
         volume,
