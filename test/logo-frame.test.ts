@@ -32,7 +32,7 @@ describe("frameLogoPng", () => {
     expect(image!.rgba[top + 3]).toBeGreaterThan(200);
   });
 
-  it("scales a short glyph so the tile color does not pad the circle", async () => {
+  it("keeps a wide glyph whole inside the circle", async () => {
     const width = 64;
     const height = 64;
     const rgba = new Uint8Array(width * height * 4);
@@ -51,14 +51,34 @@ describe("frameLogoPng", () => {
     expect(image).toBeTruthy();
     const size = image!.width;
     expect(image!.height).toBe(size);
-    expect(size).toBeGreaterThan(40);
-    const mid = Math.floor(size / 2);
-    const top = (1 * size + mid) * 4;
-    const bottom = ((size - 2) * size + mid) * 4;
-    expect(image!.rgba[top]).toBeGreaterThan(240);
-    expect(image!.rgba[top + 3]).toBe(255);
-    expect(image!.rgba[bottom]).toBeGreaterThan(240);
-    expect(image!.rgba[bottom + 3]).toBe(255);
+    const cx = (size - 1) / 2;
+    const cy = (size - 1) / 2;
+    const radius = size / 2;
+    let minX = size;
+    let maxX = 0;
+    let minY = size;
+    let maxY = 0;
+    let white = 0;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const i = (y * size + x) * 4;
+        const pixel = image!.rgba[i] ?? 0;
+        const alpha = image!.rgba[i + 3] ?? 0;
+        if (pixel < 240 || alpha < 250) continue;
+        white += 1;
+        const dx = x - cx;
+        const dy = y - cy;
+        expect(Math.hypot(dx, dy)).toBeLessThan(radius - 1);
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    expect(white).toBeGreaterThan(500);
+    expect(maxX - minX).toBeGreaterThan(maxY - minY);
+    expect(minX).toBeGreaterThan(2);
+    expect(minY).toBeGreaterThan(2);
     expect(image!.rgba[3]).toBe(0);
   });
 });

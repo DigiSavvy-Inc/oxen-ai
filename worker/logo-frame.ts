@@ -1,7 +1,8 @@
 /**
- * Crop a custom logo so the glyph fills a circle.
- * Uploaded marks often sit inside a padded tile. The header, favicon, and
- * sign-in page all use the same bytes, so the crop happens once here.
+ * Fit a custom logo inside a circle.
+ * Uploaded marks often sit in a loose tile, but scaling the glyph until it
+ * fills the circle clips it. Keep the whole glyph visible, with a little
+ * padding, and serve that one image to the header, favicon, and sign-in page.
  */
 
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
@@ -21,19 +22,22 @@ export async function frameLogoPng(bytes: Uint8Array): Promise<Uint8Array | null
 }
 
 function frameRgba(image: RgbaImage): RgbaImage | null {
-  const box = contentBox(image);
+  const background = borderColor(image);
+  const box = contentBox(image, background);
   if (!box) return null;
-  const covered = coverSquare(image, box);
-  circleMask(covered);
-  return covered;
+  const fitted = fitInsideCircle(image, box, background);
+  circleMask(fitted);
+  return fitted;
 }
 
 type Box = { left: number; top: number; right: number; bottom: number };
 
 /** Opaque pixels that are not the tile color behind the glyph. */
-function contentBox(image: RgbaImage): Box | null {
-  const { width, height, rgba } = image;
-  const background = borderColor(image);
+function contentBox(
+  image: RgbaImage,
+  background: [number, number, number] | null,
+): Box | null {
+  const { width, height } = image;
   let left = width;
   let top = height;
   let right = -1;
@@ -41,11 +45,7 @@ function contentBox(image: RgbaImage): Box | null {
   let count = 0;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const i = (y * width + x) * 4;
-      const alpha = rgba[i + 3] ?? 0;
-      // Ignore the translucent fringe of a rounded tile. The glyph itself is opaque.
-      if (alpha < 160) continue;
-      if (background && colorDistance(rgba, i, background) <= 42) continue;
+      if (!isGlyph(image, x, y, background)) continue;
       count += 1;
       if (x < left) left = x;
       if (y < top) top = y;
@@ -55,6 +55,20 @@ function contentBox(image: RgbaImage): Box | null {
   }
   if (count < 8 || right < left || bottom < top) return null;
   return { left, top, right, bottom };
+}
+
+function isGlyph(
+  image: RgbaImage,
+  x: number,
+  y: number,
+  background: [number, number, number] | null,
+): boolean {
+  const i = (y * image.width + x) * 4;
+  const alpha = image.rgba[i + 3] ?? 0;
+  // Ignore the translucent fringe of a rounded tile. The glyph itself is opaque.
+  if (alpha < 160) return false;
+  if (background && colorDistance(image.rgba, i, background) <= 42) return false;
+  return true;
 }
 
 function borderColor(image: RgbaImage): [number, number, number] | null {
@@ -103,31 +117,50 @@ function colorDistance(rgba: Uint8Array, index: number, color: [number, number, 
   );
 }
 
+/** Extra radius past the farthest glyph pixel, so the mark is not cropped flush. */
+const FIT_PAD = 0.18;
+
 /**
- * Scale the glyph so its shorter side fills the circle. A wide mark loses a
- * sliver of each end instead of keeping a band of tile color above and below.
+ * Place the whole glyph inside the circle. Never scale it up: a wide mark
+ * keeps its ends, and the circle is only as large as the glyph plus a little pad.
  */
-function coverSquare(image: RgbaImage, box: Box): RgbaImage {
-  const spanW = box.right - box.left + 1;
-  const spanH = box.bottom - box.top + 1;
-  const side = Math.min(512, Math.max(spanW, spanH));
-  const window = Math.min(spanW, spanH);
-  const originX = box.left + (spanW - window) / 2;
-  const originY = box.top + (spanH - window) / 2;
+function fitInsideCircle(
+  image: RgbaImage,
+  box: Box,
+  background: [number, number, number] | null,
+): RgbaImage {
+  const cx = (box.left + box.right) / 2;
+  const cy = (box.top + box.bottom) / 2;
+  let farthest = 1;
+  for (let y = box.top; y <= box.bottom; y++) {
+    for (let x = box.left; x <= box.right; x++) {
+      if (!isGlyph(image, x, y, background)) continue;
+      const dx = x - cx;
+      const dy = y - cy;
+      const distance = dx * dx + dy * dy;
+      if (distance > farthest) farthest = distance;
+    }
+  }
+  const needed = Math.ceil(Math.sqrt(farthest) * (1 + FIT_PAD) * 2);
+  const side = Math.min(512, Math.max(8, needed));
+  const scale = side / needed;
   const rgba = new Uint8Array(side * side * 4);
+  const fill = background ?? [0, 0, 0];
   for (let y = 0; y < side; y++) {
-    const sy = Math.min(
-      box.bottom,
-      Math.max(box.top, Math.round(originY + ((y + 0.5) * window) / side - 0.5)),
-    );
-    const row = sy * image.width;
+    const sy = cy + (y - (side - 1) / 2) / scale;
     for (let x = 0; x < side; x++) {
-      const sx = Math.min(
-        box.right,
-        Math.max(box.left, Math.round(originX + ((x + 0.5) * window) / side - 0.5)),
-      );
-      const src = (row + sx) * 4;
+      const sx = cx + (x - (side - 1) / 2) / scale;
       const dest = (y * side + x) * 4;
+      const ix = Math.round(sx);
+      const iy = Math.round(sy);
+      if (ix < 0 || iy < 0 || ix >= image.width || iy >= image.height) {
+        rgba[dest] = fill[0];
+        rgba[dest + 1] = fill[1];
+        rgba[dest + 2] = fill[2];
+        rgba[dest + 3] = background ? 255 : 0;
+        continue;
+      }
+      const src = (iy * image.width + ix) * 4;
       rgba[dest] = image.rgba[src] ?? 0;
       rgba[dest + 1] = image.rgba[src + 1] ?? 0;
       rgba[dest + 2] = image.rgba[src + 2] ?? 0;

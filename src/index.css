@@ -794,7 +794,7 @@ a {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center;
   background: transparent;
   border: none;
