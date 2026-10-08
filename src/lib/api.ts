@@ -112,6 +112,7 @@ export type Generation = {
   status: string;
   mediaType: string | null;
   resultUrl: string | null;
+  resultKey?: string | null;
   thumbUrl?: string | null;
   captureLastFrame?: boolean;
   lastFrameUrl?: string | null;

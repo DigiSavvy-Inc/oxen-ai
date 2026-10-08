@@ -6,6 +6,7 @@ import { flux3VideoModel } from "../worker/flux-video";
 import { parseModelControls } from "../worker/schema";
 import { modelSupportsMode } from "../worker/model-modes";
 import { Canvas } from "../src/components/Canvas";
+import { Sidebar } from "../src/components/Sidebar";
 import { StagedStill } from "../src/components/StagedStill";
 import { Composer } from "../src/components/Composer";
 import { LibraryPeek } from "../src/components/LibraryPeek";
@@ -951,7 +952,7 @@ describe("in-gallery version expand", () => {
     expect(sidebar).toContain('className="history"');
     expect(sidebar).toContain("history-expand-versions");
     expect(sidebar).toContain(
-      'className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}`}',
+      'className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}${inGallery ? " is-gallery" : ""}`}',
     );
     expect(sidebar).toContain("row.map((batch) => batchTile(batch))");
     expect(sidebar).not.toContain("expandVisible.expandedId ? null");
@@ -1089,6 +1090,70 @@ describe("library history layout", () => {
     expect(css).toMatch(/\.history-expand-frame \.expand-corner-bl\s*\{[^}]*border-color:\s*var\(--text\)/);
     expect(sidebar).not.toContain("history-status");
     expect(sidebar).toContain("DownloadButton");
+    const header = sidebar.slice(
+      sidebar.indexOf('className="sidebar-header-actions"'),
+      sidebar.indexOf('className="tag-filter"'),
+    );
+    expect(header.indexOf("Create gallery")).toBeGreaterThan(-1);
+    expect(header.indexOf("Create gallery")).toBeLessThan(header.indexOf("Download all"));
+    expect(sidebar).toContain("if (createGalleryOpen)");
+    expect(sidebar).toContain("onToggleHistory(batch.items)");
+    expect(css).toContain(".history-gallery-mark");
+    expect(css).toContain(".history-tile.is-gallery .history-tile-square");
+    expect(css).not.toMatch(/\.history-tile-square span\s*\{/);
+  });
+
+  it("selects history tiles only while the create-gallery palette is open", () => {
+    const generation = gen({
+      id: "g1",
+      status: "succeeded",
+      mediaType: "image",
+      resultUrl: "https://studio.example/a.png",
+      thumbUrl: "https://studio.example/a.avif",
+      resultKey: "u/user-1/results/a.png",
+    });
+    const item = {
+      id: "g1",
+      kind: "image" as const,
+      name: "a.png",
+      preview: "https://studio.example/a.avif",
+      key: "u/user-1/results/a.png",
+      url: "https://studio.example/a.png",
+    };
+    const shared = {
+      logoUrl: "/logo.svg",
+      generations: [generation],
+      selectedId: null,
+      onSelect: () => {},
+      galleryName: "Launch",
+      onGalleryNameChange: () => {},
+      galleryItems: [item],
+      gallerySaving: false,
+      galleryAdding: false,
+      galleryStatus: null,
+      onGalleryAddFiles: () => {},
+      onGalleryRemove: () => {},
+      onCreateGallery: () => {},
+      onCreateGalleryClose: () => {},
+      onCreateGallerySave: () => {},
+      onToggleHistory: () => {},
+      galleryAccept: "image/*",
+      galleryDropLabel: "Drop images",
+    };
+    const open = renderToStaticMarkup(createElement(Sidebar, { ...shared, createGalleryOpen: true }));
+    expect(open).toContain("Create gallery");
+    expect(open).toContain('aria-expanded="true"');
+    expect(open).toContain('value="Launch"');
+    expect(open).toContain("is-gallery");
+    expect(open).toContain("history-gallery-mark");
+    expect(open).toContain('aria-pressed="true"');
+    expect(open).toContain("1 selected");
+    expect(open).toContain("Drop images");
+    const closed = renderToStaticMarkup(createElement(Sidebar, { ...shared, createGalleryOpen: false }));
+    expect(closed).not.toContain("is-gallery");
+    expect(closed).not.toContain("history-gallery-mark");
+    expect(closed).not.toContain('id="create-gallery"');
+    expect(closed).toContain("Open image");
   });
 });
 

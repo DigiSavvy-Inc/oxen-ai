@@ -20,8 +20,11 @@ import {
   type GalleryExpandAction,
   type GalleryExpandState,
 } from "../lib/gallery-expand";
+import { historyKeySelected } from "../lib/gallery-history";
 import { collectUniqueTags, suggestTags, tagsMatchQuery } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
+import { CreateGalleryPalette } from "./CreateGalleryPalette";
+import type { GalleryDraftItem } from "./GalleryDrawer";
 import { DownloadButton } from "./DownloadButton";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
@@ -194,6 +197,21 @@ export function Sidebar({
   attachedIds,
   onAttach,
   attachSupported,
+  createGalleryOpen,
+  galleryName,
+  onGalleryNameChange,
+  galleryItems,
+  gallerySaving,
+  galleryAdding,
+  galleryStatus,
+  onGalleryAddFiles,
+  onGalleryRemove,
+  onCreateGallery,
+  onCreateGalleryClose,
+  onCreateGallerySave,
+  onToggleHistory,
+  galleryAccept,
+  galleryDropLabel,
 }: {
   logoUrl: string;
   generations: Generation[];
@@ -208,6 +226,21 @@ export function Sidebar({
   attachedIds?: Set<string>;
   onAttach?: (item: Generation) => void;
   attachSupported?: (item: Generation) => boolean;
+  createGalleryOpen: boolean;
+  galleryName: string;
+  onGalleryNameChange: (value: string) => void;
+  galleryItems: GalleryDraftItem[];
+  gallerySaving: boolean;
+  galleryAdding: boolean;
+  galleryStatus: string | null;
+  onGalleryAddFiles: (files: FileList | File[] | null) => void;
+  onGalleryRemove: (index: number) => void;
+  onCreateGallery: () => void;
+  onCreateGalleryClose: () => void;
+  onCreateGallerySave: () => void;
+  onToggleHistory: (items: Generation[]) => void;
+  galleryAccept: string;
+  galleryDropLabel: string;
 }) {
   const [tagQuery, setTagQuery] = useState("");
   const [expand, setExpand] = useState<GalleryExpandState>(CLOSED_EXPAND);
@@ -226,6 +259,7 @@ export function Sidebar({
     );
   }, [generations, tagQuery]);
   const readyAll = useMemo(() => completedMedia(generations), [generations]);
+  const galleryKeySet = useMemo(() => new Set(galleryItems.map((item) => item.key)), [galleryItems]);
   const expandVisible =
     !expand.expandedId || batches.some((batch) => batch.id === expand.expandedId)
       ? expand
@@ -253,41 +287,60 @@ export function Sidebar({
     const expanded = expandVisible.expandedId === batch.id;
     const singleLabel = mediaType === "video" ? "video" : mediaType === "audio" ? "audio" : "image";
     const selected = batch.items.some((item) => item.id === selectedId);
+    const inGallery = createGalleryOpen && historyKeySelected(galleryKeySet, batch.items);
     return (
       <div
         key={batch.id}
-        className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}`}
+        className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}${inGallery ? " is-gallery" : ""}`}
         data-batch-id={batch.id}
       >
         <div className="history-tile-square">
           <button
             type="button"
             className="history-tile-hit"
-            aria-expanded={expanded}
+            aria-expanded={createGalleryOpen ? undefined : expanded}
+            aria-pressed={createGalleryOpen ? inGallery : undefined}
             aria-label={
-              expanded
-                ? multi
-                  ? `Collapse ${batch.items.length} variations`
-                  : `Collapse ${singleLabel}`
-                : multi
-                  ? `${batch.items.length} variations`
-                  : `Open ${singleLabel}`
+              createGalleryOpen
+                ? inGallery
+                  ? multi
+                    ? `Remove ${batch.items.length} variations from gallery`
+                    : `Remove ${singleLabel} from gallery`
+                  : multi
+                    ? `Add ${batch.items.length} variations to gallery`
+                    : `Add ${singleLabel} to gallery`
+                : expanded
+                  ? multi
+                    ? `Collapse ${batch.items.length} variations`
+                    : `Collapse ${singleLabel}`
+                  : multi
+                    ? `${batch.items.length} variations`
+                    : `Open ${singleLabel}`
             }
             title={cover?.prompt || "Generation"}
-            onClick={() =>
+            onClick={() => {
+              if (createGalleryOpen) {
+                onToggleHistory(batch.items);
+                return;
+              }
               commit({
                 type: "tile",
                 batchId: batch.id,
                 count: batch.items.length,
                 openId,
                 mediaType,
-              })
-            }
+              });
+            }}
           >
             <div className="history-tile-media">
               {cover ? <TileFace item={cover} allowFull /> : null}
             </div>
           </button>
+          {inGallery ? (
+            <span className="history-gallery-mark" aria-hidden="true">
+              ✓
+            </span>
+          ) : null}
           {multi ? <span className="history-count">{batch.items.length}</span> : null}
           {onDelete ? (
             <MediaDeleteGroup
@@ -311,6 +364,15 @@ export function Sidebar({
           </div>
         </div>
         <div className="sidebar-header-actions">
+          <button
+            type="button"
+            className={`ghost-btn${createGalleryOpen ? " active" : ""}`}
+            aria-expanded={createGalleryOpen}
+            aria-controls="create-gallery"
+            onClick={onCreateGallery}
+          >
+            Create gallery
+          </button>
           {onDownloadAll && readyAll.length > 0 ? (
             <button
               type="button"
@@ -328,6 +390,23 @@ export function Sidebar({
           ) : null}
         </div>
       </div>
+
+      {createGalleryOpen ? (
+        <CreateGalleryPalette
+          name={galleryName}
+          onNameChange={onGalleryNameChange}
+          items={galleryItems}
+          saving={gallerySaving}
+          adding={galleryAdding}
+          status={galleryStatus}
+          accept={galleryAccept}
+          dropLabel={galleryDropLabel}
+          onAddFiles={onGalleryAddFiles}
+          onRemove={onGalleryRemove}
+          onSave={onCreateGallerySave}
+          onClose={onCreateGalleryClose}
+        />
+      ) : null}
 
       <div className="tag-filter">
         <input
@@ -393,9 +472,18 @@ export function Sidebar({
                             <button
                               type="button"
                               className="history-expand-preview"
-                              aria-label="View full size"
+                              aria-label={createGalleryOpen ? "Add preview to gallery" : "View full size"}
+                              aria-pressed={
+                                createGalleryOpen ? historyKeySelected(galleryKeySet, [preview]) : undefined
+                              }
                               data-preview-id={preview.id}
-                              onClick={() => commit({ type: "preview" })}
+                              onClick={() => {
+                                if (createGalleryOpen) {
+                                  onToggleHistory([preview]);
+                                  return;
+                                }
+                                commit({ type: "preview" });
+                              }}
                             >
                               <div className="history-tile-media">
                                 <PreviewFace item={preview} />
@@ -457,9 +545,26 @@ export function Sidebar({
                                 <button
                                   key={item.id}
                                   type="button"
-                                  className="history-version"
-                                  aria-label={`Show variation ${index + 1}`}
-                                  onClick={() => commit({ type: "version", versionId: item.id })}
+                                  className={`history-version${
+                                    createGalleryOpen && historyKeySelected(galleryKeySet, [item]) ? " is-gallery" : ""
+                                  }`}
+                                  aria-label={
+                                    createGalleryOpen
+                                      ? historyKeySelected(galleryKeySet, [item])
+                                        ? `Remove variation ${index + 1} from gallery`
+                                        : `Add variation ${index + 1} to gallery`
+                                      : `Show variation ${index + 1}`
+                                  }
+                                  aria-pressed={
+                                    createGalleryOpen ? historyKeySelected(galleryKeySet, [item]) : undefined
+                                  }
+                                  onClick={() => {
+                                    if (createGalleryOpen) {
+                                      onToggleHistory([item]);
+                                      return;
+                                    }
+                                    commit({ type: "version", versionId: item.id });
+                                  }}
                                 >
                                   <div className="history-tile-media">
                                     <TileFace item={item} allowFull />

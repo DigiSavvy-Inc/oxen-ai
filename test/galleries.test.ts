@@ -15,6 +15,12 @@ import {
   isGalleryItemDrag,
   planGalleryAttach,
 } from "../src/lib/gallery-attach";
+import {
+  historyItemForGallery,
+  historyItemsForGallery,
+  historyKeySelected,
+  toggleHistoryInGallery,
+} from "../src/lib/gallery-history";
 import { insertAttachMentions, promptContainsToken } from "../src/lib/mentions";
 import { createEnv, TEST_SESSION_ID, TEST_USER } from "./helpers";
 
@@ -294,5 +300,55 @@ describe("gallery attach", () => {
     expect(plan.add).toEqual([]);
     expect(plan.tokens).toEqual([]);
     expect(plan.skipped).toEqual([]);
+  });
+});
+
+describe("gallery from history", () => {
+  const stored = {
+    id: "gen-1",
+    status: "succeeded",
+    mediaType: "image",
+    resultUrl: "https://studio.example/a.png",
+    resultKey: "u/user-1/results/a.png",
+    thumbUrl: "https://studio.example/a.avif",
+    prompt: "ox",
+  };
+
+  it("keeps a stored history image and skips media with no Studio key", () => {
+    expect(historyItemForGallery(stored)?.key).toBe("u/user-1/results/a.png");
+    expect(historyItemForGallery(stored)?.preview).toBe("https://studio.example/a.avif");
+    expect(historyItemForGallery({ ...stored, resultKey: null })).toBeNull();
+    expect(historyItemForGallery({ ...stored, status: "failed" })).toBeNull();
+    expect(historyItemsForGallery([stored, stored, { ...stored, id: "gen-2", resultKey: "  " }])).toHaveLength(1);
+  });
+
+  it("adds history tiles until the set is complete, then removes them", () => {
+    const first = historyItemForGallery(stored);
+    const second = historyItemForGallery({
+      ...stored,
+      id: "gen-2",
+      resultKey: "u/user-1/results/b.png",
+    });
+    expect(first && second).toBeTruthy();
+    const added = toggleHistoryInGallery([], [first!, second!], 24);
+    expect(added.added).toBe(2);
+    expect(added.items.map((item) => item.key)).toEqual([
+      "u/user-1/results/a.png",
+      "u/user-1/results/b.png",
+    ]);
+    const again = toggleHistoryInGallery(added.items, [first!], 24);
+    expect(again.removed).toBe(1);
+    expect(again.items.map((item) => item.key)).toEqual(["u/user-1/results/b.png"]);
+    const capped = toggleHistoryInGallery(added.items, [historyItemForGallery({
+      ...stored,
+      id: "gen-3",
+      resultKey: "u/user-1/results/c.png",
+    })!], 2);
+    expect(capped.skipped).toBe(1);
+    expect(capped.items).toHaveLength(2);
+    expect(historyKeySelected(new Set(again.items.map((item) => item.key)), [{ resultKey: "u/user-1/results/b.png" }])).toBe(
+      true,
+    );
+    expect(historyKeySelected(new Set(), [{ resultKey: "u/user-1/results/b.png" }])).toBe(false);
   });
 });

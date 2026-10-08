@@ -34,13 +34,16 @@ import { filesFromList, partitionMediaFiles } from "./lib/files";
 import {
   acceptedMediaKinds,
   attachKindCap,
+  fileAcceptValue,
   kindFromMediaType,
   libraryRefFromGeneration,
+  mediaKindPhrase,
   mergeLibraryRefs,
   releasePreview,
   supportedMediaNotice,
 } from "./lib/library-refs";
 import { planGalleryAttach } from "./lib/gallery-attach";
+import { historyItemsForGallery, toggleHistoryInGallery } from "./lib/gallery-history";
 import { insertAttachMentions, moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 import { captureVideoLastFrame } from "./lib/last-frame";
@@ -103,6 +106,7 @@ export default function App() {
   const [gallerySaving, setGallerySaving] = useState(false);
   const [galleryAdding, setGalleryAdding] = useState(false);
   const [galleryStatus, setGalleryStatus] = useState<string | null>(null);
+  const [createGalleryOpen, setCreateGalleryOpen] = useState(false);
   const [quality, setQuality] = useState("");
   const [resolution, setResolution] = useState("");
   const [outputFormat, setOutputFormat] = useState("");
@@ -129,6 +133,8 @@ export default function App() {
   const promptField = useRef<PromptField | null>(null);
   const attachDraft = useRef<{ text: string; caret: number } | null>(null);
   const lastFrameAttempted = useRef(new Set<string>());
+  const createGalleryOpenRef = useRef(false);
+  const cancelCreateGalleryRef = useRef<() => void>(() => {});
 
   function rememberParam<T>(setter: (value: T) => void) {
     return (value: T) => {
@@ -168,6 +174,7 @@ export default function App() {
 
   const closeLibrary = useCallback(() => {
     setLibraryOpen(false);
+    cancelCreateGalleryRef.current();
     if (window.matchMedia("(max-width: 860px)").matches) setPeekId(null);
   }, []);
 
@@ -314,6 +321,11 @@ export default function App() {
       if (event.key === "Escape") {
         const target = event.target;
         if (target instanceof Element && target.closest("#gallery-drawer")) return;
+        if (createGalleryOpenRef.current) {
+          event.preventDefault();
+          cancelCreateGalleryRef.current();
+          return;
+        }
         if (peekId) {
           event.preventDefault();
           setPeekId(null);
@@ -918,9 +930,9 @@ export default function App() {
     }
   }
 
-  async function onGallerySave() {
+  async function onGallerySave(): Promise<boolean> {
     const name = galleryName.trim();
-    if (!name || gallerySaving) return;
+    if (!name || gallerySaving) return false;
     setGallerySaving(true);
     setGalleryStatus(null);
     try {
@@ -949,12 +961,54 @@ export default function App() {
         { id: saved.gallery.id, name: saved.gallery.name, updatedAt: saved.gallery.updatedAt },
         ...prev.filter((item) => item.id !== saved.gallery.id),
       ]);
+      return true;
     } catch (err) {
       setGalleryStatus(err instanceof Error ? err.message : "Couldn’t save the gallery");
+      return false;
     } finally {
       setGallerySaving(false);
     }
   }
+
+  function onToggleHistory(batchItems: Generation[]) {
+    const incoming = historyItemsForGallery(batchItems);
+    if (incoming.length === 0) {
+      setGalleryStatus("That media isn’t stored in Studio yet");
+      return;
+    }
+    const result = toggleHistoryInGallery(galleryItems, incoming, GALLERY_ITEM_CAP);
+    setGalleryItems(result.items);
+    if (result.skipped > 0) {
+      setGalleryStatus(`A gallery holds ${GALLERY_ITEM_CAP} items`);
+      return;
+    }
+    setGalleryStatus(null);
+  }
+
+  function cancelCreateGallery() {
+    setCreateGalleryOpen(false);
+    onGalleryNew();
+  }
+
+  function openCreateGallery() {
+    if (createGalleryOpen) {
+      cancelCreateGallery();
+      return;
+    }
+    onGalleryNew();
+    setCreateGalleryOpen(true);
+  }
+
+  async function saveCreateGallery() {
+    const saved = await onGallerySave();
+    if (saved) setCreateGalleryOpen(false);
+  }
+
+  createGalleryOpenRef.current = createGalleryOpen;
+  cancelCreateGalleryRef.current = () => {
+    if (!createGalleryOpenRef.current) return;
+    cancelCreateGallery();
+  };
 
   async function onGalleryLoad(id: string) {
     setGalleryStatus(null);
@@ -1232,6 +1286,10 @@ export default function App() {
     }
   }
 
+  const galleryKinds = acceptedMediaKinds(controls, mode, currentModel());
+  const galleryAccept = fileAcceptValue(galleryKinds);
+  const galleryDropPhrase = mediaKindPhrase(galleryKinds);
+
   if (loading) {
     return (
       <div className="loading-screen">
@@ -1266,6 +1324,21 @@ export default function App() {
           const ref = libraryRefFromGeneration(item);
           return Boolean(ref && capForKind(ref.kind) > 0);
         }}
+        createGalleryOpen={createGalleryOpen}
+        galleryName={galleryName}
+        onGalleryNameChange={setGalleryName}
+        galleryItems={galleryItems}
+        gallerySaving={gallerySaving}
+        galleryAdding={galleryAdding}
+        galleryStatus={galleryStatus}
+        onGalleryAddFiles={(files) => void onGalleryAddFiles(files)}
+        onGalleryRemove={(index) => setGalleryItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
+        onCreateGallery={openCreateGallery}
+        onCreateGalleryClose={cancelCreateGallery}
+        onCreateGallerySave={() => void saveCreateGallery()}
+        onToggleHistory={onToggleHistory}
+        galleryAccept={galleryAccept}
+        galleryDropLabel={galleryDropPhrase ? `Drop ${galleryDropPhrase}` : "Drop media"}
       />
       {libraryOpen ? (
         <button

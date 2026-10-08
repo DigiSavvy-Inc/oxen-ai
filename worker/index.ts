@@ -533,6 +533,7 @@ function toGenerationJson(
     tags?: string[];
     thumbUrl?: string | null;
     lastFrameUrl?: string | null;
+    resultKey?: string | null;
   },
 ) {
   return {
@@ -544,6 +545,7 @@ function toGenerationJson(
     status: extras?.status ?? row.status,
     mediaType: row.media_type,
     resultUrl,
+    resultKey: extras?.resultKey ?? row.result_key ?? null,
     thumbUrl: extras?.thumbUrl ?? null,
     captureLastFrame: captureLastFrameRequested(row.params_json),
     lastFrameUrl: extras?.lastFrameUrl ?? null,
@@ -859,6 +861,7 @@ async function syncGenerationRow(
     tags: options.tags ?? [],
     thumbUrl,
     lastFrameUrl,
+    resultKey,
   });
 }
 
@@ -1718,6 +1721,7 @@ app.post("/api/generate", async (c) => {
       status: gen.status || "queued",
       mediaType: meta.mediaType,
       resultUrl: null as string | null,
+      resultKey: null as string | null,
       thumbUrl: null as string | null,
       captureLastFrame,
       lastFrameUrl: null as string | null,
