@@ -12,6 +12,7 @@ import {
   unsupportedReferenceMessage,
 } from "../worker/schema";
 import type { OxenModel } from "../worker/oxen";
+import { flux3VideoModel } from "../worker/flux-video";
 import { seedAudioModel } from "../worker/seed-audio";
 
 describe("parseModelControls", () => {
@@ -599,6 +600,79 @@ describe("safety_tolerance", () => {
     expect(resolveSafetyTolerance(0, controls.safetyTolerance)).toBe(0);
     expect(resolveSafetyTolerance(9, controls.safetyTolerance)).toBe(4);
     expect(resolveSafetyTolerance("2", controls.safetyTolerance)).toBe(2);
+  });
+});
+
+describe("FLUX 3 Video controls", () => {
+  const controls = parseModelControls(flux3VideoModel);
+
+  it("reads keyframes, continuation, and the documented fields from one model", () => {
+    expect(controls.modelId).toBe("flux-3-video");
+    expect(controls.slots).toEqual([
+      {
+        field: "input_image",
+        kind: "image",
+        required: false,
+        maxItems: 10,
+        asArray: true,
+      },
+      {
+        field: "input_video",
+        kind: "video",
+        required: false,
+        maxItems: 1,
+        asArray: false,
+      },
+    ]);
+    expect(controls.slots.some((slot) => slot.kind === "audio")).toBe(false);
+    expect(controls.mentions).toBe(false);
+    expect(controls.mentionKinds).toEqual([]);
+    expect(controls.aspectRatios).toEqual(["auto", "21:9", "2:1", "16:9", "4:3", "1:1", "3:4", "9:16"]);
+    expect(controls.resolution).toEqual(["720p", "1080p"]);
+    expect(controls.duration).toEqual({ kind: "int", min: 5, max: 20, defaultValue: 5 });
+    expect(controls.generateAudio).toBe(true);
+    expect(controls.generateAudioDefault).toBe(true);
+    expect(controls.draft).toBe(true);
+    expect(controls.draftDefault).toBe(false);
+    expect(controls.safetyTolerance).toEqual({
+      kind: "enum",
+      values: ["0", "1", "2", "3", "4"],
+      defaultValue: "4",
+    });
+    expect(controls.imageVideoExclusive).toBe(true);
+    expect(controls.seed).toBe(false);
+  });
+
+  it("maps keyframes onto input_image and a continuation onto input_video", () => {
+    expect(
+      mapMediaUrls(controls.slots, {
+        image: ["https://frames.example/a.png", "https://frames.example/b.png"],
+        video: [],
+        audio: [],
+      }),
+    ).toEqual({
+      input_image: ["https://frames.example/a.png", "https://frames.example/b.png"],
+    });
+    expect(
+      mapMediaUrls(controls.slots, {
+        image: [],
+        video: ["https://frames.example/clip.mp4"],
+        audio: [],
+      }),
+    ).toEqual({
+      input_video: "https://frames.example/clip.mp4",
+    });
+    expect(
+      unsupportedReferenceMessage(
+        controls.slots,
+        { image: 1, video: 1, audio: 0 },
+        false,
+        true,
+      ),
+    ).toMatch(/can’t be used together/);
+    expect(
+      unsupportedReferenceMessage(controls.slots, { image: 0, video: 0, audio: 1 }, false, true),
+    ).toBe("This model does not accept audio");
   });
 });
 

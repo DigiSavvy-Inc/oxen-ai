@@ -50,6 +50,10 @@ export type ModelControls = {
   duration: DurationControl | null;
   seed: boolean;
   generateAudio: boolean;
+  generateAudioDefault?: boolean | null;
+  draft?: boolean;
+  draftDefault?: boolean;
+  imageVideoExclusive?: boolean;
   quality: string[] | null;
   resolution: string[] | null;
   resolutionField?: "resolution" | "size" | "image_size";
@@ -72,6 +76,7 @@ export type SharedOxenParams = {
   seed?: number;
   duration?: number | string;
   generate_audio?: boolean;
+  draft?: boolean;
   num_generations?: number;
   quality?: string;
   resolution?: string;

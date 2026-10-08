@@ -57,11 +57,30 @@ function modeMinForKind(mode: GenerationMode | null | undefined, kind: MediaKind
   }
 }
 
+type CapControls = Pick<ModelControls, "slots"> & { imageVideoExclusive?: boolean };
+
+/** Keyframes and continuation stay on different modes and cannot be combined. */
+function exclusiveKindCap(
+  controls: CapControls,
+  mode: GenerationMode | null | undefined,
+  kind: MediaKind,
+): number | null {
+  if (!controls.imageVideoExclusive) return null;
+  if (kind === "image" && mode === "reference-to-video") return slotMax(controls, "image");
+  if (kind === "video" && mode === "video-to-video") return slotMax(controls, "video");
+  if (kind === "image" || kind === "video") return 0;
+  return null;
+}
+
 export function mediaKindCap(
-  controls: Pick<ModelControls, "slots"> | null,
+  controls: CapControls | null,
   mode: GenerationMode | null | undefined,
   kind: MediaKind,
 ): number {
+  if (controls) {
+    const exclusive = exclusiveKindCap(controls, mode, kind);
+    if (exclusive != null) return exclusive;
+  }
   const fromSlots = slotMax(controls, kind);
   const modeMin = modeMinForKind(mode, kind);
   if (fromSlots > 0) return Math.max(fromSlots, modeMin);
@@ -76,7 +95,7 @@ export function mediaKindCap(
  * A catalog that lists the kind opens a cap before the schema arrives.
  */
 export function attachKindCap(
-  controls: Pick<ModelControls, "slots"> | null,
+  controls: CapControls | null,
   mode: GenerationMode | null | undefined,
   kind: MediaKind,
   model?: CatalogModel,
@@ -92,7 +111,7 @@ export function attachKindCap(
 }
 
 export function acceptedMediaKinds(
-  controls: Pick<ModelControls, "slots"> | null,
+  controls: CapControls | null,
   mode: GenerationMode | null | undefined,
   model?: CatalogModel,
 ): MediaKind[] {

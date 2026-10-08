@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { brandMarkClass } from "../lib/branding";
 import { Loader } from "./Loader";
 
 export function LoginPage({
@@ -35,7 +36,7 @@ export function LoginPage({
     <div className="login-page">
       <div className="login-card">
         <div className="brand" style={{ marginBottom: 18 }}>
-          <img className="brand-mark-img" src={logoUrl} alt="" />
+          <img className={brandMarkClass(logoUrl)} src={logoUrl} alt="" />
           <div className="brand-copy">
             <strong>{name}</strong>
             <span>Image &amp; video generation</span>

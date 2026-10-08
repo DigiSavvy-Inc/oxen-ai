@@ -162,6 +162,10 @@ type Props = {
   onNumGenerationsChange: (value: number) => void;
   generateAudio: boolean;
   onGenerateAudioChange: (value: boolean) => void;
+  draft?: boolean;
+  onDraftChange?: (value: boolean) => void;
+  safetyTolerance?: string;
+  onSafetyToleranceChange?: (value: string) => void;
   showLastFrame?: boolean;
   getLastFrame?: boolean;
   onGetLastFrameChange?: (value: boolean) => void;
@@ -199,8 +203,6 @@ type Props = {
   onPitchChange?: (value: string) => void;
   background: string;
   onBackgroundChange: (value: string) => void;
-  safetyTolerance?: string;
-  onSafetyToleranceChange?: (value: string) => void;
   attachments: AttachItem[];
   onAddFiles: (files: FileList | File[] | null) => void;
   onClearAttachment: (kind: "image" | "video" | "audio", index: number) => void;
@@ -762,7 +764,11 @@ export function Composer(props: Props) {
               onPointerLeave={() => clearMentionHover()}
               placeholder={
                 showDropzone
-                  ? "Describe the shot… drop refs here, then @Image1 / @Video1 / @Audio1"
+                  ? props.controls?.mentions
+                    ? "Describe the shot… drop refs here, then @Image1 / @Video1 / @Audio1"
+                    : props.mode === "video-to-video"
+                      ? "Describe the shot… drop a clip to continue"
+                      : "Describe the shot… drop keyframes here"
                   : "Describe what to generate…"
               }
               onKeyDown={(e) => {
@@ -1031,7 +1037,9 @@ export function Composer(props: Props) {
                       ) : null}
                     </div>
                     <span className="attach-chip-copy">
-                      <span className="attach-chip-token">{token}</span>
+                      {props.controls?.mentions ? (
+                        <span className="attach-chip-token">{token}</span>
+                      ) : null}
                       <span className="attach-chip-name">{shortenFileName(item.name)}</span>
                       <span className="attach-name-tip" role="tooltip">
                         {item.name}
@@ -1334,6 +1342,17 @@ export function Composer(props: Props) {
                 onChange={(e) => props.onGenerateAudioChange(e.target.checked)}
               />
               Audio
+            </label>
+          ) : null}
+
+          {props.controls?.draft ? (
+            <label className="ghost-btn audio-toggle">
+              <input
+                type="checkbox"
+                checked={props.draft === true}
+                onChange={(e) => props.onDraftChange?.(e.target.checked)}
+              />
+              Draft
             </label>
           ) : null}
 

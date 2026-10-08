@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { flux3VideoModel } from "../worker/flux-video";
+import { parseModelControls } from "../worker/schema";
+import { modelSupportsMode } from "../worker/model-modes";
 import { Canvas } from "../src/components/Canvas";
 import { StagedStill } from "../src/components/StagedStill";
 import { Composer } from "../src/components/Composer";
@@ -1627,5 +1630,97 @@ describe("saved prompt controls", () => {
     expect(filled).toContain("Load prompt");
     expect(filled).toContain("Save prompt");
     expect(filled).not.toContain(">Saved<");
+  });
+});
+
+describe("Flux 3 Video composer", () => {
+  const controls = parseModelControls(flux3VideoModel) as ModelControls;
+  const fluxModel = {
+    id: "flux-3-video",
+    display_name: "FLUX 3 Video",
+    endpoint: "/videos/generate",
+    capabilities: { input: ["text", "image", "video"], output: ["video"] },
+  };
+
+  function markup(mode: "text-to-video" | "reference-to-video" | "video-to-video") {
+    return renderToStaticMarkup(
+      createElement(Composer, {
+        mode,
+        onModeChange: () => undefined,
+        models: [fluxModel],
+        preferred: [],
+        model: fluxModel.id,
+        onModelChange: () => undefined,
+        modelQuery: "",
+        onModelQueryChange: () => undefined,
+        isFavorite: false,
+        onToggleFavorite: () => undefined,
+        controls,
+        prompt: "",
+        onPromptChange: () => undefined,
+        aspectRatio: "16:9",
+        onAspectRatioChange: () => undefined,
+        duration: "5",
+        onDurationChange: () => undefined,
+        seed: "",
+        onSeedChange: () => undefined,
+        numGenerations: 1,
+        onNumGenerationsChange: () => undefined,
+        generateAudio: true,
+        onGenerateAudioChange: () => undefined,
+        draft: false,
+        onDraftChange: () => undefined,
+        safetyTolerance: "4",
+        onSafetyToleranceChange: () => undefined,
+        quality: "",
+        onQualityChange: () => undefined,
+        resolution: "720p",
+        onResolutionChange: () => undefined,
+        outputFormat: "",
+        onOutputFormatChange: () => undefined,
+        background: "",
+        onBackgroundChange: () => undefined,
+        attachments: [],
+        onAddFiles: () => undefined,
+        onClearAttachment: () => undefined,
+        onToggleAttachmentRole: () => undefined,
+        onReorderAttachments: () => undefined,
+        busy: false,
+        error: null,
+        onGenerate: () => undefined,
+        canGenerate: true,
+      }),
+    );
+  }
+
+  it("shows the documented controls and keeps keyframes off the text mode", () => {
+    const text = markup("text-to-video");
+    expect(text).toContain("720p");
+    expect(text).toContain("1080p");
+    expect(text).toContain(">auto<");
+    expect(text).toContain("Audio");
+    expect(text).toContain("Draft");
+    expect(text).toContain('aria-label="Safety tolerance"');
+    expect(text).toContain('value="4"');
+    expect(text).not.toContain("audio/*");
+    expect(text).not.toContain("@Audio");
+    expect(text).not.toContain('accept="image/*"');
+    expect(modelSupportsMode(fluxModel, "text-to-image")).toBe(false);
+    expect(text).toContain("is-ghost");
+
+    const frames = markup("reference-to-video");
+    expect(frames).toContain('accept="image/*"');
+    expect(frames).not.toContain("video/*");
+    expect(frames).not.toContain("audio/*");
+    expect(attachKindCap(controls, "reference-to-video", "image", fluxModel)).toBe(10);
+    expect(attachKindCap(controls, "reference-to-video", "video", fluxModel)).toBe(0);
+    expect(attachKindCap(controls, "reference-to-video", "audio", fluxModel)).toBe(0);
+
+    const clip = markup("video-to-video");
+    expect(clip).toContain('accept="video/*"');
+    expect(clip).not.toContain("image/*");
+    expect(attachKindCap(controls, "video-to-video", "video", fluxModel)).toBe(1);
+    expect(attachKindCap(controls, "text-to-video", "image", fluxModel)).toBe(0);
+    expect(attachKindCap(controls, "text-to-video", "video", fluxModel)).toBe(0);
   });
 });

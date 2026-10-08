@@ -95,6 +95,11 @@ function isWan30TextToVideo(model: ModeFilterModel): boolean {
   return /wan-3-0/i.test(text) && /text-to-video/i.test(text);
 }
 
+/** One catalog id: text, keyframes, and continuation. Not a separate image-to-video model. */
+function isFlux3Video(model: ModeFilterModel): boolean {
+  return model.id.trim().toLowerCase() === "flux-3-video";
+}
+
 function isReferenceToVideoId(model: ModeFilterModel): boolean {
   const text = modelIdName(model);
   return (
@@ -154,7 +159,9 @@ export function modelSupportsMode(model: ModeFilterModel, mode: GenerationMode):
         (imageEdit || caps.hasImageIn || (caps.noCaps && imageGen))
       );
     case "text-to-video":
-      if (isSeedance25TextToVideo(model) || isWan30TextToVideo(model)) return true;
+      if (isSeedance25TextToVideo(model) || isWan30TextToVideo(model) || isFlux3Video(model)) {
+        return true;
+      }
       return (
         caps.videoOut &&
         caps.hasText &&

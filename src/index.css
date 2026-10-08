@@ -28,11 +28,11 @@
   --weight-ui-regular: 400;
   --weight-ui-medium: 500;
   --weight-ui-heavy: 600;
-  --font-brand: "GT Super Text", "LT Superior Serif", Georgia, serif;
+  --font-brand: "Sidebar Inter", sans-serif;
   --weight-brand-regular: 400;
   --weight-brand-medium: 500;
   --weight-brand-heavy: 700;
-  --font-editorial: "GT Super Text", "LT Superior Serif", Georgia, serif;
+  --font-editorial: "Sidebar Inter", sans-serif;
   --font-data: "Sidebar Inter", sans-serif;
   --weight-data-regular: 400;
   --weight-data-medium: 500;
@@ -797,6 +797,13 @@ a {
   background: var(--neutral-1);
   border: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+.brand-mark-img.is-bundled {
+  border-radius: 50%;
+  object-fit: cover;
+  background: transparent;
+  border: none;
 }
 
 .main {

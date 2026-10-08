@@ -9,7 +9,7 @@ import {
   type InstanceBranding,
   type StudioSettings,
 } from "../lib/api";
-import { DEFAULT_LOGO_URL, DEFAULT_SITE_NAME } from "../lib/branding";
+import { brandMarkClass, DEFAULT_LOGO_URL, DEFAULT_SITE_NAME } from "../lib/branding";
 import { defaultModelChoices, modelLabel } from "../lib/model-menu";
 import {
   canPromptInstall,
@@ -765,7 +765,7 @@ export function SettingsModal({
               onChange={(e) => setSiteName(e.target.value)}
             />
             <div className="brand" style={{ margin: "14px 0" }}>
-              <img className="brand-mark-img" src={previewLogo} alt="" />
+              <img className={brandMarkClass(previewLogo)} src={previewLogo} alt="" />
               <div className="brand-copy">
                 <strong>{previewName}</strong>
                 <span>Preview</span>

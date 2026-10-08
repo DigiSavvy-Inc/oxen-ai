@@ -113,6 +113,7 @@ import {
   removeStudioGeneration,
 } from "./library";
 import { GENERATION_MODES } from "./model-modes";
+import { flux3VideoModel } from "./flux-video";
 import { seedAudioModel } from "./seed-audio";
 import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
 import { getStudioSettings, saveStudioSettings } from "./user-settings";
@@ -383,6 +384,7 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         endpoint: "/videos/generate",
         capabilities: { input: ["text"], output: ["video"] },
       },
+      flux3VideoModel,
     ],
     "reference-to-video": [
       {
@@ -433,6 +435,7 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         endpoint: "/videos/generate",
         capabilities: { input: ["text", "image"], output: ["video"] },
       },
+      flux3VideoModel,
     ],
     "video-to-video": [
       {
@@ -453,6 +456,7 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         endpoint: "/videos/generate",
         capabilities: { input: ["text", "image", "video"], output: ["video"] },
       },
+      flux3VideoModel,
     ],
     "text-to-audio": [seedAudioModel],
   };
@@ -467,6 +471,7 @@ function featuredVideoFallbacks(mode: GenerationMode): OxenModel[] {
     "kling-video-v3-pro-motion-control",
     "wan-3-0",
     "wan-3-0-prime",
+    "flux-3-video",
   ]);
   return fallbackModels(mode).filter((model) => featured.has(model.id));
 }
@@ -1390,6 +1395,7 @@ app.post("/api/generate", async (c) => {
     image_roles?: ("character" | "scene")[];
     video_roles?: ("character" | "scene")[];
     generate_audio?: boolean;
+    draft?: boolean;
     get_last_frame?: boolean;
     num_generations?: number;
     quality?: string;
@@ -1523,10 +1529,32 @@ app.post("/api/generate", async (c) => {
   if (needsVideo && videoUrls.length === 0) {
     throw new HTTPException(400, { message: "input_video is required for this mode" });
   }
+  if (controls.imageVideoExclusive && imageUrls.length > 0 && videoUrls.length > 0) {
+    throw new HTTPException(400, {
+      message: "Keyframes and a continuation clip can’t be used together",
+    });
+  }
+  if (controls.imageVideoExclusive && mode === "text-to-video" && (imageUrls.length > 0 || videoUrls.length > 0)) {
+    throw new HTTPException(400, {
+      message: "Text to video does not take keyframes or a continuation clip",
+    });
+  }
+  if (controls.imageVideoExclusive && mode === "reference-to-video" && videoUrls.length > 0) {
+    throw new HTTPException(400, {
+      message: "Keyframes and a continuation clip can’t be used together",
+    });
+  }
+  if (controls.imageVideoExclusive && mode === "video-to-video" && imageUrls.length > 0) {
+    throw new HTTPException(400, {
+      message: "Keyframes and a continuation clip can’t be used together",
+    });
+  }
+
   const rejectedMedia = unsupportedReferenceMessage(
     controls.slots,
     { image: imageUrls.length, video: videoUrls.length, audio: audioUrls.length },
     controls.imageAudioExclusive,
+    controls.imageVideoExclusive,
   );
   if (rejectedMedia) {
     throw new HTTPException(400, { message: rejectedMedia });
@@ -1552,7 +1580,13 @@ app.post("/api/generate", async (c) => {
         : resolveEnqueueAspectRatio(body.aspect_ratio, controls.aspectRatios),
     duration: controls.duration ? clampDuration(body.duration, controls.duration) : undefined,
     seed: controls.seed || useFallback ? body.seed : undefined,
-    generate_audio: controls.generateAudio || useFallback ? body.generate_audio : undefined,
+    generate_audio:
+      controls.generateAudio || useFallback
+        ? typeof body.generate_audio === "boolean"
+          ? body.generate_audio
+          : (controls.generateAudioDefault ?? undefined)
+        : undefined,
+    draft: controls.draft ? body.draft === true : undefined,
     num_generations: body.num_generations,
     quality: pickCompatible(body.quality, controls.quality) ?? (useFallback ? body.quality : undefined),
     ...resolutionPayloadFields(

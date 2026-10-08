@@ -115,7 +115,17 @@ describe("instance branding", () => {
       customLogo: false,
     });
     expect(DEFAULT_SITE_NAME).toBe("Oxen Studio");
-    expect(readFileSync(new URL("../public/oxen-logo.svg", import.meta.url), "utf8")).toContain("<svg");
+    const logo = readFileSync(new URL("../public/oxen-logo.svg", import.meta.url), "utf8");
+    const favicon = readFileSync(new URL("../public/favicon.svg", import.meta.url), "utf8");
+    expect(logo).toContain("<svg");
+    expect(logo).toContain('viewBox="363.5 6 398 398"');
+    expect(logo).toContain('clip-path="url(#oxen-mark)"');
+    expect(favicon).toBe(logo);
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    expect(css).toContain('--font-brand: "Sidebar Inter", sans-serif;');
+    expect(css).toContain('--font-editorial: "Sidebar Inter", sans-serif;');
+    expect(css).not.toMatch(/Georgia|GT Super|LT Superior/);
+    expect(css).toContain(".brand-mark-img.is-bundled");
     expect(readFileSync(new URL("../index.html", import.meta.url), "utf8")).toContain("Oxen Studio");
   });
 

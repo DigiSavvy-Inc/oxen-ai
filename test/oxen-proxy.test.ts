@@ -4,6 +4,7 @@ import { SESSION_COOKIE } from "../worker/auth";
 import { encryptSecret } from "../worker/crypto";
 import { createEnv, TEST_SECRET, TEST_SESSION_ID, TEST_USER } from "./helpers";
 import type { UserRow } from "../worker/types";
+import { flux3VideoModel } from "../worker/flux-video";
 import {
   POLL_FAILURE_THRESHOLD,
   buildEnqueuePayload,
@@ -16,6 +17,7 @@ import {
   notePollFailure,
   paramsJsonForStorage,
   redactStoredMediaRef,
+  resetModelDetailCache,
   resetPollFailures,
   shouldPersistPollFailure,
   type OxenModel,
@@ -25,6 +27,7 @@ const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  resetModelDetailCache();
 });
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -296,6 +299,27 @@ describe("filterModelsForMode", () => {
     ]);
   });
 
+  it("keeps Flux 3 Video on text, image, and continuation modes of one id", () => {
+    const flux: OxenModel = {
+      id: "flux-3-video",
+      display_name: "FLUX 3 Video",
+      endpoint: "/videos/generate",
+      capabilities: { input: ["text", "image", "video"], output: ["video"] },
+    };
+    expect(ids(filterModelsForMode([flux], "text-to-video"))).toEqual(["flux-3-video"]);
+    expect(ids(filterModelsForMode([flux], "reference-to-video"))).toEqual(["flux-3-video"]);
+    expect(ids(filterModelsForMode([flux], "video-to-video"))).toEqual(["flux-3-video"]);
+    expect(filterModelsForMode([flux], "text-to-image")).toEqual([]);
+    expect(filterModelsForMode([flux], "image-to-image")).toEqual([]);
+    expect(filterModelsForMode([flux], "text-to-audio")).toEqual([]);
+    expect(
+      filterModelsForMode(
+        [{ id: "flux-3-image-to-video", endpoint: "/videos/generate", capabilities: { input: ["text"], output: ["video"] } }],
+        "reference-to-video",
+      ),
+    ).toEqual([]);
+  });
+
   it("does not classify chat models as media models", () => {
     for (const mode of [
       "text-to-image",
@@ -460,6 +484,53 @@ describe("buildEnqueuePayload", () => {
     ]);
     expect(filterModelsForMode([seed], "text-to-image")).toEqual([]);
     expect(isMediaGenerationModel(seed)).toBe(true);
+  });
+
+  it("sends Flux 3 Video keyframes, continuation, and the permissive safety default", () => {
+    const frames = buildEnqueuePayload("video", {
+      model: "flux-3-video",
+      prompt: "a lighthouse at dawn",
+      input_image: ["https://frames.example/a.png", "https://frames.example/b.png"],
+      aspect_ratio: "16:9",
+      resolution: "1080p",
+      duration: 8,
+      generate_audio: true,
+      draft: false,
+      safety_tolerance: 4,
+      num_generations: 1,
+    });
+    expect(frames).toEqual({
+      model: "flux-3-video",
+      prompt: "a lighthouse at dawn",
+      num_generations: 1,
+      input_image: ["https://frames.example/a.png", "https://frames.example/b.png"],
+      aspect_ratio: "16:9",
+      resolution: "1080p",
+      duration: 8,
+      generate_audio: true,
+      draft: false,
+      safety_tolerance: 4,
+    });
+    expect(frames).not.toHaveProperty("input_audio");
+    expect(frames).not.toHaveProperty("input_audios");
+    expect(frames).not.toHaveProperty("input_video");
+
+    const continuation = buildEnqueuePayload("video", {
+      model: "flux-3-video",
+      prompt: "the keeper keeps climbing",
+      input_video: "https://frames.example/clip.mp4",
+      aspect_ratio: "auto",
+      resolution: "720p",
+      duration: 5,
+      generate_audio: true,
+      draft: false,
+      safety_tolerance: 4,
+    });
+    expect(continuation.input_video).toBe("https://frames.example/clip.mp4");
+    expect(continuation).not.toHaveProperty("input_image");
+    expect(continuation.safety_tolerance).toBe(4);
+    expect(continuation.draft).toBe(false);
+    expect(continuation.generate_audio).toBe(true);
   });
 
   it("sends Seedream size instead of resolution when provided", () => {
@@ -839,5 +910,108 @@ describe("safety_tolerance enqueue", () => {
     expect(queued).not.toHaveProperty("safety_tolerance");
     expect(queued).toMatchObject({ quality: "high", num_generations: 1 });
     expect(stored.join("\n")).not.toContain("safety_tolerance");
+  });
+});
+
+describe("Flux 3 Video enqueue", () => {
+  async function postGenerate(body: Record<string, unknown>, queuedOut: { current: Record<string, unknown> | null }) {
+    const { ciphertext, iv } = await encryptSecret("sk-user", TEST_SECRET);
+    const user: UserRow = { ...TEST_USER, oxen_key_ciphertext: ciphertext, oxen_key_iv: iv };
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "https://hub.oxen.ai/api/ai/models/flux-3-video") {
+        return jsonResponse(flux3VideoModel);
+      }
+      if (url === "https://hub.oxen.ai/api/ai/queue" && init?.method === "POST") {
+        queuedOut.current = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return jsonResponse({ generations: [{ generation_id: "gen-flux", status: "queued" }] });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }) as typeof fetch;
+    return app.request(
+      "https://studio.digisavvy.dev/api/generate",
+      {
+        method: "POST",
+        headers: {
+          Cookie: `${SESSION_COOKIE}=${TEST_SESSION_ID}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      },
+      createEnv({
+        DB: {
+          prepare(sql: string) {
+            return {
+              bind(...args: unknown[]) {
+                return {
+                  async first() {
+                    if (sql.includes("FROM sessions") && args[0] === TEST_SESSION_ID) return user;
+                    return null;
+                  },
+                  async all() {
+                    return { results: [] };
+                  },
+                  async run() {
+                    return { success: true };
+                  },
+                };
+              },
+            };
+          },
+        } as unknown as D1Database,
+      }),
+    );
+  }
+
+  it("queues keyframes with safety at 4 when the client omits it", async () => {
+    const queued = { current: null as Record<string, unknown> | null };
+    const res = await postGenerate(
+      {
+        mode: "reference-to-video",
+        model: "flux-3-video",
+        prompt: "a lighthouse at dawn",
+        num_generations: 1,
+        aspect_ratio: "16:9",
+        duration: 8,
+        resolution: "1080p",
+        generate_audio: true,
+        draft: false,
+        images: ["https://cdn.example.com/frame.png"],
+      },
+      queued,
+    );
+    expect(res.status).toBe(200);
+    expect(queued.current).toMatchObject({
+      model: "flux-3-video",
+      prompt: "a lighthouse at dawn",
+      input_image: ["https://cdn.example.com/frame.png"],
+      aspect_ratio: "16:9",
+      resolution: "1080p",
+      duration: 8,
+      generate_audio: true,
+      draft: false,
+      safety_tolerance: 4,
+      num_generations: 1,
+    });
+    expect(queued.current).not.toHaveProperty("input_video");
+    expect(queued.current).not.toHaveProperty("input_audio");
+    expect(queued.current).not.toHaveProperty("input_audios");
+  });
+
+  it("rejects keyframes combined with a continuation clip", async () => {
+    const queued = { current: null as Record<string, unknown> | null };
+    const res = await postGenerate(
+      {
+        mode: "reference-to-video",
+        model: "flux-3-video",
+        prompt: "keep going",
+        images: ["https://cdn.example.com/frame.png"],
+        videos: ["https://cdn.example.com/clip.mp4"],
+        safety_tolerance: 2,
+      },
+      queued,
+    );
+    expect(res.status).toBe(400);
+    expect(queued.current).toBeNull();
   });
 });

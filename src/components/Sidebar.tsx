@@ -6,6 +6,7 @@ import {
   type GenerationBatch,
 } from "../lib/batches";
 import type { Generation } from "../lib/api";
+import { brandMarkClass } from "../lib/branding";
 import {
   completedMedia,
   downloadAllMedia,
@@ -303,7 +304,7 @@ export function Sidebar({
     <aside className="sidebar" id="media-library">
       <div className="sidebar-header">
         <div className="brand">
-          <img className="brand-mark-img" src={logoUrl} alt="" />
+          <img className={brandMarkClass(logoUrl)} src={logoUrl} alt="" />
           <div className="brand-copy">
             <strong>Library</strong>
             <span>Past work</span>

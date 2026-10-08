@@ -39,6 +39,7 @@ export const FEATURED_VIDEO_SEARCHES = [
   { query: "seedance 2.5", present: /seedance-2-5/i },
   { query: "kling 3", present: /kling-video-v3|kling-3/i },
   { query: "wan 3", present: /wan-3-0/i },
+  { query: "flux 3 video", present: /flux-3-video/i },
 ] as const;
 
 export const FEATURED_AUDIO_SEARCHES = [
@@ -46,6 +47,11 @@ export const FEATURED_AUDIO_SEARCHES = [
 ] as const;
 
 const modelDetailCache = new Map<string, { at: number; model: OxenModel }>();
+
+/** Tests share one module. A stub schema must not stick for the next case. */
+export function resetModelDetailCache(): void {
+  modelDetailCache.clear();
+}
 const MODEL_DETAIL_TTL_MS = 5 * 60 * 1000;
 
 export type OxenQueuedGeneration = {
@@ -79,6 +85,8 @@ export type EnqueueBody = {
   volume?: number;
   pitch?: number;
   generate_audio?: boolean;
+  draft?: boolean;
+  safety_tolerance?: number;
   num_generations?: number;
   quality?: string;
   resolution?: string;
@@ -87,7 +95,6 @@ export type EnqueueBody = {
   output_format?: string;
   background?: string;
   moderation?: string;
-  safety_tolerance?: number;
 };
 
 const pollFailures = new Map<string, number>();
@@ -319,6 +326,7 @@ export function buildEnqueuePayload(
         assignIfPresent(payload, "input_audios", body.input_audios);
         assignIfPresent(payload, "duration", body.duration);
         if (body.generate_audio != null) payload.generate_audio = body.generate_audio;
+        if (body.draft != null) payload.draft = body.draft;
       }
       break;
     case "audio":

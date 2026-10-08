@@ -27,7 +27,7 @@ import {
   type StudioSettings,
 } from "./lib/api";
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations, siblingAfterRemoval } from "./lib/batches";
-import { useInstanceBranding } from "./lib/branding";
+import { brandMarkClass, useInstanceBranding } from "./lib/branding";
 import { notifyGenerationLocal } from "./lib/pwa";
 import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
 import { filesFromList, partitionMediaFiles } from "./lib/files";
@@ -92,6 +92,8 @@ export default function App() {
   const [seed, setSeed] = useState("");
   const [numGenerations, setNumGenerations] = useState(1);
   const [generateAudio, setGenerateAudio] = useState(false);
+  const [draft, setDraft] = useState(false);
+  const [safetyTolerance, setSafetyTolerance] = useState("");
   const [getLastFrame, setGetLastFrame] = useState(false);
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
   const [gallerySummaries, setGallerySummaries] = useState<GallerySummary[]>([]);
@@ -109,7 +111,6 @@ export default function App() {
   const [volume, setVolume] = useState("");
   const [pitch, setPitch] = useState("");
   const [background, setBackground] = useState("");
-  const [safetyTolerance, setSafetyTolerance] = useState("");
   const [generations, setGenerations] = useState<Generation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -123,6 +124,7 @@ export default function App() {
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const hydratedParamsUserId = useRef<string | null>(null);
+  const controlsReady = useRef(false);
   const paramsTouched = useRef(false);
   const promptField = useRef<PromptField | null>(null);
   const attachDraft = useRef<{ text: string; caret: number } | null>(null);
@@ -233,7 +235,7 @@ export default function App() {
           setAspectRatio(data.lastParams.aspect_ratio);
         }
         if (data.lastParams.duration != null) setDuration(String(data.lastParams.duration));
-        if (typeof data.lastParams.generate_audio === "boolean") {
+        if (!controlsReady.current && typeof data.lastParams.generate_audio === "boolean") {
           setGenerateAudio(data.lastParams.generate_audio);
         }
         if (data.lastParams.quality) setQuality(data.lastParams.quality);
@@ -535,6 +537,13 @@ export default function App() {
         const pitchControl = data.controls.pitch;
         if (pitchControl) setPitch((prev) => nearestDurationValue(prev, pitchControl));
         else setPitch("");
+        controlsReady.current = true;
+        if (data.controls.generateAudio && typeof data.controls.generateAudioDefault === "boolean") {
+          setGenerateAudio(data.controls.generateAudioDefault);
+        } else if (!data.controls.generateAudio) {
+          setGenerateAudio(false);
+        }
+        setDraft(data.controls.draft ? data.controls.draftDefault === true : false);
       })
       .catch(() => {
         if (!cancelled) setControls(null);
@@ -663,6 +672,7 @@ export default function App() {
     const audios = accepted.filter((item) => item.kind === "audio").map((item) => item.file);
     const exclusive = controls?.imageAudioExclusive === true;
     let nextImages = images;
+    let nextVideos = videos;
     let nextAudios = audios;
     let exclusiveConflict = false;
     if (exclusive && nextAudios.length > 0 && (nextImages.length > 0 || staged.some((item) => item.kind === "image"))) {
@@ -682,8 +692,31 @@ export default function App() {
       nextImages = [];
       setError("This model accepts a reference image or reference audio, not both.");
     }
+    if (controls?.imageVideoExclusive && nextImages.length > 0 && nextVideos.length > 0) {
+      exclusiveConflict = true;
+      if (mode === "video-to-video") {
+        rejected.push(...nextImages);
+        nextImages = [];
+      } else {
+        rejected.push(...nextVideos);
+        nextVideos = [];
+      }
+      setError("Keyframes and a continuation clip can’t be used together.");
+    }
+    if (controls?.imageVideoExclusive && (nextImages.length > 0 || nextVideos.length > 0)) {
+      const clearKind = nextImages.length > 0 ? "video" : "image";
+      if (staged.some((item) => item.kind === clearKind)) {
+        setStaged((prev) => {
+          for (const item of prev) {
+            if (item.kind === clearKind) releasePreview(item.preview);
+          }
+          return prev.filter((item) => item.kind !== clearKind);
+        });
+        setError("Keyframes and a continuation clip can’t be used together.");
+      }
+    }
     addFilesOfKind("image", nextImages);
-    addFilesOfKind("video", videos);
+    addFilesOfKind("video", nextVideos);
     addFilesOfKind("audio", nextAudios);
     if (!exclusiveConflict) noteRejectedMedia(rejected);
   }
@@ -698,6 +731,20 @@ export default function App() {
     ) {
       setError("This model accepts a reference image or reference audio, not both.");
       return;
+    }
+    if (
+      controls?.imageVideoExclusive &&
+      ((ref.kind === "image" && staged.some((item) => item.kind === "video")) ||
+        (ref.kind === "video" && staged.some((item) => item.kind === "image")))
+    ) {
+      const clearKind = ref.kind === "image" ? "video" : "image";
+      setStaged((prev) => {
+        for (const item of prev) {
+          if (item.kind === clearKind) releasePreview(item.preview);
+        }
+        return prev.filter((item) => item.kind !== clearKind);
+      });
+      setError("Keyframes and a continuation clip can’t be used together.");
     }
     const cap = capForKind(ref.kind);
     if (cap <= 0) return;
@@ -1148,6 +1195,7 @@ export default function App() {
       }
       if (seed.trim()) payload.seed = Number(seed);
       if (controls?.generateAudio) payload.generate_audio = generateAudio;
+      if (controls?.draft) payload.draft = draft;
       if (lastFrameVisible && getLastFrame) payload.get_last_frame = true;
       if (quality) payload.quality = quality;
       if (resolution) payload.resolution = resolution;
@@ -1232,7 +1280,7 @@ export default function App() {
           <div className="main-top">
             <div className="main-top-left">
               <div className="nav-brand">
-                <img className="brand-mark-img" src={branding.logoUrl} alt="" />
+                <img className={brandMarkClass(branding.logoUrl)} src={branding.logoUrl} alt="" />
                 <strong>{branding.name}</strong>
               </div>
               <button
@@ -1325,6 +1373,8 @@ export default function App() {
             onNumGenerationsChange={setNumGenerations}
             generateAudio={generateAudio}
             onGenerateAudioChange={rememberParam(setGenerateAudio)}
+            draft={draft}
+            onDraftChange={setDraft}
             showLastFrame={lastFrameVisible}
             getLastFrame={getLastFrame}
             onGetLastFrameChange={setGetLastFrame}

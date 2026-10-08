@@ -5,6 +5,13 @@ import { setActiveBranding } from "./pwa";
 export const DEFAULT_SITE_NAME = "Oxen Studio";
 export const DEFAULT_LOGO_URL = "/oxen-logo.svg";
 
+/** Class for the header mark. The bundled Oxen glyph is cropped tight into a circle. */
+export function brandMarkClass(url: string): string {
+  const path = url.split("?")[0] ?? url;
+  const bundled = path === DEFAULT_LOGO_URL || path.endsWith("/oxen-logo.svg");
+  return bundled ? "brand-mark-img is-bundled" : "brand-mark-img";
+}
+
 export const DEFAULT_BRANDING: InstanceBranding = {
   name: DEFAULT_SITE_NAME,
   savedName: null,

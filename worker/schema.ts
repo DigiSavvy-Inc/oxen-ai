@@ -71,6 +71,13 @@ export type ModelControls = {
   safetyTolerance: DurationControl | null;
   /** True when the request schema has a moderation field. */
   moderation: boolean;
+  /** Schema default for generate_audio, when the field declares one. */
+  generateAudioDefault: boolean | null;
+  /** True when the request schema has a draft flag. */
+  draft: boolean;
+  draftDefault: boolean;
+  /** Keyframes and a continuation clip cannot be sent together. */
+  imageVideoExclusive: boolean;
   sampleRate: DurationControl | null;
   speed: DurationControl | null;
   volume: DurationControl | null;
@@ -687,13 +694,44 @@ function isRequired(schema: JsonSchema, name: string): boolean {
   return (schema.required ?? []).includes(name);
 }
 
+function describedArrayMax(prop: JsonSchema): number | null {
+  const texts: string[] = [];
+  collectSchemaText(prop, texts);
+  const range = texts.join("\n").match(/\b1\s*(?:to|[\u2013-])\s*(\d+)\b/i);
+  const value = Number(range?.[1]);
+  if (Number.isInteger(value) && value >= 1 && value <= 32) return value;
+  return null;
+}
+
+function booleanDefault(schema: JsonSchema | undefined): boolean | null {
+  if (!schema) return null;
+  if (typeof schema.default === "boolean") return schema.default;
+  for (const option of [...(schema.anyOf ?? []), ...(schema.oneOf ?? []), ...(schema.allOf ?? [])]) {
+    const found = booleanDefault(option);
+    if (found != null) return found;
+  }
+  return null;
+}
+
+function slotIsCitable(prop: JsonSchema | undefined): boolean {
+  if (!prop) return true;
+  const texts: string[] = [];
+  collectSchemaText(prop, texts);
+  const blob = texts.join("\n");
+  if (/@(Image|Video|Audio)\d*/i.test(blob)) return true;
+  if (/cannot cite|not references|frames, not references|not a reference/i.test(blob)) return false;
+  if (/final frames/i.test(blob) && /cannot be combined with keyframes/i.test(blob)) return false;
+  return true;
+}
+
 function slotFromProperty(
   field: MediaField,
   schema: JsonSchema,
   prop: JsonSchema,
 ): MediaSlot {
   const asArray = isArraySchema(prop) || field.endsWith("s");
-  const maxItems = prop.maxItems ?? (asArray ? 16 : 1);
+  const described = prop.maxItems == null && isArraySchema(prop) ? describedArrayMax(prop) : null;
+  const maxItems = prop.maxItems ?? described ?? (asArray ? 16 : 1);
   return {
     field,
     kind: FIELD_KIND[field],
@@ -832,22 +870,26 @@ export function parseModelControls(model: OxenModel): ModelControls {
   const nextSlots = enrichImageSlots(model, root, enrichAudioSlots(model, root, slots));
   const schemaTexts: string[] = [];
   collectSchemaText(root, schemaTexts);
-  const imageAudioExclusive = /incompatible with audio/i.test(schemaTexts.join("\n"));
+  const schemaBlob = schemaTexts.join("\n");
+  const imageAudioExclusive = /incompatible with audio/i.test(schemaBlob);
+  const imageVideoExclusive =
+    /cannot be combined with continue from video/i.test(schemaBlob) &&
+    /cannot be combined with keyframes/i.test(schemaBlob);
   const referenced = promptReferenceKinds(root);
-  const mentionKinds =
-    referenced ??
-    uniqueKinds(nextSlots.map((slot) => slot.kind));
-  const mentions =
-    schemaMentionsMedia(root) ||
-    mentionKinds.length > 0 ||
-    nextSlots.some((slot) => slot.kind === "image" || slot.kind === "video" || slot.kind === "audio");
+  const citableKinds = uniqueKinds(
+    nextSlots.filter((slot) => slotIsCitable(property(root, slot.field))).map((slot) => slot.kind),
+  );
+  const mentionKinds = referenced ?? citableKinds;
+  const mentions = schemaMentionsMedia(root) || mentionKinds.length > 0;
+  const generateAudioField = property(root, "generate_audio");
+  const draftField = property(root, "draft");
 
   return {
     modelId: model.id,
     aspectRatios: aspect.length > 0 ? aspect : null,
     duration,
     seed: Boolean(property(root, "seed")),
-    generateAudio: Boolean(property(root, "generate_audio")),
+    generateAudio: Boolean(generateAudioField),
     quality: quality.length > 0 ? quality : null,
     resolution: resolution.length > 0 ? resolution : null,
     resolutionField,
@@ -855,6 +897,10 @@ export function parseModelControls(model: OxenModel): ModelControls {
     background: background.length > 0 ? background : null,
     safetyTolerance,
     moderation: Boolean(property(root, "moderation")),
+    generateAudioDefault: booleanDefault(generateAudioField),
+    draft: Boolean(draftField),
+    draftDefault: booleanDefault(draftField) ?? false,
+    imageVideoExclusive,
     sampleRate,
     speed,
     volume,
@@ -871,14 +917,18 @@ export function unsupportedReferenceMessage(
   slots: MediaSlot[],
   counts: { image: number; video: number; audio: number },
   imageAudioExclusive: boolean,
+  imageVideoExclusive = false,
 ): string | null {
-  if (slots.length === 0) return null;
+  if (slots.length === 0 && !imageVideoExclusive) return null;
   const allowed = new Set(slots.map((slot) => slot.kind));
   if (counts.image > 0 && !allowed.has("image")) return "This model does not accept images";
   if (counts.video > 0 && !allowed.has("video")) return "This model does not accept video";
   if (counts.audio > 0 && !allowed.has("audio")) return "This model does not accept audio";
   if (imageAudioExclusive && counts.image > 0 && counts.audio > 0) {
     return "This model accepts a reference image or reference audio, not both";
+  }
+  if (imageVideoExclusive && counts.image > 0 && counts.video > 0) {
+    return "Keyframes and a continuation clip can’t be used together";
   }
   return null;
 }
