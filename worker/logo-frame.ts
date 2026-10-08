@@ -23,9 +23,9 @@ export async function frameLogoPng(bytes: Uint8Array): Promise<Uint8Array | null
 function frameRgba(image: RgbaImage): RgbaImage | null {
   const box = contentBox(image);
   if (!box) return null;
-  const cropped = cropSquare(image, box);
-  circleMask(cropped);
-  return cropped;
+  const covered = coverSquare(image, box);
+  circleMask(covered);
+  return covered;
 }
 
 type Box = { left: number; top: number; right: number; bottom: number };
@@ -54,12 +54,6 @@ function contentBox(image: RgbaImage): Box | null {
     }
   }
   if (count < 8 || right < left || bottom < top) return null;
-  const spanW = right - left + 1;
-  const spanH = bottom - top + 1;
-  // Already flush with the frame. Still circle-mask the whole image.
-  if (spanW >= width * 0.94 && spanH >= height * 0.94) {
-    return { left: 0, top: 0, right: width - 1, bottom: height - 1 };
-  }
   return { left, top, right, bottom };
 }
 
@@ -109,26 +103,38 @@ function colorDistance(rgba: Uint8Array, index: number, color: [number, number, 
   );
 }
 
-function cropSquare(image: RgbaImage, box: Box): RgbaImage {
+/**
+ * Scale the glyph so its shorter side fills the circle. A wide mark loses a
+ * sliver of each end instead of keeping a band of tile color above and below.
+ */
+function coverSquare(image: RgbaImage, box: Box): RgbaImage {
   const spanW = box.right - box.left + 1;
   const spanH = box.bottom - box.top + 1;
-  const pad = Math.max(1, Math.round(Math.max(spanW, spanH) * 0.02));
-  const side = Math.max(spanW, spanH) + pad * 2;
-  const cx = (box.left + box.right) / 2;
-  const cy = (box.top + box.bottom) / 2;
-  let left = Math.round(cx - side / 2);
-  let top = Math.round(cy - side / 2);
-  left = Math.max(0, Math.min(left, image.width - 1));
-  top = Math.max(0, Math.min(top, image.height - 1));
-  const width = Math.max(1, Math.min(side, image.width - left));
-  const height = Math.max(1, Math.min(side, image.height - top));
-  const size = Math.min(width, height);
-  const rgba = new Uint8Array(size * size * 4);
-  for (let y = 0; y < size; y++) {
-    const src = ((top + y) * image.width + left) * 4;
-    rgba.set(image.rgba.subarray(src, src + size * 4), y * size * 4);
+  const side = Math.min(512, Math.max(spanW, spanH));
+  const window = Math.min(spanW, spanH);
+  const originX = box.left + (spanW - window) / 2;
+  const originY = box.top + (spanH - window) / 2;
+  const rgba = new Uint8Array(side * side * 4);
+  for (let y = 0; y < side; y++) {
+    const sy = Math.min(
+      box.bottom,
+      Math.max(box.top, Math.round(originY + ((y + 0.5) * window) / side - 0.5)),
+    );
+    const row = sy * image.width;
+    for (let x = 0; x < side; x++) {
+      const sx = Math.min(
+        box.right,
+        Math.max(box.left, Math.round(originX + ((x + 0.5) * window) / side - 0.5)),
+      );
+      const src = (row + sx) * 4;
+      const dest = (y * side + x) * 4;
+      rgba[dest] = image.rgba[src] ?? 0;
+      rgba[dest + 1] = image.rgba[src + 1] ?? 0;
+      rgba[dest + 2] = image.rgba[src + 2] ?? 0;
+      rgba[dest + 3] = image.rgba[src + 3] ?? 0;
+    }
   }
-  return { width: size, height: size, rgba };
+  return { width: side, height: side, rgba };
 }
 
 function circleMask(image: RgbaImage) {

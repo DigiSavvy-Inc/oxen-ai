@@ -31,4 +31,34 @@ describe("frameLogoPng", () => {
     const top = Math.floor(size / 2) * 4;
     expect(image!.rgba[top + 3]).toBeGreaterThan(200);
   });
+
+  it("scales a short glyph so the tile color does not pad the circle", async () => {
+    const width = 64;
+    const height = 64;
+    const rgba = new Uint8Array(width * height * 4);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = (y * width + x) * 4;
+        const glyph = x >= 8 && x < 56 && y >= 26 && y < 38;
+        rgba[i] = glyph ? 255 : 32;
+        rgba[i + 1] = glyph ? 255 : 180;
+        rgba[i + 2] = glyph ? 255 : 196;
+        rgba[i + 3] = 255;
+      }
+    }
+    const framed = await frameLogoPng(await encodePng({ width, height, rgba }));
+    const image = await decodePng(framed!);
+    expect(image).toBeTruthy();
+    const size = image!.width;
+    expect(image!.height).toBe(size);
+    expect(size).toBeGreaterThan(40);
+    const mid = Math.floor(size / 2);
+    const top = (1 * size + mid) * 4;
+    const bottom = ((size - 2) * size + mid) * 4;
+    expect(image!.rgba[top]).toBeGreaterThan(240);
+    expect(image!.rgba[top + 3]).toBe(255);
+    expect(image!.rgba[bottom]).toBeGreaterThan(240);
+    expect(image!.rgba[bottom + 3]).toBe(255);
+    expect(image!.rgba[3]).toBe(0);
+  });
 });
