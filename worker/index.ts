@@ -126,6 +126,7 @@ import {
   saveInstanceBranding,
   saveInstanceLogo,
 } from "./branding";
+import { frameLogoPng } from "./logo-frame";
 import {
   deletePushSubscription,
   notifyGenerationComplete,
@@ -1050,8 +1051,31 @@ app.get("/api/branding/logo", async (c) => {
   object.writeHttpMetadata(headers);
   if (!headers.get("Content-Type")) headers.set("Content-Type", "application/octet-stream");
   headers.set("Cache-Control", "public, max-age=300");
-  return new Response(object.body, { headers });
+  const bytes = new Uint8Array(await object.arrayBuffer());
+  const type = headers.get("Content-Type") ?? "";
+  if (type.includes("png") || isPng(bytes)) {
+    try {
+      const framed = await frameLogoPng(bytes);
+      if (framed) {
+        headers.set("Content-Type", "image/png");
+        return new Response(framed, { headers });
+      }
+    } catch (err) {
+      console.error("logo frame error", err);
+    }
+  }
+  return new Response(bytes, { headers });
 });
+
+function isPng(bytes: Uint8Array): boolean {
+  return (
+    bytes.byteLength >= 8 &&
+    bytes[0] === 137 &&
+    bytes[1] === 80 &&
+    bytes[2] === 78 &&
+    bytes[3] === 71
+  );
+}
 
 app.get("/api/admin/allowlist", async (c) => {
   await requireUser(c);

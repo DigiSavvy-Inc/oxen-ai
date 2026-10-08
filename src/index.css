@@ -789,21 +789,16 @@ a {
   max-width: 12rem;
 }
 
-.brand-mark-img {
+.brand-mark-img,
+.brand-mark-img.is-bundled {
   width: 28px;
   height: 28px;
-  border-radius: 8px;
-  object-fit: contain;
-  background: var(--neutral-1);
-  border: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.brand-mark-img.is-bundled {
   border-radius: 50%;
   object-fit: cover;
+  object-position: center;
   background: transparent;
   border: none;
+  flex-shrink: 0;
 }
 
 .main {

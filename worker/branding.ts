@@ -95,7 +95,7 @@ function brandingFromRow(row: BrandingRow | null): InstanceBranding {
   return {
     name: savedName ?? DEFAULT_SITE_NAME,
     savedName,
-    logoUrl: customLogo ? `/api/branding/logo?v=${row.updated_at}` : DEFAULT_LOGO_PATH,
+    logoUrl: customLogo ? `/api/branding/logo?v=${row.updated_at}&frame=1` : DEFAULT_LOGO_PATH,
     logoType: customLogo ? row.logo_type || "image/png" : DEFAULT_LOGO_TYPE,
     customLogo,
   };
