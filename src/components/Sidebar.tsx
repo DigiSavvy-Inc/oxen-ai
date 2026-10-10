@@ -1,9 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   coverGeneration,
+  filterGenerationBatches,
   groupGenerationBatches,
   isActiveGeneration,
   type GenerationBatch,
+  type HistoryMediaFilter,
 } from "../lib/batches";
 import type { Generation } from "../lib/api";
 import { brandMarkClass } from "../lib/branding";
@@ -169,10 +171,48 @@ const CLOSED_EXPAND: GalleryExpandState = {
 
 const GALLERY_COLUMNS = 3;
 
-function emptyLibraryMessage(tagQuery: string, loadError?: string | null): string {
+const HISTORY_MEDIA_FILTERS: { id: HistoryMediaFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "image", label: "Images" },
+  { id: "video", label: "Videos" },
+];
+
+function emptyLibraryMessage(
+  tagQuery: string,
+  mediaFilter: HistoryMediaFilter,
+  loadError?: string | null,
+): string {
   if (loadError) return loadError;
-  if (tagQuery.trim()) return "No media with that tag.";
-  return "No generations yet. Write a prompt and hit Generate — jobs run through Oxen's async queue.";
+  const tagged = tagQuery.trim().length > 0;
+  switch (mediaFilter) {
+    case "all":
+      return tagged
+        ? "No media with that tag."
+        : "No generations yet. Write a prompt and hit Generate — jobs run through Oxen's async queue.";
+    case "image":
+      return tagged ? "No images with that tag." : "No images yet.";
+    case "video":
+      return tagged ? "No videos with that tag." : "No videos yet.";
+    default: {
+      const unreachable: never = mediaFilter;
+      return unreachable;
+    }
+  }
+}
+
+function downloadAllLabel(mediaFilter: HistoryMediaFilter): string {
+  switch (mediaFilter) {
+    case "all":
+      return "Download all";
+    case "image":
+      return "Download images";
+    case "video":
+      return "Download videos";
+    default: {
+      const unreachable: never = mediaFilter;
+      return unreachable;
+    }
+  }
 }
 
 function chunkBatches<T>(items: T[], size = GALLERY_COLUMNS): T[][] {
@@ -221,7 +261,7 @@ export function Sidebar({
   downloadingAll?: boolean;
   onSelect: (id: string | null) => void;
   onClose?: () => void;
-  onDownloadAll?: () => void;
+  onDownloadAll?: (items: Generation[]) => void;
   onDelete?: (ids: string[], fromOxen?: boolean) => void;
   attachedIds?: Set<string>;
   onAttach?: (item: Generation) => void;
@@ -243,6 +283,7 @@ export function Sidebar({
   galleryDropLabel: string;
 }) {
   const [tagQuery, setTagQuery] = useState("");
+  const [mediaFilter, setMediaFilter] = useState<HistoryMediaFilter>("all");
   const [expand, setExpand] = useState<GalleryExpandState>(CLOSED_EXPAND);
   const expandRef = useRef(expand);
   const expandedTileRef = useRef<HTMLDivElement>(null);
@@ -251,14 +292,20 @@ export function Sidebar({
     [generations],
   );
   const previews = useMemo(() => suggestTags(allTags, tagQuery), [allTags, tagQuery]);
+  const mediaBatches = useMemo(
+    () => filterGenerationBatches(groupGenerationBatches(generations), mediaFilter),
+    [generations, mediaFilter],
+  );
   const batches = useMemo(() => {
-    const grouped = groupGenerationBatches(generations);
-    if (!tagQuery.trim()) return grouped;
-    return grouped.filter((batch) =>
+    if (!tagQuery.trim()) return mediaBatches;
+    return mediaBatches.filter((batch) =>
       batch.items.some((item) => tagsMatchQuery(item.tags, tagQuery)),
     );
-  }, [generations, tagQuery]);
-  const readyAll = useMemo(() => completedMedia(generations), [generations]);
+  }, [mediaBatches, tagQuery]);
+  const readyAll = useMemo(
+    () => completedMedia(mediaBatches.flatMap((batch) => batch.items)),
+    [mediaBatches],
+  );
   const galleryKeySet = useMemo(() => new Set(galleryItems.map((item) => item.key)), [galleryItems]);
   const expandVisible =
     !expand.expandedId || batches.some((batch) => batch.id === expand.expandedId)
@@ -269,6 +316,13 @@ export function Sidebar({
     if (!expandVisible.expandedId) return;
     expandedTileRef.current?.scrollIntoView({ block: "nearest" });
   }, [expandVisible.expandedId]);
+
+  function selectMediaFilter(next: HistoryMediaFilter) {
+    if (next === mediaFilter) return;
+    setMediaFilter(next);
+    expandRef.current = CLOSED_EXPAND;
+    setExpand(CLOSED_EXPAND);
+  }
 
   function commit(action: GalleryExpandAction) {
     const next = galleryExpandTransition(expandRef.current, action);
@@ -378,9 +432,9 @@ export function Sidebar({
               type="button"
               className="ghost-btn"
               disabled={downloadingAll}
-              onClick={onDownloadAll}
+              onClick={() => onDownloadAll?.(readyAll)}
             >
-              {downloadingAll ? <Loader size="sm" label="Downloading…" /> : "Download all"}
+              {downloadingAll ? <Loader size="sm" label="Downloading…" /> : downloadAllLabel(mediaFilter)}
             </button>
           ) : null}
           {onClose ? (
@@ -407,6 +461,20 @@ export function Sidebar({
           onClose={onCreateGalleryClose}
         />
       ) : null}
+
+      <div className="media-filter" role="group" aria-label="Filter by media type">
+        {HISTORY_MEDIA_FILTERS.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            className={`media-filter-btn${mediaFilter === option.id ? " active" : ""}`}
+            aria-pressed={mediaFilter === option.id}
+            onClick={() => selectMediaFilter(option.id)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
 
       <div className="tag-filter">
         <input
@@ -449,7 +517,7 @@ export function Sidebar({
             </div>
           ) : batches.length === 0 ? (
             <div className="history-empty">
-              {emptyLibraryMessage(tagQuery, loadError)}
+              {emptyLibraryMessage(tagQuery, mediaFilter, loadError)}
             </div>
           ) : (
             chunkBatches(batches).map((row) => {
