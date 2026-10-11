@@ -62,7 +62,8 @@ import {
   tokenForItem,
   promptHighlightParts,
 } from "../src/lib/mentions";
-import { defaultModelChoices, filterModels, generationCountForModelChange, groupPreferredModels, modelLabel, pickModel } from "../src/lib/model-menu";
+import { arrangeModelMenu, defaultModelChoices, filterModels, generationCountForModelChange, groupPreferredModels, modelLabel, orderModelsByUse, pickModel } from "../src/lib/model-menu";
+import { readModelUses, recordModelUse } from "../src/lib/model-uses";
 import {
   aspectCatalog,
   aspectSelectOptions,
@@ -661,13 +662,25 @@ describe("model menu filter", () => {
     display_name: "Kling 2.0",
     description: "Text to video",
   };
-  const seedream = { id: "seedream-4", display_name: "Seedream 4" };
+  const seedream = { id: "seedream-4", display_name: "Seedream 4", description: "Image model of the Seedream family" };
+  const seedance = {
+    id: "bytedance/seedance-2.5",
+    display_name: "Seedance 2.5 Fast",
+    description: "Video model for reference clips",
+  };
 
   it("matches id, display name, and description", () => {
     expect(filterModels([flux, kling, seedream], "flux")).toEqual([flux]);
     expect(filterModels([flux, kling, seedream], "2.0")).toEqual([kling]);
     expect(filterModels([flux, kling, seedream], "text-to-image")).toEqual([flux]);
     expect(filterModels([flux, kling, seedream], "SEEDREAM")).toEqual([seedream]);
+  });
+
+  it("treats a single letter as the start of the model name", () => {
+    const models = [flux, kling, seedream, seedance];
+    expect(filterModels(models, "f").map((model) => model.id)).toEqual([flux.id]);
+    expect(filterModels(models, "s").map((model) => model.id)).toEqual([seedream.id, seedance.id]);
+    expect(filterModels(models, "fa").map((model) => model.id)).toEqual([seedance.id]);
   });
 
   it("returns the full list when the query is blank", () => {
@@ -694,6 +707,34 @@ describe("model menu filter", () => {
       preferred: [kling],
       rest: [flux],
     });
+  });
+
+  it("puts the models used most often above stars and the rest of the catalog", () => {
+    const catalog = [flux, kling, seedream, seedance];
+    expect(orderModelsByUse(catalog, { [seedance.id]: 2, [kling.id]: 5 })).toEqual({
+      frequent: [kling, seedance],
+      rest: [flux, seedream],
+    });
+    expect(arrangeModelMenu(catalog, [seedream, kling], { [kling.id]: 3, [seedance.id]: 1 })).toEqual({
+      frequent: [kling, seedance],
+      preferred: [seedream],
+      rest: [flux],
+    });
+  });
+
+  it("stores model use counts in the browser storage it is given", () => {
+    const saved = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => saved.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        saved.set(key, value);
+      },
+    };
+    expect(readModelUses(storage)).toEqual({});
+    expect(recordModelUse(seedance.id, storage)).toEqual({ [seedance.id]: 1 });
+    expect(recordModelUse(seedance.id, storage)).toEqual({ [seedance.id]: 2 });
+    expect(recordModelUse("  ", storage)).toEqual({ [seedance.id]: 2 });
+    expect(readModelUses(storage)).toEqual({ [seedance.id]: 2 });
   });
 
   it("falls back to the model id when no display name is set", () => {

@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { OxenModel } from "../lib/api";
-import { filterModels, groupPreferredModels, modelLabel } from "../lib/model-menu";
+import { arrangeModelMenu, filterModels, modelLabel } from "../lib/model-menu";
+import type { ModelUseCounts } from "../lib/model-uses";
 
 type Props = {
   models: OxenModel[];
   preferred: OxenModel[];
+  useCounts?: ModelUseCounts;
   value: string;
   query: string;
   onQueryChange: (value: string) => void;
@@ -12,7 +14,7 @@ type Props = {
 };
 
 export function ModelMenu(props: Props) {
-  const { models, preferred, value, query, onQueryChange, onChange } = props;
+  const { models, preferred, useCounts = {}, value, query, onQueryChange, onChange } = props;
   const [open, setOpen] = useState(false);
   const [hot, setHot] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -22,14 +24,28 @@ export function ModelMenu(props: Props) {
   const selected = models.find((model) => model.id === value) ?? null;
   const visible = useMemo(() => filterModels(models, query), [models, query]);
   const grouped = useMemo(
-    () => groupPreferredModels(visible, preferred),
-    [visible, preferred],
+    () => arrangeModelMenu(visible, preferred, useCounts),
+    [visible, preferred, useCounts],
   );
+  const sections = useMemo(() => {
+    const restHeading = grouped.frequent.length > 0 || grouped.preferred.length > 0 ? "All" : "Models";
+    const groups = [
+      { heading: "Most used", models: grouped.frequent },
+      { heading: "Preferred", models: grouped.preferred },
+      { heading: restHeading, models: grouped.rest },
+    ];
+    let index = 0;
+    return groups.flatMap((group) => {
+      if (group.models.length === 0) return [];
+      const items = group.models.map((model) => ({ model, index: index++ }));
+      return [{ heading: group.heading, items }];
+    });
+  }, [grouped]);
   const extra =
     value && !visible.some((model) => model.id === value) && !query.trim()
       ? [selected ?? { id: value }]
       : [];
-  const options = [...grouped.preferred, ...grouped.rest, ...extra];
+  const options = [...grouped.frequent, ...grouped.preferred, ...grouped.rest, ...extra];
   const activeHot = options.length === 0 ? 0 : Math.min(hot, options.length - 1);
 
   const close = useCallback(() => {
@@ -111,7 +127,6 @@ export function ModelMenu(props: Props) {
   }
 
   const triggerLabel = selected ? modelLabel(selected) : value || "Select a model";
-  const headingRest = grouped.preferred.length > 0 ? "All" : "Models";
   const emptyLabel = query.trim()
     ? `No models match “${query.trim()}”`
     : "No models";
@@ -169,39 +184,24 @@ export function ModelMenu(props: Props) {
             role="listbox"
             aria-label="Models"
           >
-            {grouped.preferred.length > 0 ? (
-              <div className="model-menu-heading">Preferred</div>
-            ) : null}
-            {grouped.preferred.map((model, index) => (
-              <ModelOption
-                key={`fav-${model.id}`}
-                model={model}
-                index={index}
-                selected={model.id === value}
-                hot={index === activeHot}
-                onHot={() => setHot(index)}
-                onChoose={() => choose(model.id)}
-              />
+            {sections.map((section) => (
+              <Fragment key={section.heading}>
+                <div className="model-menu-heading">{section.heading}</div>
+                {section.items.map(({ model, index }) => (
+                  <ModelOption
+                    key={model.id}
+                    model={model}
+                    index={index}
+                    selected={model.id === value}
+                    hot={index === activeHot}
+                    onHot={() => setHot(index)}
+                    onChoose={() => choose(model.id)}
+                  />
+                ))}
+              </Fragment>
             ))}
-            {grouped.rest.length > 0 ? (
-              <div className="model-menu-heading">{headingRest}</div>
-            ) : null}
-            {grouped.rest.map((model, index) => {
-              const optionIndex = grouped.preferred.length + index;
-              return (
-                <ModelOption
-                  key={model.id}
-                  model={model}
-                  index={optionIndex}
-                  selected={model.id === value}
-                  hot={optionIndex === activeHot}
-                  onHot={() => setHot(optionIndex)}
-                  onChoose={() => choose(model.id)}
-                />
-              );
-            })}
             {extra.map((model, index) => {
-              const optionIndex = grouped.preferred.length + grouped.rest.length + index;
+              const optionIndex = grouped.frequent.length + grouped.preferred.length + grouped.rest.length + index;
               return (
                 <ModelOption
                   key={`extra-${model.id}`}
