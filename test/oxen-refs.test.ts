@@ -4,6 +4,7 @@ import {
   collectOxenRefs,
   inlineStudioMediaRefs,
   isOxenHostedMediaUrl,
+  OxenMediaInlineError,
   resolveRefsForOxen,
   rewriteRefsToOxenSources,
   StudioMediaRefRejected,
@@ -26,6 +27,9 @@ function signed(key: string, ttlSeconds?: number) {
 const KEY = "u/user-1/results/sheet.png";
 const STUDIO_URL = `https://studio.digisavvy.dev/api/media/${KEY}?exp=1&sig=abc`;
 const OXEN_URL = "https://hub.oxen.ai/api/repos/digisavvy/playground/workspaces/abc/file.png";
+const HUB_PLAYGROUND_FILE =
+  "https://hub.oxen.ai/api/repos/digisavvy/playground/file/main/input_example.jpg?exp=1&sig=test";
+const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 
 function dbWithOxenSource(userId: string, key: string, resultUrl: string | null): D1Database {
   return {
@@ -90,10 +94,79 @@ describe("inlineStudioMediaRefs", () => {
     const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
     await bucket.put(key, bytes.buffer, { httpMetadata: { contentType: "image/png" } });
     const upload = await signed(key);
-    await expect(inlineStudioMediaRefs(bucket, [upload, OXEN_URL], { auth: AUTH })).resolves.toEqual([
+    await expect(inlineStudioMediaRefs(bucket, [upload], { auth: AUTH })).resolves.toEqual([
       `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`,
-      OXEN_URL,
     ]);
+  });
+
+  it("does not forward a hub playground file URL in an image ref", async () => {
+    const { bucket } = createMockR2();
+    let fetched = 0;
+    const [inlined] = await inlineStudioMediaRefs(bucket, [HUB_PLAYGROUND_FILE], {
+      auth: AUTH,
+      apiKey: "sk-test",
+      fetchHub: async () => {
+        fetched += 1;
+        return { bytes: PNG.buffer, contentType: "application/octet-stream" };
+      },
+    });
+    expect(fetched).toBe(1);
+    expect(inlined.startsWith("data:image/png;base64,")).toBe(true);
+    expect(inlined).not.toContain("hub.oxen.ai");
+    expect(JSON.stringify([inlined])).not.toContain(HUB_PLAYGROUND_FILE);
+  });
+
+  it("inlines the Studio R2 copy of a hub file and does not download the hub URL", async () => {
+    const { bucket } = createMockR2();
+    await bucket.put(KEY, PNG.buffer, { httpMetadata: { contentType: "image/png" } });
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind() {
+            return {
+              async first() {
+                if (!sql.includes("result_key")) return null;
+                return { result_key: KEY };
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    let fetched = 0;
+    const [inlined] = await inlineStudioMediaRefs(bucket, [HUB_PLAYGROUND_FILE], {
+      auth: AUTH,
+      apiKey: "sk-test",
+      db,
+      fetchHub: async () => {
+        fetched += 1;
+        return { bytes: PNG.buffer, contentType: "image/png" };
+      },
+    });
+    expect(fetched).toBe(0);
+    expect(inlined).toBe(`data:image/png;base64,${Buffer.from(PNG).toString("base64")}`);
+    expect(inlined).not.toContain("hub.oxen.ai");
+  });
+
+  it("fails in Studio when the hub download times out", async () => {
+    const { bucket } = createMockR2();
+    const attempt = inlineStudioMediaRefs(bucket, [HUB_PLAYGROUND_FILE], {
+      auth: AUTH,
+      apiKey: "sk-test",
+      fetchHub: async () => {
+        const err = new Error("The operation was aborted due to timeout");
+        err.name = "TimeoutError";
+        throw err;
+      },
+    });
+    await expect(attempt).rejects.toBeInstanceOf(OxenMediaInlineError);
+    await expect(attempt).rejects.toThrow(/Timed out downloading the reference file/);
+    try {
+      await attempt;
+    } catch (err) {
+      expect(String(err)).not.toContain("hub.oxen.ai");
+      expect(String(err)).not.toContain("sig=");
+    }
   });
 
   it("leaves character refs as https because Seedance face upload rejects data URIs", async () => {
@@ -206,6 +279,18 @@ describe("resolveRefsForOxen", () => {
     expect(url.startsWith("data:")).toBe(false);
     expect(isOxenHostedMediaUrl(url)).toBe(false);
     expect(studioMediaKeyFromUrl(url)).toBe(KEY);
+  });
+
+  it("turns a hub file in a face slot into a Studio https URL", async () => {
+    const { bucket } = createMockR2();
+    const [url] = await resolveRefsForOxen(bucket, [HUB_PLAYGROUND_FILE], undefined, [true], {
+      ...SIGNING,
+      apiKey: "sk-test",
+      fetchHub: async () => ({ bytes: PNG.buffer, contentType: "image/png" }),
+    });
+    expect(url.startsWith("data:")).toBe(false);
+    expect(isOxenHostedMediaUrl(url)).toBe(false);
+    expect(url.startsWith("https://studio.digisavvy.dev/api/media/u/user-1/")).toBe(true);
   });
 
   it("refuses expired and cross-user media refs before reading or re-signing them", async () => {

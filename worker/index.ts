@@ -35,7 +35,12 @@ import {
   sniffSafeMediaType,
   verifyMediaSignature,
 } from "./media";
-import { collectOxenRefs, resolveRefsForOxen, StudioMediaRefRejected } from "./oxen-refs";
+import {
+  collectOxenRefs,
+  OxenMediaInlineError,
+  resolveRefsForOxen,
+  StudioMediaRefRejected,
+} from "./oxen-refs";
 import {
   buildEnqueuePayload,
   downloadOxenResult,
@@ -1492,6 +1497,8 @@ app.post("/api/generate", async (c) => {
     secret: mediaSigningSecret(c.env),
     verifySecrets: mediaVerifySecrets(c.env),
     userId: user.id,
+    apiKey,
+    db: c.env.DB,
   };
   let imageUrls: string[];
   let videoUrls: string[];
@@ -1519,7 +1526,7 @@ app.post("/api/generate", async (c) => {
       signing,
     );
   } catch (err) {
-    if (err instanceof StudioMediaRefRejected) {
+    if (err instanceof StudioMediaRefRejected || err instanceof OxenMediaInlineError) {
       throw new HTTPException(400, { message: err.message });
     }
     throw err;

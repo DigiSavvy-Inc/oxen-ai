@@ -1,17 +1,42 @@
 import { galleryKeyForUser } from "./galleries";
 import {
   arrayBufferToDataUri,
+  canonicalSafeMediaType,
   createSignedMediaUrl,
   guessMediaContentType,
+  putMediaObject,
   resolvePublicBaseUrl,
+  sniffSafeMediaType,
   verifyMediaSignature,
 } from "./media";
+import { downloadOxenResult } from "./oxen";
 import { encodeImageForOxen } from "./thumbs";
 
 const MEDIA_PATH_PREFIX = "/api/media/";
 
 /** Raw bytes we will base64-inline so Oxen does not have to GET Studio. */
 export const OXEN_INLINE_MEDIA_MAX_BYTES = 12 * 1024 * 1024;
+
+/** Face refs stay https, so a hub-only file can be copied into R2 up to the upload cap. */
+const HUB_HTTPS_COPY_MAX_BYTES = 80 * 1024 * 1024;
+
+const HUB_FETCH_FAIL =
+  "Could not download the reference file from Oxen. It was not sent to the model.";
+const HUB_FETCH_TIMEOUT =
+  "Timed out downloading the reference file from Oxen. It was not sent to the model.";
+const HUB_TOO_LARGE = "The reference file is too large to send to the model.";
+const HUB_UNSAFE = "The Oxen file is not a supported image, video, or audio file.";
+const FACE_COPY_FAIL =
+  "Could not copy the face reference onto Studio. A hub file URL was not sent to the model.";
+
+export class OxenMediaInlineError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OxenMediaInlineError";
+  }
+}
+
+export type HubMediaBytes = { bytes: ArrayBuffer; contentType: string };
 
 export function isOxenHostedMediaUrl(value: string): boolean {
   try {
@@ -120,15 +145,142 @@ export async function rewriteRefsToOxenSources(
   return out;
 }
 
+export type InlineStudioMediaOptions = {
+  maxBytes?: number;
+  images?: ImagesBinding;
+  keepHttps?: boolean[];
+  auth?: StudioMediaAuth;
+  apiKey?: string;
+  db?: D1Database;
+  publicBaseUrl?: string | null;
+  /** Test hook. Production downloads with the user's Oxen key, and only on hub.oxen.ai. */
+  fetchHub?: (apiKey: string, url: string) => Promise<HubMediaBytes>;
+};
+
+function hubUrlPath(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.hostname !== "hub.oxen.ai") return null;
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return null;
+  }
+}
+
+function mediaTypeForBytes(bytes: ArrayBuffer, claimed: string): string {
+  const sniffed = sniffSafeMediaType(new Uint8Array(bytes));
+  if (sniffed) return sniffed;
+  const safe = canonicalSafeMediaType(claimed);
+  if (safe) return safe;
+  throw new OxenMediaInlineError(HUB_UNSAFE);
+}
+
+function hubFailure(err: unknown): OxenMediaInlineError {
+  if (err instanceof OxenMediaInlineError) return err;
+  const name = err instanceof Error ? err.name : "";
+  const message = err instanceof Error ? err.message : "";
+  const timedOut =
+    name === "TimeoutError" || name === "AbortError" || /timeout|aborted/i.test(message);
+  return new OxenMediaInlineError(timedOut ? HUB_FETCH_TIMEOUT : HUB_FETCH_FAIL);
+}
+
+/** Studio archive of a hub file, matched with or without the signed query string. */
+async function studioKeyForHubUrl(
+  db: D1Database,
+  userId: string,
+  hubUrl: string,
+): Promise<string | null> {
+  const path = hubUrlPath(hubUrl);
+  if (!path) return null;
+  const row = await db
+    .prepare(
+      `SELECT result_key FROM generations
+       WHERE user_id = ? AND result_key IS NOT NULL AND result_key != ''
+         AND (
+           result_url = ?
+           OR CASE
+             WHEN instr(result_url, '?') > 0 THEN substr(result_url, 1, instr(result_url, '?') - 1)
+             ELSE result_url
+           END = ?
+         )
+       LIMIT 1`,
+    )
+    .bind(userId, hubUrl, path)
+    .first<{ result_key: string | null }>();
+  const key = row?.result_key?.trim() ?? "";
+  if (!key || !galleryKeyForUser(userId, key)) return null;
+  return key;
+}
+
+async function downloadHubFile(
+  url: string,
+  options: InlineStudioMediaOptions,
+  maxBytes: number,
+): Promise<HubMediaBytes> {
+  if (!options.apiKey) throw new OxenMediaInlineError(HUB_FETCH_FAIL);
+  const fetchHub =
+    options.fetchHub ?? ((apiKey: string, target: string) => downloadOxenResult(apiKey, target));
+  let downloaded: HubMediaBytes;
+  try {
+    downloaded = await fetchHub(options.apiKey, url);
+  } catch (err) {
+    throw hubFailure(err);
+  }
+  if (downloaded.bytes.byteLength === 0) throw new OxenMediaInlineError(HUB_FETCH_FAIL);
+  if (downloaded.bytes.byteLength > maxBytes) throw new OxenMediaInlineError(HUB_TOO_LARGE);
+  return {
+    bytes: downloaded.bytes,
+    contentType: mediaTypeForBytes(downloaded.bytes, downloaded.contentType),
+  };
+}
+
+async function bytesForHubUrl(
+  bucket: R2Bucket,
+  url: string,
+  options: InlineStudioMediaOptions,
+  maxBytes: number,
+): Promise<HubMediaBytes> {
+  const userId = options.auth?.userId;
+  if (options.db && userId) {
+    const key = await studioKeyForHubUrl(options.db, userId, url);
+    if (key) {
+      const object = await bucket.get(key);
+      if (object) {
+        if (object.size > maxBytes) throw new OxenMediaInlineError(HUB_TOO_LARGE);
+        const bytes = await object.arrayBuffer();
+        const claimed = object.httpMetadata?.contentType || guessMediaContentType(key);
+        return { bytes, contentType: mediaTypeForBytes(bytes, claimed) };
+      }
+    }
+  }
+  return downloadHubFile(url, options, maxBytes);
+}
+
+/** Face slots need a Studio https URL. Copy a hub-only file into this user's R2 first. */
+async function studioHttpsForHubUrl(
+  bucket: R2Bucket,
+  url: string,
+  options: InlineStudioMediaOptions,
+): Promise<string> {
+  const userId = options.auth?.userId;
+  const secret = options.auth?.secret;
+  const origin = resolvePublicBaseUrl(options.publicBaseUrl);
+  if (!userId || !secret || !origin) throw new OxenMediaInlineError(FACE_COPY_FAIL);
+  if (options.db) {
+    const key = await studioKeyForHubUrl(options.db, userId, url);
+    if (key && (await bucket.head(key))) {
+      return createSignedMediaUrl(origin, key, secret);
+    }
+  }
+  const file = await downloadHubFile(url, options, HUB_HTTPS_COPY_MAX_BYTES);
+  const stored = await putMediaObject(bucket, file.bytes, file.contentType, `u/${userId}`);
+  return createSignedMediaUrl(origin, stored.key, secret);
+}
+
 export async function inlineStudioMediaRefs(
   bucket: R2Bucket,
   urls: string[],
-  options?: {
-    maxBytes?: number;
-    images?: ImagesBinding;
-    keepHttps?: boolean[];
-    auth?: StudioMediaAuth;
-  },
+  options?: InlineStudioMediaOptions,
 ): Promise<string[]> {
   const maxBytes = options?.maxBytes ?? OXEN_INLINE_MEDIA_MAX_BYTES;
   const out: string[] = [];
@@ -136,11 +288,19 @@ export async function inlineStudioMediaRefs(
     await assertAuthorizedStudioMediaUrl(url, options?.auth);
     // Seedance face upload rejects data: URIs (`unsupported_url_scheme`).
     if (options?.keepHttps?.[index]) {
+      out.push(
+        isOxenHostedMediaUrl(url) ? await studioHttpsForHubUrl(bucket, url, options ?? {}) : url,
+      );
+      continue;
+    }
+    if (url.startsWith("data:")) {
       out.push(url);
       continue;
     }
-    if (url.startsWith("data:") || isOxenHostedMediaUrl(url)) {
-      out.push(url);
+    if (isOxenHostedMediaUrl(url)) {
+      const file = await bytesForHubUrl(bucket, url, options ?? {}, maxBytes);
+      const encoded = await encodeImageForOxen(options?.images, file.bytes, file.contentType);
+      out.push(arrayBufferToDataUri(encoded.bytes, encoded.contentType));
       continue;
     }
     const key = studioMediaKeyFromUrl(url);
@@ -187,6 +347,9 @@ export async function resolveRefsForOxen(
     secret: string;
     verifySecrets?: string[];
     userId: string;
+    apiKey?: string;
+    db?: D1Database;
+    fetchHub?: (apiKey: string, url: string) => Promise<HubMediaBytes>;
   },
 ): Promise<string[]> {
   const auth: StudioMediaAuth | undefined =
@@ -205,7 +368,15 @@ export async function resolveRefsForOxen(
       return freshStudioHttps(url, signing);
     }),
   );
-  return inlineStudioMediaRefs(bucket, prepared, { images, keepHttps, auth });
+  return inlineStudioMediaRefs(bucket, prepared, {
+    images,
+    keepHttps,
+    auth,
+    apiKey: signing?.apiKey,
+    db: signing?.db,
+    publicBaseUrl: signing?.publicBaseUrl,
+    fetchHub: signing?.fetchHub,
+  });
 }
 
 export type OxenRefGroup = {

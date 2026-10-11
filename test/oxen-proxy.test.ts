@@ -1015,3 +1015,119 @@ describe("Flux 3 Video enqueue", () => {
     expect(queued.current).toBeNull();
   });
 });
+
+describe("hub playground file in image", () => {
+  const hubFile =
+    "https://hub.oxen.ai/api/repos/digisavvy/playground/file/main/input_example.jpg?exp=1&sig=test";
+  const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+
+  async function postSeedream(fetchImpl: typeof fetch) {
+    const { ciphertext, iv } = await encryptSecret("sk-user", TEST_SECRET);
+    const user: UserRow = { ...TEST_USER, oxen_key_ciphertext: ciphertext, oxen_key_iv: iv };
+    let queued: Record<string, unknown> | null = null;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "https://hub.oxen.ai/api/ai/models/bytedance-seedream-5-pro") {
+        return jsonResponse({
+          id: "bytedance-seedream-5-pro",
+          display_name: "Seedream 5.0 Pro",
+          endpoint: "/images/edit",
+          capabilities: { input: ["text", "image"], output: ["image"] },
+          request_schema: {
+            type: "object",
+            properties: {
+              prompt: { type: "string" },
+              input_image: { type: "array", maxItems: 10, items: { type: "string" } },
+              input_images: { type: "array", maxItems: 10, items: { type: "string" } },
+              image_url: { type: "string" },
+              size: { type: "string", enum: ["1K", "2K"] },
+            },
+          },
+        });
+      }
+      if (url === "https://hub.oxen.ai/api/ai/queue" && init?.method === "POST") {
+        queued = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return jsonResponse({ generations: [{ generation_id: "gen-seedream", status: "queued" }] });
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch;
+
+    const res = await app.request(
+      "https://studio.digisavvy.dev/api/generate",
+      {
+        method: "POST",
+        headers: {
+          Cookie: `${SESSION_COOKIE}=${TEST_SESSION_ID}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: "image-to-image",
+          model: "bytedance-seedream-5-pro",
+          prompt: "place the subject in a studio",
+          num_generations: 1,
+          images: [hubFile],
+          input_images: [hubFile],
+          image_url: hubFile,
+        }),
+      },
+      createEnv({
+        DB: {
+          prepare(sql: string) {
+            return {
+              bind(...args: unknown[]) {
+                return {
+                  async first() {
+                    if (sql.includes("FROM sessions") && args[0] === TEST_SESSION_ID) return user;
+                    return null;
+                  },
+                  async all() {
+                    return { results: [] };
+                  },
+                  async run() {
+                    return { success: true };
+                  },
+                };
+              },
+            };
+          },
+        } as unknown as D1Database,
+      }),
+    );
+    return { res, queued };
+  }
+
+  it("does not forward a hub playground file URL in image", async () => {
+    const { res, queued } = await postSeedream(async (input) => {
+      expect(String(input).startsWith("https://hub.oxen.ai/")).toBe(true);
+      return new Response(png, { headers: { "Content-Type": "image/png" } });
+    });
+    expect(res.status).toBe(200);
+    expect(queued).not.toBeNull();
+    const payload = queued as unknown as Record<string, unknown>;
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain("hub.oxen.ai");
+    expect(serialized).not.toContain("sig=");
+    for (const field of ["input_image", "input_images", "image_url", "image"] as const) {
+      const value = payload[field];
+      if (value == null) continue;
+      const urls = Array.isArray(value) ? value : [value];
+      for (const url of urls) {
+        expect(String(url).startsWith("data:image/png;base64,")).toBe(true);
+      }
+    }
+    expect(payload.input_image).toBeDefined();
+  });
+
+  it("returns a Studio error and does not enqueue when the hub download times out", async () => {
+    const { res, queued } = await postSeedream(async () => {
+      const err = new Error("The operation was aborted due to timeout");
+      err.name = "TimeoutError";
+      throw err;
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toMatch(/Timed out downloading the reference file/);
+    expect(body.error ?? "").not.toContain("hub.oxen.ai");
+    expect(queued).toBeNull();
+  });
+});
