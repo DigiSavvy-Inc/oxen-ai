@@ -27,7 +27,7 @@ const HUB_FETCH_TIMEOUT =
 const HUB_TOO_LARGE = "The reference file is too large to send to the model.";
 const HUB_UNSAFE = "The Oxen file is not a supported image, video, or audio file.";
 const FACE_COPY_FAIL =
-  "Could not copy the face reference onto Studio. A hub file URL was not sent to the model.";
+  "Could not copy the reference file onto Studio. A hub file URL was not sent to the model.";
 
 export class OxenMediaInlineError extends Error {
   constructor(message: string) {
@@ -256,7 +256,31 @@ async function bytesForHubUrl(
   return downloadHubFile(url, options, maxBytes);
 }
 
-/** Face slots need a Studio https URL. Copy a hub-only file into this user's R2 first. */
+function bytesFromDataUri(value: string): HubMediaBytes {
+  const match = /^data:([^;,]+);base64,([A-Za-z0-9+/=\s]+)$/.exec(value);
+  if (!match) throw new OxenMediaInlineError(FACE_COPY_FAIL);
+  const claimed = match[1]?.trim() ?? "";
+  const raw = Buffer.from((match[2] ?? "").replace(/\s/g, ""), "base64");
+  const bytes = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
+  if (bytes.byteLength === 0) throw new OxenMediaInlineError(FACE_COPY_FAIL);
+  if (bytes.byteLength > HUB_HTTPS_COPY_MAX_BYTES) throw new OxenMediaInlineError(HUB_TOO_LARGE);
+  return { bytes, contentType: mediaTypeForBytes(bytes, claimed) };
+}
+
+async function studioHttpsForBytes(
+  bucket: R2Bucket,
+  file: HubMediaBytes,
+  options: InlineStudioMediaOptions,
+): Promise<string> {
+  const userId = options.auth?.userId;
+  const secret = options.auth?.secret;
+  const origin = resolvePublicBaseUrl(options.publicBaseUrl);
+  if (!userId || !secret || !origin) throw new OxenMediaInlineError(FACE_COPY_FAIL);
+  const stored = await putMediaObject(bucket, file.bytes, file.contentType, `u/${userId}`);
+  return createSignedMediaUrl(origin, stored.key, secret);
+}
+
+/** Image and face refs need a Studio https URL. Copy a hub-only file into this user's R2 first. */
 async function studioHttpsForHubUrl(
   bucket: R2Bucket,
   url: string,
@@ -286,11 +310,14 @@ export async function inlineStudioMediaRefs(
   const out: string[] = [];
   for (const [index, url] of urls.entries()) {
     await assertAuthorizedStudioMediaUrl(url, options?.auth);
-    // Seedance face upload rejects data: URIs (`unsupported_url_scheme`).
+    // https refs must not be data URIs. Oxen rehosts those as playground files
+    // (`*_input_*`) and ByteDance times out downloading hub.oxen.ai.
     if (options?.keepHttps?.[index]) {
-      out.push(
-        isOxenHostedMediaUrl(url) ? await studioHttpsForHubUrl(bucket, url, options ?? {}) : url,
-      );
+      const resolved = options ?? {};
+      if (isOxenHostedMediaUrl(url)) out.push(await studioHttpsForHubUrl(bucket, url, resolved));
+      else if (url.startsWith("data:")) {
+        out.push(await studioHttpsForBytes(bucket, bytesFromDataUri(url), resolved));
+      } else out.push(url);
       continue;
     }
     if (url.startsWith("data:")) {
@@ -356,9 +383,9 @@ export async function resolveRefsForOxen(
     signing?.secret && signing.userId
       ? { userId: signing.userId, secret: signing.secret, verifySecrets: signing.verifySecrets }
       : undefined;
-  // Face slots must stay https — Seedance rejects data URIs — but hub.oxen.ai
-  // file URLs time out in ByteDance CreateAsset. Keep a Studio signed URL.
-  // Everything else is inlined from R2 so the provider does not download hub.
+  // Image and face refs stay Studio https. Data URIs are rehosted onto
+  // hub.oxen.ai playground files, and ByteDance times out downloading those.
+  // Hub-only files are copied into R2 first. Video and audio still inline.
   // A Studio key is read or re-signed only after its signature and owner check.
   const prepared = await Promise.all(
     urls.map(async (url, index) => {
@@ -383,9 +410,11 @@ export type OxenRefGroup = {
   urls: string[];
   roles?: ("character" | "scene")[];
   face?: boolean;
+  /** Provider must GET https. Data URIs are rehosted onto hub and time out. */
+  https?: boolean;
 };
 
-/** Pair each ref with whether Seedance must fetch it over https. */
+/** Pair each ref with whether the provider must fetch it over https. */
 export function collectOxenRefs(groups: OxenRefGroup[]): { urls: string[]; keepHttps: boolean[] } {
   const urls: string[] = [];
   const keepHttps: boolean[] = [];
@@ -397,7 +426,7 @@ export function collectOxenRefs(groups: OxenRefGroup[]): { urls: string[]; keepH
       const face = group.roles
         ? Boolean(group.face) && group.roles[index] !== "scene"
         : Boolean(group.face);
-      keepHttps.push(face);
+      keepHttps.push(Boolean(group.https) || face);
     });
   }
   return { urls, keepHttps };

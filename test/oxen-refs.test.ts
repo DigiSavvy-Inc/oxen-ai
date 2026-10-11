@@ -241,6 +241,17 @@ describe("collectOxenRefs", () => {
     });
   });
 
+  it("keeps every image ref on https when the caller asks, even without a face slot", () => {
+    expect(
+      collectOxenRefs([
+        { urls: ["https://studio.example/a.png", "https://studio.example/b.png"], https: true },
+      ]),
+    ).toEqual({
+      urls: ["https://studio.example/a.png", "https://studio.example/b.png"],
+      keepHttps: [true, true],
+    });
+  });
+
   it("inlines every ref when the model has no face slot", () => {
     expect(
       collectOxenRefs([
@@ -279,6 +290,15 @@ describe("resolveRefsForOxen", () => {
     expect(url.startsWith("data:")).toBe(false);
     expect(isOxenHostedMediaUrl(url)).toBe(false);
     expect(studioMediaKeyFromUrl(url)).toBe(KEY);
+  });
+
+  it("turns a data URI into a Studio https URL when the provider must fetch https", async () => {
+    const { bucket } = createMockR2();
+    const dataUri = `data:image/png;base64,${Buffer.from(PNG).toString("base64")}`;
+    const [url] = await resolveRefsForOxen(bucket, [dataUri], undefined, [true], SIGNING);
+    expect(url.startsWith("data:")).toBe(false);
+    expect(isOxenHostedMediaUrl(url)).toBe(false);
+    expect(url.startsWith("https://studio.digisavvy.dev/api/media/u/user-1/")).toBe(true);
   });
 
   it("turns a hub file in a face slot into a Studio https URL", async () => {

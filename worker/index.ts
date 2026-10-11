@@ -1474,17 +1474,21 @@ app.post("/api/generate", async (c) => {
 
   const imageHasFace = controls.slots.some((slot) => slot.field === "input_face_images");
   const videoHasFace = controls.slots.some((slot) => slot.field === "input_face_videos");
+  // Image refs stay Studio https. A data URI is rehosted as a hub playground
+  // file, and ByteDance times out downloading that URL. Face slots already
+  // require https; this flag covers every other image input too.
   const imageRefs = collectOxenRefs([
-    { urls: body.images ?? [], roles: body.image_roles, face: imageHasFace },
+    { urls: body.images ?? [], roles: body.image_roles, face: imageHasFace, https: true },
     {
       urls: Array.isArray(body.input_image)
         ? body.input_image
         : body.input_image
           ? [body.input_image]
           : [],
+      https: true,
     },
-    { urls: body.input_images ?? [] },
-    { urls: body.input_face_images ?? [], face: true },
+    { urls: body.input_images ?? [], https: true },
+    { urls: body.input_face_images ?? [], face: true, https: true },
   ]);
   const videoRefs = collectOxenRefs([
     { urls: body.videos ?? [], roles: body.video_roles, face: videoHasFace },
