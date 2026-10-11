@@ -1358,6 +1358,36 @@ button.history-expand-preview {
   z-index: 4;
 }
 
+.media-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 10px 0;
+}
+
+.media-filter-btn {
+  border: 1px solid var(--border);
+  background: var(--neutral-1);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  font-family: inherit;
+}
+
+.media-filter-btn:hover,
+.media-filter-btn.active {
+  border-color: var(--text);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.media-filter-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--cte-focus) 35%, transparent);
+  outline-offset: 1px;
+}
+
 .tag-filter {
   padding: 8px 10px 4px;
   border-bottom: 1px solid var(--border);
@@ -1909,6 +1939,16 @@ button.history-expand-preview {
     width: 44px;
     height: 44px;
     font-size: 22px;
+  }
+
+  .media-filter {
+    padding: 8px 12px 0;
+  }
+
+  .media-filter-btn {
+    min-height: 36px;
+    padding: 6px 12px;
+    font-size: 13px;
   }
 
   .tag-filter-input {

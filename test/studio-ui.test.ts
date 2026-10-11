@@ -13,6 +13,7 @@ import { LibraryPeek } from "../src/components/LibraryPeek";
 import {
   batchPreviewItems,
   coverGeneration,
+  filterGenerationBatches,
   groupGenerationBatches,
   isActiveGeneration,
   mergeGenerations,
@@ -122,6 +123,28 @@ describe("groupGenerationBatches", () => {
       ["other-prompt"],
       ["batched"],
     ]);
+  });
+
+  it("filters library batches down to images or videos", () => {
+    const batches = groupGenerationBatches([
+      gen({ id: "img", mediaType: "image", batchId: "i" }),
+      gen({ id: "vid", mediaType: "video", batchId: "v" }),
+      gen({ id: "aud", mediaType: "audio", batchId: "a" }),
+      gen({ id: "mix-i", mediaType: "image", batchId: "m" }),
+      gen({ id: "mix-v", mediaType: "video", batchId: "m" }),
+    ]);
+    expect(filterGenerationBatches(batches, "all")).toBe(batches);
+    expect(filterGenerationBatches(batches, "image").map((batch) => batch.items.map((item) => item.id))).toEqual([
+      ["img"],
+      ["mix-i"],
+    ]);
+    expect(filterGenerationBatches(batches, "video").map((batch) => batch.items.map((item) => item.id))).toEqual([
+      ["vid"],
+      ["mix-v"],
+    ]);
+    expect(filterGenerationBatches(batches, "image").find((batch) => batch.id === "i")).toBe(
+      batches.find((batch) => batch.id === "i"),
+    );
   });
 
   it("keeps a remaining variation selected after deleting one", () => {
@@ -1095,7 +1118,12 @@ describe("library history layout", () => {
       sidebar.indexOf('className="tag-filter"'),
     );
     expect(header.indexOf("Create gallery")).toBeGreaterThan(-1);
-    expect(header.indexOf("Create gallery")).toBeLessThan(header.indexOf("Download all"));
+    expect(header.indexOf("Create gallery")).toBeLessThan(header.indexOf("downloadAllLabel(mediaFilter)"));
+    expect(header).toContain('aria-label="Filter by media type"');
+    expect(sidebar).toContain("No images yet.");
+    expect(sidebar).toContain("No videos yet.");
+    expect(sidebar).toContain("No images with that tag.");
+    expect(sidebar).toContain("No videos with that tag.");
     expect(sidebar).toContain("if (createGalleryOpen)");
     expect(sidebar).toContain("onToggleHistory(batch.items)");
     expect(css).toContain(".history-gallery-mark");
@@ -1154,6 +1182,11 @@ describe("library history layout", () => {
     expect(closed).not.toContain("history-gallery-mark");
     expect(closed).not.toContain('id="create-gallery"');
     expect(closed).toContain("Open image");
+    expect(closed).toContain("Filter by media type");
+    expect(closed).toMatch(/aria-pressed="true"[^>]*>\s*All\s*</);
+    expect(closed).toMatch(/>\s*Images\s*</);
+    expect(closed).toMatch(/>\s*Videos\s*</);
+    expect(closed).toContain('aria-pressed="false"');
   });
 });
 

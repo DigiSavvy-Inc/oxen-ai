@@ -5,6 +5,31 @@ export type GenerationBatch = {
   items: Generation[];
 };
 
+export type HistoryMediaFilter = "all" | "image" | "video";
+
+/** Keep batches whose items match the library media filter. Mixed batches keep only the matching rows. */
+export function filterGenerationBatches(
+  batches: GenerationBatch[],
+  filter: HistoryMediaFilter,
+): GenerationBatch[] {
+  switch (filter) {
+    case "all":
+      return batches;
+    case "image":
+    case "video":
+      return batches.flatMap((batch) => {
+        const items = batch.items.filter((item) => item.mediaType === filter);
+        if (items.length === 0) return [];
+        if (items.length === batch.items.length) return [batch];
+        return [{ ...batch, items }];
+      });
+    default: {
+      const unreachable: never = filter;
+      return unreachable;
+    }
+  }
+}
+
 /** Rows saved before batch ids share one enqueue's timestamp, mode, model, and prompt. */
 export function batchKey(generation: Generation): string {
   if (generation.batchId) return generation.batchId;

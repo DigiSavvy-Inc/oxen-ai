@@ -29,7 +29,7 @@ import {
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations, siblingAfterRemoval } from "./lib/batches";
 import { brandMarkClass, useInstanceBranding } from "./lib/branding";
 import { notifyGenerationLocal } from "./lib/pwa";
-import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
+import { downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
 import { filesFromList, partitionMediaFiles } from "./lib/files";
 import {
   acceptedMediaKinds,
@@ -829,8 +829,6 @@ export default function App() {
   const audioCount = staged.filter((item) => item.kind === "audio").length;
   const peekKind = peek ? kindFromMediaType(peek.mediaType) : null;
   const peekAttachSupported = peekKind ? capForKind(peekKind) > 0 : false;
-  const readyMedia = useMemo(() => completedMedia(generations), [generations]);
-
   const selectedModel = models.find((item) => item.id === model);
   const lastFrameVisible = showGetLastFrame({
     modelId: model,
@@ -1118,12 +1116,12 @@ export default function App() {
     if (inferred) setMode(inferred);
   }
 
-  async function onDownloadAll() {
-    if (readyMedia.length === 0 || downloadingAll) return;
+  async function onDownloadAll(items: Generation[]) {
+    if (items.length === 0 || downloadingAll) return;
     setDownloadingAll(true);
     setError(null);
     try {
-      await downloadAllMedia(readyMedia);
+      await downloadAllMedia(items);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to download media");
     } finally {
@@ -1313,7 +1311,7 @@ export default function App() {
         downloadingAll={downloadingAll}
         onSelect={setPeekId}
         onClose={closeLibrary}
-        onDownloadAll={() => void onDownloadAll()}
+        onDownloadAll={(items) => void onDownloadAll(items)}
         onDelete={(ids, fromOxen) => {
           if (fromOxen) requestDeleteMedia(ids, true);
           else void onDeleteGenerations(ids, false);
