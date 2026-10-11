@@ -38,6 +38,7 @@ import {
   type PromptMention,
 } from "../lib/mentions";
 import { shortenFileName } from "../lib/files";
+import type { ModelUseCounts } from "../lib/model-uses";
 import { GALLERY_ITEM_DRAG_TYPE, galleryItemsForDrop, isGalleryItemDrag } from "../lib/gallery-attach";
 import { acceptedMediaKinds, fileAcceptValue, mediaKindPhrase, attachKindCap } from "../lib/library-refs";
 import { aspectCatalog, aspectSelectOptions } from "../lib/params";
@@ -142,6 +143,7 @@ type Props = {
   onModeChange: (mode: GenerationMode) => void;
   models: OxenModel[];
   preferred: OxenModel[];
+  modelUses?: ModelUseCounts;
   model: string;
   onModelChange: (model: string) => void;
   modelQuery: string;
@@ -1092,6 +1094,7 @@ export function Composer(props: Props) {
           <ModelMenu
             models={props.models}
             preferred={props.preferred}
+            useCounts={props.modelUses}
             value={props.model}
             query={props.modelQuery}
             onQueryChange={props.onModelQueryChange}

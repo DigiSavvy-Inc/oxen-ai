@@ -46,6 +46,7 @@ import { planGalleryAttach } from "./lib/gallery-attach";
 import { historyItemsForGallery, toggleHistoryInGallery } from "./lib/gallery-history";
 import { insertAttachMentions, moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
+import { readModelUses, recordModelUse, type ModelUseCounts } from "./lib/model-uses";
 import { captureVideoLastFrame } from "./lib/last-frame";
 import { preferredAspectRatio, showGetLastFrame, takeStagedOfKind } from "./lib/params";
 import {
@@ -88,6 +89,7 @@ export default function App() {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   const [model, setModel] = useState("");
   const [modelQuery, setModelQuery] = useState("");
+  const [modelUses, setModelUses] = useState<ModelUseCounts>(() => readModelUses());
   const [controls, setControls] = useState<ModelControls | null>(null);
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState("1:1");
@@ -1274,6 +1276,7 @@ export default function App() {
       if (audios.length) payload.audios = audios;
 
       const { generations: created } = await api.generate(payload);
+      setModelUses(recordModelUse(model));
       setKeepCanvasClear(false);
       setPeekId(null);
       setGenerations((prev) => mergeGenerations(prev, created));
@@ -1428,6 +1431,7 @@ export default function App() {
             onModelChange={handleModelChange}
             modelQuery={modelQuery}
             onModelQueryChange={setModelQuery}
+            modelUses={modelUses}
             isFavorite={favoriteIds.has(model)}
             onToggleFavorite={() => void onToggleFavorite()}
             controls={controls}
