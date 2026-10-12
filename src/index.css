@@ -618,6 +618,29 @@ a {
   opacity: 0.4;
 }
 
+.history-page-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.history-page-input {
+  width: 3.2rem;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.history-page-input:focus {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 1px;
+}
+
 .history-item {
   text-align: left;
   border: 1px solid transparent;
@@ -1924,6 +1947,11 @@ button.history-expand-preview {
     width: 44px;
     height: 44px;
     font-size: 22px;
+  }
+
+  .app-shell.library-open .help-fab {
+    left: max(16px, env(safe-area-inset-left));
+    bottom: calc(58px + env(safe-area-inset-bottom));
   }
 
   .tag-filter-input {
@@ -3687,6 +3715,9 @@ button.history-expand-preview {
   bottom: max(16px, env(safe-area-inset-bottom));
   width: 36px;
   height: 36px;
+  transition:
+    left var(--motion-large-duration) var(--motion-large-easing),
+    bottom var(--motion-large-duration) var(--motion-large-easing);
   border-radius: 999px;
   border: 1px solid var(--border-strong);
   background: #fff;
@@ -3701,6 +3732,10 @@ button.history-expand-preview {
 .help-fab:hover,
 .help-fab:focus-visible {
   background: var(--bg-active);
+}
+
+.app-shell.library-open .help-fab {
+  left: calc(min(100vw, calc(var(--app-gutter) + var(--panel-width))) + 12px);
 }
 
 .help-backdrop {
@@ -3981,7 +4016,8 @@ button.history-expand-preview {
 
 @media (prefers-reduced-motion: reduce) {
   .main,
-  .sidebar {
+  .sidebar,
+  .help-fab {
     transition: none;
   }
 }

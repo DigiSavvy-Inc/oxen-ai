@@ -1043,7 +1043,8 @@ describe("library history layout", () => {
     expect(sidebar).toContain('className="history"');
     expect(sidebar).toContain('className="history-grid"');
     expect(sidebar).toContain('className="history-pager"');
-    expect(sidebar).toContain("Page {page} of {pageCount}");
+    expect(sidebar).toContain("of {pageCount}");
+    expect(sidebar).toContain("history-page-input");
     expect(sidebar).not.toContain("history history-grid");
     expect(sidebar).toContain("history-tile-square");
     expect(css).toMatch(/\.history-grid\s*\{[^}]*display:\s*grid/);

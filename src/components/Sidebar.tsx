@@ -257,6 +257,8 @@ export function Sidebar({
   galleryDropLabel: string;
 }) {
   const pagingKey = `${page}\0${appliedTag}`;
+  const [pageDraft, setPageDraft] = useState(String(page));
+  const pageCommitSkip = useRef(false);
   const [expandKey, setExpandKey] = useState(pagingKey);
   const [expand, setExpand] = useState<GalleryExpandState>(CLOSED_EXPAND);
   const expandRef = useRef(expand);
@@ -272,6 +274,10 @@ export function Sidebar({
     !expandForPage.expandedId || batches.some((batch) => batch.id === expandForPage.expandedId)
       ? expandForPage
       : CLOSED_EXPAND;
+
+  useEffect(() => {
+    setPageDraft(String(page));
+  }, [page]);
 
   useEffect(() => {
     if (!expandVisible.expandedId) return;
@@ -629,9 +635,43 @@ export function Sidebar({
           >
             Previous
           </button>
-          <span>
-            Page {page} of {pageCount}
-          </span>
+          <label className="history-page-jump">
+            <input
+              className="history-page-input"
+              type="text"
+              inputMode="numeric"
+              aria-label={`Page ${page} of ${pageCount}`}
+              value={pageDraft}
+              onChange={(event) => setPageDraft(event.target.value.replace(/[^\d]/g, ""))}
+              onBlur={() => {
+                if (pageCommitSkip.current) {
+                  pageCommitSkip.current = false;
+                  setPageDraft(String(page));
+                  return;
+                }
+                const next = Number(pageDraft);
+                if (!pageDraft || !Number.isFinite(next)) {
+                  setPageDraft(String(page));
+                  return;
+                }
+                const clamped = Math.min(pageCount, Math.max(1, Math.round(next)));
+                setPageDraft(String(clamped));
+                if (clamped !== page) onPage(clamped);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }
+                if (event.key === "Escape") {
+                  pageCommitSkip.current = true;
+                  setPageDraft(String(page));
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+            <span>of {pageCount}</span>
+          </label>
           <button
             type="button"
             className="ghost-btn"

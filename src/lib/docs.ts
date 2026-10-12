@@ -196,7 +196,7 @@ export const DOC_ARTICLES: DocArticle[] = [
       },
       {
         type: "p",
-        text: "Settings → Library sets how many groups appear on a page: 12, 24, 48, or 96. The default is 24. A group of variations counts as one item. Older work is on later pages. Download page saves the current page when there is more than one.",
+        text: "Settings → Library sets how many groups appear on a page: 12, 24, 48, or 96. The default is 24. A group of variations counts as one item. Older work is on later pages. Type a page number in the pager and press Enter to jump there. Download page saves the current page when there is more than one.",
       },
       {
         type: "p",
