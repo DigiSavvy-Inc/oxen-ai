@@ -43,8 +43,11 @@ import {
 } from "./oxen-refs";
 import {
   buildEnqueuePayload,
+  completeChat,
   downloadOxenResult,
+  draftMetaFromParams,
   enqueueGeneration,
+  extractDraftMeta,
   extractOxenErrorMessage,
   extractOxenTiming,
   extractResultUrl,
@@ -52,6 +55,8 @@ import {
   filterModelsForMode,
   getGeneration,
   getModel,
+  mergeDraftIntoParams,
+  normalizeMultiPrompt,
   isD1TooBig,
   isMediaGenerationModel,
   listFavoriteModels,
@@ -117,10 +122,12 @@ import {
   parseFromOxenFlag,
   removeStudioGeneration,
 } from "./library";
+import { chatReplyText, sanitizeChatRequest } from "./chat";
 import { GENERATION_MODES } from "./model-modes";
 import { flux3VideoModel } from "./flux-video";
 import { seedAudioModel } from "./seed-audio";
 import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
+import { libraryCountSql, libraryListSql, parseLibraryPage, userTagsSql } from "./library-page";
 import { getStudioSettings, saveStudioSettings } from "./user-settings";
 import { reserveUploadBytes } from "./upload-quota";
 import {
@@ -149,7 +156,7 @@ type Variables = {
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 const MODE_META: Record<
-  GenerationMode,
+  Exclude<GenerationMode, "chat">,
   { mediaType: "image" | "video" | "audio"; needsImage?: boolean; needsVideo?: boolean }
 > = {
   "text-to-image": { mediaType: "image" },
@@ -465,6 +472,7 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
       flux3VideoModel,
     ],
     "text-to-audio": [seedAudioModel],
+    chat: [],
   };
   return catalog[mode];
 }
@@ -566,6 +574,8 @@ function toGenerationJson(
     progress: extras?.progress ?? null,
     typicalSeconds: extras?.typicalSeconds ?? null,
     tags: extras?.tags ?? [],
+    draftTaskId: draftMetaFromParams(row.params_json)?.draftTaskId ?? null,
+    draftExpiresAt: draftMetaFromParams(row.params_json)?.draftExpiresAt ?? null,
   };
 }
 
@@ -673,7 +683,7 @@ function generationListQuery(scope: GenerationListScope): string {
     case "active":
       return `SELECT * FROM generations WHERE user_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled') ORDER BY created_at DESC LIMIT 50`;
     case "library":
-      return `SELECT * FROM generations WHERE user_id = ? ORDER BY created_at DESC LIMIT 100`;
+      throw new Error("Library lists use libraryListSql");
     default: {
       const _never: never = scope;
       throw new Error(`Unhandled generation list scope: ${_never}`);
@@ -784,6 +794,7 @@ async function syncGenerationRow(
   let errorMessage = row.error_message;
   let updatedAt = row.updated_at;
   let dirty = false;
+  let remotePayload: Record<string, unknown> | null = null;
   let enqueuedAt: number | null = null;
   let startedAt: number | null = null;
   let etaSeconds: number | null = null;
@@ -792,6 +803,7 @@ async function syncGenerationRow(
   if (apiKey && shouldPollOxen(status, resultUrl, resultKey, options.pollActive)) {
     try {
       const remote = await getGeneration(apiKey, row.oxen_generation_id);
+      remotePayload = remote;
       resetPollFailures(row.id);
       status = String(remote.status ?? status);
       resultUrl = extractResultUrl(remote) ?? resultUrl;
@@ -847,6 +859,20 @@ async function syncGenerationRow(
       mediaType: row.media_type,
       errorMessage,
     });
+  }
+
+  if (remotePayload) {
+    const found = extractDraftMeta(remotePayload);
+    if (found) {
+      const merged = mergeDraftIntoParams(row.params_json, found);
+      if (merged !== (row.params_json ?? "")) {
+        row.params_json = merged;
+        const stamped = Math.floor(Date.now() / 1000);
+        await env.DB.prepare(`UPDATE generations SET params_json = ?, updated_at = ? WHERE id = ?`)
+          .bind(merged, stamped, row.id)
+          .run();
+      }
+    }
   }
 
   const [displayUrl, thumbUrl, lastFrameUrl] = await Promise.all([
@@ -1138,10 +1164,12 @@ app.put("/api/settings/studio", async (c) => {
   const body = await c.req.json<{
     defaultModelByMode?: Partial<Record<GenerationMode, string>>;
     lastParams?: Record<string, unknown>;
+    historyPageSize?: number;
   }>();
   const settings = await saveStudioSettings(c.env.DB, user.id, {
     defaultModelByMode: body.defaultModelByMode,
     lastParams: body.lastParams,
+    historyPageSize: body.historyPageSize,
   });
   return c.json(settings);
 });
@@ -1296,10 +1324,10 @@ app.get("/api/models/:id", async (c) => {
 app.get("/api/models", async (c) => {
   const user = await requireUser(c);
   const modeQuery = c.req.query("mode");
-  if (modeQuery && !(modeQuery in MODE_META)) {
+  if (modeQuery && !(GENERATION_MODES as readonly string[]).includes(modeQuery)) {
     throw new HTTPException(400, { message: "Invalid mode" });
   }
-  const mode = modeQuery && modeQuery in MODE_META ? (modeQuery as GenerationMode) : null;
+  const mode = modeQuery ? (modeQuery as GenerationMode) : null;
 
   let models: OxenModel[] = [];
   try {
@@ -1342,7 +1370,10 @@ app.post("/api/upload", async (c) => {
   const buffer = await file.arrayBuffer();
   const contentType = sniffSafeMediaType(new Uint8Array(buffer));
   if (!contentType) {
-    throw new HTTPException(400, { message: "Only image, video, and audio files are accepted" });
+    throw new HTTPException(400, { message: "Only image, video, audio, and PDF files are accepted" });
+  }
+  if (contentType === "application/pdf" && file.size > 24 * 1024 * 1024) {
+    throw new HTTPException(400, { message: "PDFs must be 24MB or smaller" });
   }
   if (!(await reserveUploadBytes(c.env.DB, user.id, buffer.byteLength))) {
     throw new HTTPException(429, {
@@ -1442,18 +1473,18 @@ app.post("/api/generate", async (c) => {
     pitch?: number;
     image_url?: string;
     audio_urls?: string[];
+    draft_task_id?: string;
+    multi_prompt?: { prompt?: string; duration?: number | string }[];
   }>();
 
   const mode = body.mode;
-  if (!(mode in MODE_META)) {
+  if (mode === "chat" || !(mode in MODE_META)) {
     throw new HTTPException(400, { message: "Invalid mode" });
   }
   if (!body.model?.trim()) {
     throw new HTTPException(400, { message: "model is required" });
   }
-  if (!body.prompt?.trim()) {
-    throw new HTTPException(400, { message: "prompt is required" });
-  }
+  const draftTaskId = body.draft_task_id?.trim() ?? "";
 
   const meta = MODE_META[mode];
   const modelId = body.model.trim();
@@ -1561,10 +1592,15 @@ app.post("/api/generate", async (c) => {
     videoSlotRequired(controls) ||
     (useFallback && (mode === "video-to-video" || Boolean(meta.needsVideo)));
 
-  if (needsImage && imageUrls.length === 0) {
+  const shots = controls.multiPrompt ? normalizeMultiPrompt(body.multi_prompt) : undefined;
+  const promptText = body.prompt?.trim() ?? "";
+  if (!draftTaskId && !shots && !promptText) {
+    throw new HTTPException(400, { message: "prompt is required" });
+  }
+  if (!draftTaskId && needsImage && imageUrls.length === 0) {
     throw new HTTPException(400, { message: "input_image is required for this mode" });
   }
-  if (needsVideo && videoUrls.length === 0) {
+  if (!draftTaskId && needsVideo && videoUrls.length === 0) {
     throw new HTTPException(400, { message: "input_video is required for this mode" });
   }
   if (controls.imageVideoExclusive && imageUrls.length > 0 && videoUrls.length > 0) {
@@ -1609,9 +1645,18 @@ app.post("/api/generate", async (c) => {
   const volume = clampNumericControl(body.volume, controls.volume);
   const pitch = clampNumericControl(body.pitch, controls.pitch);
 
+  const storedPrompt = draftTaskId
+    ? "1080p render"
+    : shots
+      ? shots.map((shot, index) => `Shot ${index + 1}: ${shot.prompt}`).join("\n\n")
+      : promptText;
+
   const payload = buildEnqueuePayload(meta.mediaType, {
     model: modelId,
-    prompt: body.prompt.trim(),
+    prompt: shots ? "" : promptText,
+    draft_task_id: draftTaskId || undefined,
+    draft: !draftTaskId && controls.draft ? body.draft === true : undefined,
+    multi_prompt: draftTaskId ? undefined : shots,
     aspect_ratio:
       meta.mediaType === "audio" && !controls.aspectRatios?.length
         ? undefined
@@ -1624,8 +1669,7 @@ app.post("/api/generate", async (c) => {
           ? body.generate_audio
           : (controls.generateAudioDefault ?? undefined)
         : undefined,
-    draft: controls.draft ? body.draft === true : undefined,
-    num_generations: body.num_generations,
+    num_generations: draftTaskId ? 1 : body.num_generations,
     quality: pickCompatible(body.quality, controls.quality) ?? (useFallback ? body.quality : undefined),
     ...resolutionPayloadFields(
       controls.resolutionField,
@@ -1684,7 +1728,7 @@ app.post("/api/generate", async (c) => {
       gen.generation_id,
       mode,
       body.model.trim(),
-      body.prompt.trim(),
+      storedPrompt,
       gen.status || "queued",
       meta.mediaType,
       generationParamsForStorage(payload, captureLastFrame),
@@ -1713,7 +1757,7 @@ app.post("/api/generate", async (c) => {
           gen.generation_id,
           mode,
           body.model.trim(),
-          body.prompt.trim(),
+          storedPrompt,
           gen.status || "queued",
           meta.mediaType,
           generationParamsForStorage({}, captureLastFrame),
@@ -1728,7 +1772,7 @@ app.post("/api/generate", async (c) => {
       oxenGenerationId: gen.generation_id,
       mode,
       model: body.model.trim(),
-      prompt: body.prompt.trim(),
+      prompt: storedPrompt,
       status: gen.status || "queued",
       mediaType: meta.mediaType,
       resultUrl: null as string | null,
@@ -1774,6 +1818,22 @@ app.post("/api/generate", async (c) => {
   return c.json({ generations: saved });
 });
 
+app.post("/api/chat", async (c) => {
+  const user = await requireUser(c);
+  const apiKey = await requireOxenKey(user, c.env);
+  const body = await c.req.json().catch(() => null);
+  const request = sanitizeChatRequest(body);
+  if (!request) {
+    throw new HTTPException(400, { message: "A model and a message are required" });
+  }
+  const remote = await completeChat(apiKey, request);
+  const reply = chatReplyText(remote);
+  if (!reply) {
+    throw new HTTPException(502, { message: "Oxen chat returned no text" });
+  }
+  return c.json({ reply });
+});
+
 function runInBackground(c: Context<{ Bindings: Env; Variables: Variables }>, work: Promise<unknown>) {
   const task = work.catch((err) => {
     console.error("background task error", err);
@@ -1791,9 +1851,27 @@ app.get("/api/generations", async (c) => {
   if (!scope) {
     throw new HTTPException(400, { message: "Invalid generation list scope" });
   }
-  const sql = generationListQuery(scope);
   const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
-  const rows = await c.env.DB.prepare(sql).bind(user.id).all<GenerationRow>();
+  let pageMeta: { page: number; pageSize: number; total: number; tags: string[] } | null = null;
+  let rows: { results?: GenerationRow[] };
+  if (scope === "library") {
+    const query = parseLibraryPage(c.req.query("page"), c.req.query("pageSize"), c.req.query("tag"));
+    const count = libraryCountSql(user.id, query);
+    const totalRow = await c.env.DB.prepare(count.sql).bind(...count.binds).first<{ total: number }>();
+    const list = libraryListSql(user.id, query);
+    rows = await c.env.DB.prepare(list.sql).bind(...list.binds).all<GenerationRow>();
+    pageMeta = {
+      page: query.page,
+      pageSize: query.pageSize,
+      total: Number(totalRow?.total ?? 0),
+      tags: await listLibraryTags(c.env, user.id),
+    };
+  } else if (scope === "active") {
+    rows = await c.env.DB.prepare(generationListQuery(scope)).bind(user.id).all<GenerationRow>();
+  } else {
+    const _never: never = scope;
+    throw new Error(`Unhandled generation list scope: ${_never}`);
+  }
 
   const typicals = await typicalWaitByMedia(c.env, user.id);
   const tagMap = await tagsByGeneration(
@@ -1817,8 +1895,20 @@ app.get("/api/generations", async (c) => {
     if (apiKey) runInBackground(c, archiveMissingLibraryResults(c.env, user.id, apiKey));
   }
 
+  if (pageMeta) return c.json({ generations, ...pageMeta });
   return c.json({ generations });
 });
+
+async function listLibraryTags(env: Env, userId: string): Promise<string[]> {
+  try {
+    const rows = await env.DB.prepare(userTagsSql()).bind(userId).all<{ tag: string }>();
+    return (rows.results ?? []).map((row) => row.tag).filter(Boolean);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("generation_tags") || message.includes("SQLITE_ERROR")) return [];
+    throw err;
+  }
+}
 
 app.post("/api/generations/:id/last-frame", async (c) => {
   const user = await requireUser(c);

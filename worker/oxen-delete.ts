@@ -33,7 +33,10 @@ export function parseOxenRepoMediaUrl(value: string | null | undefined): OxenRep
   const repo = decodeURIComponent(parts[3] ?? "");
   if (!namespace || !repo) return null;
   if (parts[4] === "workspaces" && parts.length >= 7) {
-    const path = parts.slice(6).map(decodeURIComponent).join("/");
+    const rest = parts.slice(6).map((part) => decodeURIComponent(part));
+    // Download URLs are .../workspaces/{id}/files/{path}. `files` is the API segment.
+    const pathParts = rest[0] === "files" ? rest.slice(1) : rest;
+    const path = pathParts.join("/");
     if (!path) return null;
     return {
       kind: "workspace",
@@ -92,6 +95,10 @@ export async function deleteOxenRepoMedia(
   }
 }
 
+function workspaceDeleteOk(status: number): boolean {
+  return status === 200 || status === 204 || status === 206 || status === 404 || status === 410;
+}
+
 async function deleteWorkspacePaths(
   apiKey: string,
   ref: Extract<OxenRepoMediaRef, { kind: "workspace" }>,
@@ -99,12 +106,20 @@ async function deleteWorkspacePaths(
 ): Promise<boolean> {
   const unique = [...new Set(paths.filter(Boolean))];
   if (unique.length === 0) return true;
-  const res = await hubFetch(
+  const body = JSON.stringify(unique);
+  // Staged outputs leave the workspace when unstaged. Committed files are only
+  // staged for removal here; Oxen keeps them on the branch until that workspace is merged.
+  const unstaged = await hubFetch(
+    encodeRepoPath(ref.namespace, ref.repo, "workspaces", ref.workspaceId, "changes"),
+    apiKey,
+    { method: "DELETE", body },
+  );
+  const removed = await hubFetch(
     encodeRepoPath(ref.namespace, ref.repo, "workspaces", ref.workspaceId, "files"),
     apiKey,
-    { method: "DELETE", body: JSON.stringify(unique) },
+    { method: "DELETE", body },
   );
-  return res.ok || res.status === 206 || res.status === 404 || res.status === 410;
+  return workspaceDeleteOk(unstaged.status) && workspaceDeleteOk(removed.status);
 }
 
 export async function deleteOxenResultUrls(
@@ -119,8 +134,12 @@ export async function deleteOxenResultUrls(
   >();
   const files: Extract<OxenRepoMediaRef, { kind: "file" }>[] = [];
   for (const url of resultUrls) {
+    if (!url?.trim()) continue;
     const ref = parseOxenRepoMediaUrl(url);
-    if (!ref) continue;
+    if (!ref) {
+      failed += 1;
+      continue;
+    }
     if (ref.kind === "workspace") {
       const key = `${ref.namespace}/${ref.repo}/${ref.workspaceId}`;
       const group = workspaceGroups.get(key);
@@ -155,7 +174,10 @@ export async function deleteOxenGeneration(
     /* Cancel only applies to queued/processing jobs. */
   }
   const ref = parseOxenRepoMediaUrl(resultUrl);
-  if (!ref) return;
+  if (!ref) {
+    if (resultUrl?.trim()) throw new Error("Oxen media delete failed");
+    return;
+  }
   const deleted = await deleteOxenRepoMedia(apiKey, ref);
   if (!deleted) {
     throw new Error("Oxen media delete failed");

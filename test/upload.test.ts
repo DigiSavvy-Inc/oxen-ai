@@ -182,7 +182,7 @@ describe("POST /api/upload media types", () => {
       );
       expect(res.status).toBe(400);
       const body = (await res.json()) as { error?: string };
-      expect(body.error).toMatch(/image, video, and audio/i);
+      expect(body.error).toMatch(/image, video, audio, and PDF/i);
     }
   });
 

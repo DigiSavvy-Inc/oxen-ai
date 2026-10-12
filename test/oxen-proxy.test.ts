@@ -10,9 +10,11 @@ import {
   buildEnqueuePayload,
   downloadOxenResult,
   enqueueGeneration,
+  extractDraftMeta,
   extractResultUrl,
   filterModelsForMode,
   presentGenerationError,
+  firstSupportedMode,
   isMediaGenerationModel,
   notePollFailure,
   paramsJsonForStorage,
@@ -312,12 +314,19 @@ describe("filterModelsForMode", () => {
     expect(filterModelsForMode([flux], "text-to-image")).toEqual([]);
     expect(filterModelsForMode([flux], "image-to-image")).toEqual([]);
     expect(filterModelsForMode([flux], "text-to-audio")).toEqual([]);
+    expect(filterModelsForMode([flux], "chat")).toEqual([]);
     expect(
       filterModelsForMode(
         [{ id: "flux-3-image-to-video", endpoint: "/videos/generate", capabilities: { input: ["text"], output: ["video"] } }],
         "reference-to-video",
       ),
     ).toEqual([]);
+  });
+
+  it("routes chat models to chat and keeps them out of media modes", () => {
+    expect(filterModelsForMode(catalog, "chat").map((model) => model.id)).toEqual(["claude-chat"]);
+    const claude = catalog.find((model) => model.id === "claude-chat");
+    expect(firstSupportedMode(claude!, "text-to-image")).toBe("chat");
   });
 
   it("does not classify chat models as media models", () => {
@@ -542,6 +551,68 @@ describe("buildEnqueuePayload", () => {
     });
     expect(payload.size).toBe("2K");
     expect("resolution" in payload).toBe(false);
+  });
+
+  it("sends a Seedance draft as the same job plus draft:true", () => {
+    const payload = buildEnqueuePayload("video", {
+      model: "bytedance-seedance-2-5-text-to-video",
+      prompt: "a street at dusk",
+      draft: true,
+      resolution: "1080p",
+    });
+    expect(payload.draft).toBe(true);
+    expect(payload.prompt).toBe("a street at dusk");
+    expect(payload.resolution).toBe("1080p");
+  });
+
+  it("re-renders a draft with only the model and draft_task_id", () => {
+    const payload = buildEnqueuePayload("video", {
+      model: "bytedance-seedance-2-5-text-to-video",
+      prompt: "ignored",
+      draft_task_id: "draft-123",
+      resolution: "720p",
+      input_image: "https://example.com/a.png",
+    });
+    expect(payload).toEqual({
+      model: "bytedance-seedance-2-5-text-to-video",
+      draft_task_id: "draft-123",
+    });
+  });
+
+  it("sends multi-shot video as multi_prompt without a prompt", () => {
+    const payload = buildEnqueuePayload("video", {
+      model: "kling-video-o3-pro",
+      prompt: "should be omitted",
+      multi_prompt: [
+        { prompt: "wide shot", duration: 3 },
+        { prompt: "close up", duration: 2 },
+      ],
+    });
+    expect(payload.prompt).toBeUndefined();
+    expect(payload.multi_prompt).toEqual([
+      { prompt: "wide shot", duration: 3 },
+      { prompt: "close up", duration: 2 },
+    ]);
+  });
+});
+
+describe("extractDraftMeta", () => {
+  it("reads draft_task_id and expiry from the first video", () => {
+    expect(
+      extractDraftMeta({
+        status: "succeeded",
+        videos: [
+          {
+            url: "https://hub.oxen.ai/file.mp4",
+            draft_task_id: "task-9",
+            draft_expires_at: "2026-10-19T00:00:00Z",
+          },
+        ],
+      }),
+    ).toEqual({
+      draftTaskId: "task-9",
+      draftExpiresAt: "2026-10-19T00:00:00Z",
+    });
   });
 });
 

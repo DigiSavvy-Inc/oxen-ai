@@ -121,6 +121,7 @@ describe("library cleanup", () => {
     });
     expect(result.oxenDeleted).toBe(1);
     expect(calls).toEqual([
+      "https://hub.oxen.ai/api/repos/digisavvy/playground/workspaces/ws/changes",
       "https://hub.oxen.ai/api/repos/digisavvy/playground/workspaces/ws/files",
     ]);
     expect(db.generations).toHaveLength(0);

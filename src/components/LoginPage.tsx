@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { brandMarkClass } from "../lib/branding";
+import { HelpDock } from "./HelpDock";
 import { Loader } from "./Loader";
 
 export function LoginPage({
@@ -64,6 +65,7 @@ export function LoginPage({
           {mode === "local" ? "Continue with this machine’s GitHub" : "Continue with GitHub"}
         </a>
       </div>
+      <HelpDock />
     </div>
   );
 }

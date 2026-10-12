@@ -4,7 +4,8 @@ export type GenerationMode =
   | "text-to-video"
   | "reference-to-video"
   | "video-to-video"
-  | "text-to-audio";
+  | "text-to-audio"
+  | "chat";
 
 export type ModeFilterModel = {
   id: string;
@@ -20,6 +21,7 @@ export const GENERATION_MODES: GenerationMode[] = [
   "reference-to-video",
   "video-to-video",
   "text-to-audio",
+  "chat",
 ];
 
 function normalizeEndpoint(endpoint: string): string {
@@ -53,6 +55,10 @@ function isAudioGeneratePath(endpoint: string): boolean {
   return endpointMatches(endpoint, /audio\/generat/);
 }
 
+function isChatEndpoint(endpoint: string): boolean {
+  return endpointMatches(endpoint, /chat\/completions/);
+}
+
 function modalities(model: ModeFilterModel): {
   outputs: string[];
   noCaps: boolean;
@@ -74,6 +80,19 @@ function modalities(model: ModeFilterModel): {
     imageOut: noCaps || outputs.includes("image"),
     videoOut: noCaps || outputs.includes("video"),
   };
+}
+
+/** Chat completions, or a text-only model that does not emit image, video, or audio. */
+export function isChatModel(model: ModeFilterModel): boolean {
+  if (isChatEndpoint(model.endpoint || "")) return true;
+  const caps = modalities(model);
+  if (caps.noCaps) return false;
+  const textOut = caps.outputs.includes("text");
+  const mediaOut =
+    caps.outputs.includes("image") ||
+    caps.outputs.includes("video") ||
+    caps.outputs.includes("audio");
+  return textOut && !mediaOut;
 }
 
 /** GPT Image 2.x uses /images/edit with optional refs — still valid T2I. */
@@ -180,6 +199,8 @@ export function modelSupportsMode(model: ModeFilterModel, mode: GenerationMode):
         caps.hasText &&
         (isAudioGeneratePath(endpoint) || (!caps.noCaps && caps.outputs.includes("audio")))
       );
+    case "chat":
+      return isChatModel(model);
     default: {
       const _exhaustive: never = mode;
       throw new Error(`Unhandled generation mode: ${_exhaustive}`);
@@ -192,7 +213,9 @@ export function isMediaGenerationModel(model: ModeFilterModel): boolean {
   if (endpoint.includes("image") || endpoint.includes("video") || endpoint.includes("/audio")) {
     return true;
   }
-  return GENERATION_MODES.some((mode) => modelSupportsMode(model, mode));
+  return GENERATION_MODES.some(
+    (mode) => mode !== "chat" && modelSupportsMode(model, mode),
+  );
 }
 
 export function firstSupportedMode(

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useAuth } from "./auth/AuthContext";
 import { AccountMenu } from "./components/AccountMenu";
 import { Canvas } from "./components/Canvas";
+import { ChatThread } from "./components/ChatThread";
+import { HelpDock } from "./components/HelpDock";
 import { Composer, type PromptField } from "./components/Composer";
 import type { GalleryDraftItem } from "./components/GalleryDrawer";
 import { CreditMeter } from "./components/CreditMeter";
@@ -30,6 +32,7 @@ import { groupGenerationBatches, isActiveGeneration, mergeGenerations, siblingAf
 import { brandMarkClass, useInstanceBranding } from "./lib/branding";
 import { notifyGenerationLocal } from "./lib/pwa";
 import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
+import { chatMessagesFromTurns, type ChatTurn } from "./lib/chat";
 import { filesFromList, partitionMediaFiles } from "./lib/files";
 import {
   acceptedMediaKinds,
@@ -54,6 +57,7 @@ import {
   nearestDurationValue,
   safetyToleranceSelection,
 } from "../worker/schema";
+import { DEFAULT_HISTORY_PAGE_SIZE } from "../worker/history-page-size";
 
 type StagedMedia = {
   file?: File;
@@ -90,6 +94,9 @@ export default function App() {
   const [modelQuery, setModelQuery] = useState("");
   const [controls, setControls] = useState<ModelControls | null>(null);
   const [prompt, setPrompt] = useState("");
+  const [shots, setShots] = useState<{ prompt: string; duration: string }[]>([]);
+  const [documents, setDocuments] = useState<{ file: File; name: string }[]>([]);
+  const [chatTurns, setChatTurns] = useState<ChatTurn[]>([]);
   const [aspectRatio, setAspectRatio] = useState("1:1");
   const [duration, setDuration] = useState("5");
   const [seed, setSeed] = useState("");
@@ -125,6 +132,12 @@ export default function App() {
   const [libraryOpen, setLibraryOpen] = useState(initialLibraryOpen);
   const [peekId, setPeekId] = useState<string | null>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryItems, setLibraryItems] = useState<Generation[]>([]);
+  const [libraryTotal, setLibraryTotal] = useState(0);
+  const [libraryTags, setLibraryTags] = useState<string[]>([]);
+  const [libraryPage, setLibraryPage] = useState(1);
+  const [libraryTagInput, setLibraryTagInput] = useState("");
+  const [libraryTag, setLibraryTag] = useState("");
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const hydratedParamsUserId = useRef<string | null>(null);
@@ -193,10 +206,40 @@ export default function App() {
     });
   }, [keepCanvasClear]);
 
+  const historyPageSize = settings?.historyPageSize ?? DEFAULT_HISTORY_PAGE_SIZE;
+
   const refreshLibrary = useCallback(async (signal?: AbortSignal) => {
-    const data = await api.listGenerations("library", signal);
+    const data = await api.listGenerations("library", {
+      signal,
+      page: libraryPage,
+      pageSize: historyPageSize,
+      tag: libraryTag,
+    });
+    setLibraryItems(data.generations);
+    setLibraryTotal(data.total ?? data.generations.length);
+    setLibraryTags(data.tags ?? []);
     setGenerations((prev) => mergeGenerations(prev, data.generations));
-  }, []);
+  }, [historyPageSize, libraryPage, libraryTag]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      const next = libraryTagInput.trim();
+      setLibraryTag((current) => {
+        if (current === next) return current;
+        setLibraryPage(1);
+        return next;
+      });
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [libraryTagInput]);
+
+  const libraryPageCount = Math.max(1, Math.ceil(libraryTotal / historyPageSize) || 1);
+  if (libraryPage > libraryPageCount) setLibraryPage(libraryPageCount);
+
+  function onStudioSettings(next: StudioSettings) {
+    if (next.historyPageSize !== historyPageSize) setLibraryPage(1);
+    setSettings(next);
+  }
 
   const refreshCredits = useCallback(async () => {
     if (!user?.hasOxenKey) {
@@ -256,7 +299,11 @@ export default function App() {
         if (typeof data.lastParams.seed === "number") setSeed(String(data.lastParams.seed));
       })
       .catch(() => {
-        setSettings({ defaultModelByMode: {}, lastParams: {} });
+        setSettings({
+          defaultModelByMode: {},
+          lastParams: {},
+          historyPageSize: DEFAULT_HISTORY_PAGE_SIZE,
+        });
       });
     void refreshFavorites();
     void refreshCredits();
@@ -606,7 +653,7 @@ export default function App() {
     return models.find((item) => item.id === model) ?? null;
   }
 
-  function capForKind(kind: "image" | "video" | "audio") {
+  function capForKind(kind: "image" | "video" | "audio" | "document") {
     return attachKindCap(controls, mode, kind, currentModel());
   }
 
@@ -682,6 +729,7 @@ export default function App() {
     const images = accepted.filter((item) => item.kind === "image").map((item) => item.file);
     const videos = accepted.filter((item) => item.kind === "video").map((item) => item.file);
     const audios = accepted.filter((item) => item.kind === "audio").map((item) => item.file);
+    const pdfs = accepted.filter((item) => item.kind === "document").map((item) => item.file);
     const exclusive = controls?.imageAudioExclusive === true;
     let nextImages = images;
     let nextVideos = videos;
@@ -730,6 +778,16 @@ export default function App() {
     addFilesOfKind("image", nextImages);
     addFilesOfKind("video", nextVideos);
     addFilesOfKind("audio", nextAudios);
+    const pdfLimit = 24 * 1024 * 1024;
+    if (pdfs.some((file) => file.size > pdfLimit)) setError("PDFs must be 24MB or smaller");
+    const room = Math.max(0, capForKind("document") - documents.length);
+    setDocuments((prev) => [
+      ...prev,
+      ...pdfs
+        .filter((file) => file.size <= pdfLimit)
+        .slice(0, room)
+        .map((file) => ({ file, name: file.name || "document.pdf" })),
+    ]);
     if (!exclusiveConflict) noteRejectedMedia(rejected);
   }
 
@@ -792,6 +850,9 @@ export default function App() {
     setPeekId(null);
     setError(null);
     setNumGenerations(1);
+    setChatTurns([]);
+    setDocuments([]);
+    setShots([]);
   }
 
   function onClearAttachment(kind: "image" | "video" | "audio", index: number) {
@@ -829,7 +890,7 @@ export default function App() {
   const audioCount = staged.filter((item) => item.kind === "audio").length;
   const peekKind = peek ? kindFromMediaType(peek.mediaType) : null;
   const peekAttachSupported = peekKind ? capForKind(peekKind) > 0 : false;
-  const readyMedia = useMemo(() => completedMedia(generations), [generations]);
+  const readyMedia = useMemo(() => completedMedia(libraryItems), [libraryItems]);
 
   const selectedModel = models.find((item) => item.id === model);
   const lastFrameVisible = showGetLastFrame({
@@ -838,14 +899,17 @@ export default function App() {
     mode,
   });
 
+  const shotReady = shots.some((shot) => shot.prompt.trim());
   const canGenerate = Boolean(
     user?.hasOxenKey &&
-      prompt.trim() &&
       mode &&
       model &&
-      (!slotRequired(controls, "image", mode) || imageCount > 0) &&
-      (!slotRequired(controls, "video", mode) || videoCount > 0) &&
-      (!slotRequired(controls, "audio", mode) || audioCount > 0),
+      (mode === "chat"
+        ? prompt.trim() || imageCount > 0 || documents.length > 0
+        : (prompt.trim() || (controls?.multiPrompt && shotReady)) &&
+          (!slotRequired(controls, "image", mode) || imageCount > 0) &&
+          (!slotRequired(controls, "video", mode) || videoCount > 0) &&
+          (!slotRequired(controls, "audio", mode) || audioCount > 0)),
   );
 
   async function onSavePrompt(name: string, body: string) {
@@ -893,7 +957,7 @@ export default function App() {
     const incoming = filesFromList(list);
     const { accepted, rejected } = partitionMediaFiles(
       incoming,
-      acceptedMediaKinds(controls, mode, currentModel()),
+      acceptedMediaKinds(controls, mode, currentModel()).filter((kind) => kind !== "document"),
     );
     if (rejected.length > 0) {
       setGalleryStatus(supportedMediaNotice(acceptedMediaKinds(controls, mode, currentModel())));
@@ -909,6 +973,7 @@ export default function App() {
     try {
       const added: GalleryDraftItem[] = [];
       for (const item of accepted.slice(0, room)) {
+        if (item.kind === "document") continue;
         const uploaded = await api.upload(item.file, { folder: "galleries" });
         added.push({
           id: crypto.randomUUID(),
@@ -1044,6 +1109,7 @@ export default function App() {
         image: capForKind("image"),
         video: capForKind("video"),
         audio: capForKind("audio"),
+        document: 0,
       },
       prompt,
       faceFirst,
@@ -1146,11 +1212,17 @@ export default function App() {
     if (ids.length === 0) return;
     const removing = new Set(ids);
     setGenerations((prev) => prev.filter((row) => !removing.has(row.id)));
+    setLibraryItems((prev) => prev.filter((row) => !removing.has(row.id)));
     setSelectedId((prev) => siblingAfterRemoval(prev, removing, generations));
     setPeekId((prev) => siblingAfterRemoval(prev, removing, generations));
     setError(null);
     try {
-      await Promise.all(ids.map((id) => api.deleteGeneration(id, { fromOxen })));
+      const results = await Promise.all(ids.map((id) => api.deleteGeneration(id, { fromOxen })));
+      const oxenFailed = results.reduce((sum, result) => sum + (result.oxenFailed ?? 0), 0);
+      if (fromOxen && oxenFailed > 0) {
+        setError("Removed from Studio. Oxen still has that file.");
+      }
+      if (libraryOpen) void refreshLibrary();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete media");
       if (libraryOpen) void refreshLibrary();
@@ -1210,6 +1282,36 @@ export default function App() {
     setBusy(true);
     setError(null);
     try {
+      if (mode === "chat") {
+        const images: { url: string; name: string }[] = [];
+        const files: { url: string; name: string }[] = [];
+        for (const item of takeStagedOfKind(staged, "image", capForKind("image"))) {
+          const url = item.url ?? (item.file ? (await api.upload(item.file)).url : "");
+          if (url) images.push({ url, name: item.name });
+        }
+        for (const doc of documents.slice(0, capForKind("document"))) {
+          const uploaded = await api.upload(doc.file);
+          if (uploaded.url) files.push({ url: uploaded.url, name: doc.name });
+        }
+        const turns: ChatTurn[] = [
+          ...chatTurns,
+          { role: "user", text: prompt.trim(), images, files },
+        ];
+        const { reply } = await api.chat({
+          model,
+          messages: chatMessagesFromTurns(turns),
+        });
+        setChatTurns([...turns, { role: "assistant", text: reply, images: [], files: [] }]);
+        setPrompt("");
+        setDocuments([]);
+        setStaged((prev) => {
+          for (const item of prev) {
+            if (item.kind === "image") releasePreview(item.preview);
+          }
+          return prev.filter((item) => item.kind !== "image");
+        });
+        return;
+      }
       const images: string[] = [];
       const videos: string[] = [];
       const audios: string[] = [];
@@ -1233,12 +1335,28 @@ export default function App() {
         } else audios.push(url);
       }
 
+      const extraShots = shots
+        .filter((shot) => shot.prompt.trim())
+        .map((shot) => ({
+          prompt: shot.prompt.trim(),
+          duration: Number(shot.duration) || Number(duration) || 5,
+        }));
+      const multiPrompt =
+        controls?.multiPrompt && extraShots.length > 0
+          ? [
+              ...(prompt.trim()
+                ? [{ prompt: prompt.trim(), duration: Number(duration) || 5 }]
+                : []),
+              ...extraShots,
+            ].slice(0, 6)
+          : null;
       const payload: Record<string, unknown> = {
         mode,
         model,
-        prompt: prompt.trim(),
         num_generations: numGenerations,
       };
+      if (multiPrompt) payload.multi_prompt = multiPrompt;
+      else payload.prompt = prompt.trim();
       const sendAspect =
         mode !== "text-to-audio" ||
         Boolean(controls?.aspectRatios && controls.aspectRatios.length > 0);
@@ -1290,6 +1408,37 @@ export default function App() {
   const galleryAccept = fileAcceptValue(galleryKinds);
   const galleryDropPhrase = mediaKindPhrase(galleryKinds);
 
+  async function onRenderFinal(generation: Generation) {
+    if (!generation.draftTaskId || busy) return;
+    const renderMode = generation.mode;
+    if (
+      renderMode !== "text-to-video" &&
+      renderMode !== "reference-to-video" &&
+      renderMode !== "video-to-video"
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const { generations: created } = await api.generate({
+        mode: renderMode,
+        model: generation.model,
+        draft_task_id: generation.draftTaskId,
+        prompt: "",
+      });
+      setKeepCanvasClear(false);
+      setPeekId(null);
+      setGenerations((prev) => mergeGenerations(prev, created));
+      setSelectedId(created[0]?.id ?? null);
+      void refreshCredits();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "1080p render failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="loading-screen">
@@ -1306,10 +1455,17 @@ export default function App() {
     <div className={`app-shell${libraryOpen ? " library-open" : ""}${peek ? " has-peek" : ""}`}>
       <Sidebar
         logoUrl={branding.logoUrl}
-        generations={generations}
+        generations={libraryItems}
         selectedId={peekId}
         loading={libraryLoading}
         loadError={libraryError}
+        tagInput={libraryTagInput}
+        appliedTag={libraryTag}
+        allTags={libraryTags}
+        onTagInput={setLibraryTagInput}
+        page={libraryPage}
+        pageCount={libraryPageCount}
+        onPage={setLibraryPage}
         downloadingAll={downloadingAll}
         onSelect={setPeekId}
         onClose={closeLibrary}
@@ -1392,13 +1548,19 @@ export default function App() {
             </div>
           </div>
           <div className={`workspace${peek ? " has-peek" : ""}`}>
-            <Canvas
-              generation={selected}
-              variants={selectedVariants}
-              onSelect={setSelectedId}
-              onTagsChange={(id, tags) => void onSaveTags(id, tags)}
-              onDelete={(id) => requestDeleteMedia([id], true)}
-            />
+            {mode === "chat" ? (
+              <ChatThread turns={chatTurns} busy={busy} />
+            ) : (
+              <Canvas
+                generation={selected}
+                variants={selectedVariants}
+                onSelect={setSelectedId}
+                onTagsChange={(id, tags) => void onSaveTags(id, tags)}
+                onDelete={(id) => requestDeleteMedia([id], true)}
+                onRenderFinal={(item) => void onRenderFinal(item)}
+                renderBusy={busy}
+              />
+            )}
             {peek ? (
               <LibraryPeek
                 generation={peek}
@@ -1448,6 +1610,12 @@ export default function App() {
             onGenerateAudioChange={rememberParam(setGenerateAudio)}
             draft={draft}
             onDraftChange={setDraft}
+            shots={shots}
+            onShotsChange={setShots}
+            documents={documents}
+            onClearDocument={(index) =>
+              setDocuments((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
+            }
             showLastFrame={lastFrameVisible}
             getLastFrame={getLastFrame}
             onGetLastFrameChange={setGetLastFrame}
@@ -1509,13 +1677,14 @@ export default function App() {
           onClose={() => setShowSettings(false)}
           favorites={favorites}
           settings={settings}
-          onSettingsChange={setSettings}
+          onSettingsChange={onStudioSettings}
           onFavoritesChange={refreshFavorites}
           onLibraryCleanup={onLibraryCleanup}
           branding={branding}
           onBrandingChange={setBranding}
         />
       ) : null}
+      <HelpDock />
     </div>
   );
 }

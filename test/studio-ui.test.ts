@@ -1042,6 +1042,8 @@ describe("library history layout", () => {
     const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
     expect(sidebar).toContain('className="history"');
     expect(sidebar).toContain('className="history-grid"');
+    expect(sidebar).toContain('className="history-pager"');
+    expect(sidebar).toContain("Page {page} of {pageCount}");
     expect(sidebar).not.toContain("history history-grid");
     expect(sidebar).toContain("history-tile-square");
     expect(css).toMatch(/\.history-grid\s*\{[^}]*display:\s*grid/);
@@ -1139,6 +1141,13 @@ describe("library history layout", () => {
       onToggleHistory: () => {},
       galleryAccept: "image/*",
       galleryDropLabel: "Drop images",
+      tagInput: "",
+      appliedTag: "",
+      allTags: [] as string[],
+      onTagInput: () => {},
+      page: 1,
+      pageCount: 1,
+      onPage: () => {},
     };
     const open = renderToStaticMarkup(createElement(Sidebar, { ...shared, createGalleryOpen: true }));
     expect(open).toContain("Create gallery");

@@ -151,6 +151,12 @@ type Props = {
   controls: ModelControls | null;
   prompt: string;
   onPromptChange: (value: string) => void;
+  draft?: boolean;
+  onDraftChange?: (value: boolean) => void;
+  shots?: { prompt: string; duration: string }[];
+  onShotsChange?: (shots: { prompt: string; duration: string }[]) => void;
+  documents?: { name: string }[];
+  onClearDocument?: (index: number) => void;
   onPromptField?: (field: PromptField | null) => void;
   aspectRatio: string;
   onAspectRatioChange: (value: string) => void;
@@ -162,8 +168,6 @@ type Props = {
   onNumGenerationsChange: (value: number) => void;
   generateAudio: boolean;
   onGenerateAudioChange: (value: boolean) => void;
-  draft?: boolean;
-  onDraftChange?: (value: boolean) => void;
   safetyTolerance?: string;
   onSafetyToleranceChange?: (value: string) => void;
   showLastFrame?: boolean;
@@ -255,6 +259,7 @@ export function Composer(props: Props) {
   const imageMax = attachKindCap(props.controls, props.mode, "image", selectedModel);
   const videoMax = attachKindCap(props.controls, props.mode, "video", selectedModel);
   const audioMax = attachKindCap(props.controls, props.mode, "audio", selectedModel);
+  const documentMax = attachKindCap(props.controls, props.mode, "document", selectedModel);
   const acceptedKinds = acceptedMediaKinds(props.controls, props.mode, selectedModel);
   const fileAccept = fileAcceptValue(acceptedKinds);
   const dropPhrase = mediaKindPhrase(acceptedKinds);
@@ -265,6 +270,7 @@ export function Composer(props: Props) {
     imageMax > 0 ||
     videoMax > 0 ||
     audioMax > 0 ||
+    documentMax > 0 ||
     props.mode === "image-to-image" ||
     props.mode === "reference-to-video" ||
     props.mode === "video-to-video";
@@ -763,13 +769,15 @@ export function Composer(props: Props) {
               onPointerMove={(e) => hoverMentionAtPoint(e.clientX, e.clientY)}
               onPointerLeave={() => clearMentionHover()}
               placeholder={
-                showDropzone
-                  ? props.controls?.mentions
-                    ? "Describe the shot… drop refs here, then @Image1 / @Video1 / @Audio1"
-                    : props.mode === "video-to-video"
-                      ? "Describe the shot… drop a clip to continue"
-                      : "Describe the shot… drop keyframes here"
-                  : "Describe what to generate…"
+                props.mode === "chat"
+                  ? "Ask a question. Drop an image or a PDF to include it."
+                  : showDropzone
+                    ? props.controls?.mentions
+                      ? "Describe the shot… drop refs here, then @Image1 / @Video1 / @Audio1"
+                      : props.mode === "video-to-video"
+                        ? "Describe the shot… drop a clip to continue"
+                        : "Describe the shot… drop keyframes here"
+                    : "Describe what to generate…"
               }
               onKeyDown={(e) => {
                 if (
@@ -949,7 +957,70 @@ export function Composer(props: Props) {
               ))}
             </div>
           ) : null}
+          {(props.shots ?? []).length > 0 ? (
+            <div className="shot-list">
+              {(props.shots ?? []).map((shot, index) => (
+                <div key={`shot-${index}`} className="shot-row">
+                  <textarea
+                    className="field"
+                    aria-label={`Shot ${index + 2}`}
+                    placeholder={`Shot ${index + 2}`}
+                    value={shot.prompt}
+                    onChange={(event) => {
+                      const next = [...(props.shots ?? [])];
+                      const current = next[index];
+                      if (!current) return;
+                      next[index] = { ...current, prompt: event.target.value };
+                      props.onShotsChange?.(next);
+                    }}
+                  />
+                  <input
+                    className="field"
+                    type="number"
+                    inputMode="numeric"
+                    aria-label={`Shot ${index + 2} duration`}
+                    min={1}
+                    max={30}
+                    value={shot.duration}
+                    onChange={(event) => {
+                      const next = [...(props.shots ?? [])];
+                      const current = next[index];
+                      if (!current) return;
+                      next[index] = { ...current, duration: event.target.value };
+                      props.onShotsChange?.(next);
+                    }}
+                    style={{ width: 72 }}
+                  />
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() =>
+                      props.onShotsChange?.((props.shots ?? []).filter((_, itemIndex) => itemIndex !== index))
+                    }
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
+
+        {(props.documents ?? []).length > 0 ? (
+          <div className="attach-preview">
+            {(props.documents ?? []).map((doc, index) => (
+              <div key={`${doc.name}-${index}`} className="attach-chip">
+                <span className="attach-chip-copy">
+                  <span className="attach-chip-token">PDF</span>
+                  <span className="attach-chip-name">{shortenFileName(doc.name)}</span>
+                </span>
+                <button type="button" className="ghost-btn" onClick={() => props.onClearDocument?.(index)}>
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         {props.attachments.length > 0 ? (
           <div
@@ -1111,6 +1182,8 @@ export function Composer(props: Props) {
             </button>
           </ToolbarField>
 
+          {props.mode !== "chat" ? (
+          <>
           {showAspect ? (
             <ToolbarField label="Aspect">
               <select
@@ -1346,13 +1419,13 @@ export function Composer(props: Props) {
           ) : null}
 
           {props.controls?.draft ? (
-            <label className="ghost-btn audio-toggle">
+            <label className="ghost-btn audio-toggle" title="Preview this shot at 480p, then render it at 1080p">
               <input
                 type="checkbox"
                 checked={props.draft === true}
                 onChange={(e) => props.onDraftChange?.(e.target.checked)}
               />
-              Draft
+              480p draft
             </label>
           ) : null}
 
@@ -1365,6 +1438,24 @@ export function Composer(props: Props) {
               />
               Get last frame
             </label>
+          ) : null}
+
+          {props.controls?.multiPrompt && (props.shots ?? []).length < 5 ? (
+            <button
+              type="button"
+              className="ghost-btn"
+              title="Add another shot. Each shot has its own prompt and duration."
+              onClick={() =>
+                props.onShotsChange?.([
+                  ...(props.shots ?? []),
+                  { prompt: "", duration: props.duration || "5" },
+                ])
+              }
+            >
+              Add shot
+            </button>
+          ) : null}
+          </>
           ) : null}
 
           {showDropzone && fileAccept ? (
@@ -1390,19 +1481,23 @@ export function Composer(props: Props) {
             onClick={props.onGenerate}
             title="⌘↵"
             aria-label={
-              props.busy
-                ? "Queuing generation"
-                : cost.amount != null
-                  ? `Generate, estimated ${cost.label}, Command Enter`
-                  : "Generate, Command Enter"
+              props.mode === "chat"
+                ? "Send, Command Enter"
+                : props.busy
+                  ? "Queuing generation"
+                  : cost.amount != null
+                    ? `Generate, estimated ${cost.label}, Command Enter`
+                    : "Generate, Command Enter"
             }
           >
             {props.busy ? (
-              <Loader size="sm" label="Queuing…" />
+              <Loader size="sm" label={props.mode === "chat" ? "Sending…" : "Queuing…"} />
             ) : (
               <>
-                Generate
-                {cost.amount != null ? <span className="primary-btn-cost">{cost.label}</span> : null}
+                {props.mode === "chat" ? "Send" : "Generate"}
+                {props.mode !== "chat" && cost.amount != null ? (
+                  <span className="primary-btn-cost">{cost.label}</span>
+                ) : null}
                 <span className="primary-btn-shortcut" aria-hidden>
                   <kbd>⌘</kbd>
                   <kbd>↵</kbd>
@@ -1416,6 +1511,45 @@ export function Composer(props: Props) {
         ) : null}
         {slotRequired(props.controls, "video", props.mode) ? (
           <p className="composer-hint">This model needs a reference video.</p>
+        ) : null}
+        {props.mode === "chat" && props.models.length === 0 ? (
+          <p className="composer-hint">No chat models in the catalog yet.</p>
+        ) : null}
+        {props.mode !== "chat" && (props.controls?.draft || props.controls?.multiPrompt) ? (
+          <div className="composer-guide">
+            {props.controls?.draft ? (
+              <section>
+                <h3>Draft mode</h3>
+                <ol>
+                  <li>Check 480p draft, then generate. The preview is 480p.</li>
+                  <li>When it finishes, press Render 1080p on the result. That re-makes the same shot.</li>
+                  <li>The preview stays available for 7 days. The 1080p job does not need the prompt again.</li>
+                </ol>
+              </section>
+            ) : null}
+            {props.controls?.multiPrompt ? (
+              <section>
+                <h3>Multi-shot</h3>
+                <ol>
+                  <li>Write shot 1 in the box above.</li>
+                  <li>Press Add shot for each following shot. Give each one a prompt and a duration.</li>
+                  <li>Generate sends the shots together as one video.</li>
+                </ol>
+              </section>
+            ) : null}
+          </div>
+        ) : null}
+        {props.mode === "chat" ? (
+          <div className="composer-guide">
+            <section>
+              <h3>Chat</h3>
+              <ol>
+                <li>Choose a chat model.</li>
+                <li>Write a question. Drop an image or a PDF, 24MB or smaller, if the model should look at it.</li>
+                <li>Send. This thread stays here until you press New.</li>
+              </ol>
+            </section>
+          </div>
         ) : null}
         {dragging ? (
           <div className="prompt-drop-overlay" aria-hidden>

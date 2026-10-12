@@ -22,6 +22,11 @@ import {
   promptInstall,
 } from "../lib/pwa";
 import { StatusWait } from "./StatusWait";
+import {
+  DEFAULT_HISTORY_PAGE_SIZE,
+  HISTORY_PAGE_SIZES,
+  clampHistoryPageSize,
+} from "../../worker/history-page-size";
 
 type AllowRow = {
   github_login: string;
@@ -29,7 +34,7 @@ type AllowRow = {
   created_at: number;
 };
 
-type SettingsPane = "api-key" | "models" | "notifications" | "cleanup" | "branding" | "allowlist";
+type SettingsPane = "api-key" | "models" | "library" | "notifications" | "cleanup" | "branding" | "allowlist";
 type CleanupAction = "failed" | "thumbs" | "all";
 
 function cleanupWaitLabel(action: CleanupAction): string {
@@ -87,6 +92,8 @@ export function SettingsModal({
   >({});
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [modelBusy, setModelBusy] = useState(false);
+  const [libraryBusy, setLibraryBusy] = useState(false);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
   const [cleanupRunning, setCleanupRunning] = useState<CleanupAction | null>(null);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
@@ -305,6 +312,21 @@ export function SettingsModal({
       setModelError(err instanceof Error ? err.message : "Failed to save default");
     } finally {
       setModelBusy(false);
+    }
+  }
+
+  async function setHistoryPageSize(value: string) {
+    setLibraryBusy(true);
+    setLibraryError(null);
+    try {
+      const next = await api.saveStudioSettings({
+        historyPageSize: clampHistoryPageSize(value),
+      });
+      onSettingsChange(next);
+    } catch (err) {
+      setLibraryError(err instanceof Error ? err.message : "Failed to save library settings");
+    } finally {
+      setLibraryBusy(false);
     }
   }
 
@@ -574,6 +596,34 @@ export function SettingsModal({
                 {modelBusy ? <StatusWait label="Updating models" /> : null}
               </>
             )}
+          </>
+        );
+      case "library":
+        return (
+          <>
+            <h3>Library</h3>
+            <p>
+              How many history groups to show at once. A group of variations counts as one.
+              The default is {DEFAULT_HISTORY_PAGE_SIZE}. Older work stays on the next pages.
+            </p>
+            <label htmlFor="history-page-size">
+              History per page
+              <select
+                id="history-page-size"
+                className="field"
+                disabled={libraryBusy}
+                value={settings?.historyPageSize ?? DEFAULT_HISTORY_PAGE_SIZE}
+                onChange={(event) => void setHistoryPageSize(event.target.value)}
+              >
+                {HISTORY_PAGE_SIZES.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {libraryError ? <p className="settings-bad">{libraryError}</p> : null}
+            {libraryBusy ? <StatusWait label="Saving library settings" /> : null}
           </>
         );
       case "notifications":
@@ -905,6 +955,13 @@ export function SettingsModal({
               onClick={() => selectPane("models")}
             >
               Models
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-btn${pane === "library" ? " active" : ""}`}
+              onClick={() => selectPane("library")}
+            >
+              Library
             </button>
             <button
               type="button"

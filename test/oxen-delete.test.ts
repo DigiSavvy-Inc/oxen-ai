@@ -13,6 +13,20 @@ afterEach(() => {
 });
 
 describe("parseOxenRepoMediaUrl", () => {
+  it("strips the files segment from workspace download URLs", () => {
+    expect(
+      parseOxenRepoMediaUrl(
+        "https://hub.oxen.ai/api/repos/digisavvy/playground/workspaces/abc/files/outputs/cow.png",
+      ),
+    ).toEqual({
+      kind: "workspace",
+      namespace: "digisavvy",
+      repo: "playground",
+      workspaceId: "abc",
+      path: "outputs/cow.png",
+    });
+  });
+
   it("reads workspace result URLs", () => {
     expect(
       parseOxenRepoMediaUrl(
@@ -74,6 +88,11 @@ describe("deleteOxenGeneration", () => {
         body: null,
       },
       {
+        url: "https://hub.oxen.ai/api/repos/digisavvy/playground/workspaces/abc/changes",
+        method: "DELETE",
+        body: JSON.stringify(["file.png"]),
+      },
+      {
         url: "https://hub.oxen.ai/api/repos/digisavvy/playground/workspaces/abc/files",
         method: "DELETE",
         body: JSON.stringify(["file.png"]),
@@ -133,6 +152,9 @@ describe("deleteOxenGeneration", () => {
       "https://hub.oxen.ai/api/repos/digisavvy/playground/workspaces/abc/files/b.png",
     ]);
     expect(result).toEqual({ deleted: 2, failed: 0 });
-    expect(bodies).toEqual([["files/a.png", "files/b.png"]]);
+    expect(bodies).toEqual([
+      ["a.png", "b.png"],
+      ["a.png", "b.png"],
+    ]);
   });
 });

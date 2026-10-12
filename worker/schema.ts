@@ -89,6 +89,7 @@ export type ModelControls = {
   slots: MediaSlot[];
   mentions: boolean;
   pricing: OxenPricing | null;
+  multiPrompt: boolean;
 };
 
 const FIELD_KIND: Record<MediaField, MediaKind> = {
@@ -898,7 +899,7 @@ export function parseModelControls(model: OxenModel): ModelControls {
     safetyTolerance,
     moderation: Boolean(property(root, "moderation")),
     generateAudioDefault: booleanDefault(generateAudioField),
-    draft: Boolean(draftField),
+    draft: Boolean(draftField) || /seedance-2[.-]5/i.test(model.id),
     draftDefault: booleanDefault(draftField) ?? false,
     imageVideoExclusive,
     sampleRate,
@@ -910,6 +911,7 @@ export function parseModelControls(model: OxenModel): ModelControls {
     slots: nextSlots,
     mentions,
     pricing,
+    multiPrompt: Boolean(property(root, "multi_prompt")),
   };
 }
 

@@ -95,7 +95,109 @@ export type EnqueueBody = {
   output_format?: string;
   background?: string;
   moderation?: string;
+  draft_task_id?: string;
+  multi_prompt?: { prompt: string; duration: number }[];
 };
+
+export type DraftMeta = {
+  draftTaskId: string;
+  draftExpiresAt: string | null;
+};
+
+const MAX_SHOTS = 6;
+
+export function normalizeMultiPrompt(
+  raw: unknown,
+): { prompt: string; duration: number }[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const shots: { prompt: string; duration: number }[] = [];
+  for (const item of raw.slice(0, MAX_SHOTS)) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as { prompt?: unknown; duration?: unknown };
+    const prompt = typeof record.prompt === "string" ? record.prompt.trim() : "";
+    const duration = Number(record.duration);
+    if (!prompt || !Number.isFinite(duration) || duration <= 0) continue;
+    shots.push({ prompt: prompt.slice(0, 4000), duration: Math.min(duration, 30) });
+  }
+  return shots.length > 0 ? shots : undefined;
+}
+
+function expiresAtValue(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const ms = value > 1e12 ? value : value * 1000;
+    return new Date(ms).toISOString();
+  }
+  return null;
+}
+
+function draftIdFrom(record: Record<string, unknown> | null): string | null {
+  if (!record) return null;
+  const videos = Array.isArray(record.videos) ? record.videos : [];
+  const first = videos[0];
+  const video =
+    first && typeof first === "object" && !Array.isArray(first)
+      ? (first as Record<string, unknown>)
+      : null;
+  return firstTrimmedUrl(video?.draft_task_id, record.draft_task_id);
+}
+
+export function extractDraftMeta(remote: Record<string, unknown>): DraftMeta | null {
+  const inner =
+    remote.generation && typeof remote.generation === "object" && !Array.isArray(remote.generation)
+      ? (remote.generation as Record<string, unknown>)
+      : null;
+  const draftTaskId = draftIdFrom(remote) ?? draftIdFrom(inner);
+  if (!draftTaskId) return null;
+  const videos = Array.isArray(remote.videos) ? remote.videos : [];
+  const first = videos[0];
+  const video =
+    first && typeof first === "object" && !Array.isArray(first)
+      ? (first as Record<string, unknown>)
+      : null;
+  const draftExpiresAt =
+    expiresAtValue(video?.draft_expires_at) ??
+    expiresAtValue(remote.draft_expires_at) ??
+    expiresAtValue(inner?.draft_expires_at);
+  return { draftTaskId, draftExpiresAt };
+}
+
+export function mergeDraftIntoParams(
+  paramsJson: string | null | undefined,
+  draft: DraftMeta,
+): string {
+  let parsed: Record<string, unknown> = {};
+  if (paramsJson) {
+    try {
+      const value = JSON.parse(paramsJson) as unknown;
+      if (!value || typeof value !== "object" || Array.isArray(value)) return paramsJson;
+      parsed = { ...(value as Record<string, unknown>) };
+    } catch {
+      return paramsJson;
+    }
+  }
+  parsed.draft_task_id = draft.draftTaskId;
+  if (draft.draftExpiresAt) parsed.draft_expires_at = draft.draftExpiresAt;
+  return JSON.stringify(parsed);
+}
+
+export function draftMetaFromParams(paramsJson: string | null | undefined): DraftMeta | null {
+  if (!paramsJson) return null;
+  try {
+    const value = JSON.parse(paramsJson) as unknown;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const record = value as Record<string, unknown>;
+    const draftTaskId = typeof record.draft_task_id === "string" ? record.draft_task_id.trim() : "";
+    if (!draftTaskId) return null;
+    const draftExpiresAt =
+      typeof record.draft_expires_at === "string" && record.draft_expires_at.trim()
+        ? record.draft_expires_at.trim()
+        : null;
+    return { draftTaskId, draftExpiresAt };
+  } catch {
+    return null;
+  }
+}
 
 const pollFailures = new Map<string, number>();
 
@@ -297,11 +399,17 @@ export function buildEnqueuePayload(
   mediaType: "image" | "video" | "audio",
   body: EnqueueBody,
 ): Record<string, unknown> {
+  const draftTaskId = body.draft_task_id?.trim();
+  if (draftTaskId) {
+    return { model: body.model.trim(), draft_task_id: draftTaskId };
+  }
+  const shots = normalizeMultiPrompt(body.multi_prompt);
   const payload: Record<string, unknown> = {
     model: body.model.trim(),
-    prompt: body.prompt.trim(),
     num_generations: Math.min(Math.max(body.num_generations ?? 1, 1), 4),
   };
+  if (shots) payload.multi_prompt = shots;
+  else payload.prompt = body.prompt.trim();
 
   switch (mediaType) {
     case "image":
@@ -494,6 +602,18 @@ export async function enqueueGeneration(
     );
   }
   return generations;
+}
+
+export async function completeChat(apiKey: string, body: unknown): Promise<Record<string, unknown>> {
+  const res = await oxenFetch("/chat/completions", apiKey, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  const data = await readOxenJson<Record<string, unknown> & OxenErrorBody>(res);
+  if (!res.ok) {
+    throw new OxenApiError(oxenErrorText(data, `Oxen chat failed (${res.status})`));
+  }
+  return data;
 }
 
 export async function getGeneration(

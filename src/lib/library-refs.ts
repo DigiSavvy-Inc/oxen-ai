@@ -18,10 +18,12 @@ export type LibraryRef = {
   name: string;
   preview: string;
   url: string;
-  kind: MediaKind;
+  kind: Exclude<MediaKind, "document">;
 };
 
-export function kindFromMediaType(mediaType: string | null | undefined): MediaKind | null {
+export function kindFromMediaType(
+  mediaType: string | null | undefined,
+): Exclude<MediaKind, "document"> | null {
   if (mediaType === "image" || mediaType === "video" || mediaType === "audio") return mediaType;
   return null;
 }
@@ -50,6 +52,8 @@ function modeMinForKind(mode: GenerationMode | null | undefined, kind: MediaKind
       return mode === "video-to-video" ? 1 : 0;
     case "audio":
       return 0;
+    case "document":
+      return 0;
     default: {
       const _exhaustive: never = kind;
       return _exhaustive;
@@ -77,6 +81,8 @@ export function mediaKindCap(
   mode: GenerationMode | null | undefined,
   kind: MediaKind,
 ): number {
+  if (kind === "document") return mode === "chat" ? 4 : 0;
+  if (mode === "chat" && kind === "image") return 4;
   if (controls) {
     const exclusive = exclusiveKindCap(controls, mode, kind);
     if (exclusive != null) return exclusive;
@@ -100,6 +106,7 @@ export function attachKindCap(
   kind: MediaKind,
   model?: CatalogModel,
 ): number {
+  if (kind === "document") return mode === "chat" ? 4 : 0;
   const cap = mediaKindCap(controls, mode, kind);
   const listed = catalogListsMediaKind(model, kind);
   if (listed === false && slotMax(controls, kind) <= 0) return 0;
@@ -115,11 +122,18 @@ export function acceptedMediaKinds(
   mode: GenerationMode | null | undefined,
   model?: CatalogModel,
 ): MediaKind[] {
+  if (mode === "chat") {
+    return (["image", "document"] as const).filter(
+      (kind) => attachKindCap(controls, mode, kind, model) > 0,
+    );
+  }
   return MEDIA_KINDS.filter((kind) => attachKindCap(controls, mode, kind, model) > 0);
 }
 
 export function fileAcceptValue(kinds: readonly MediaKind[]): string {
-  return kinds.map((kind) => `${kind}/*`).join(",");
+  return kinds
+    .map((kind) => (kind === "document" ? "application/pdf,.pdf" : `${kind}/*`))
+    .join(",");
 }
 
 export function mediaKindPhrase(kinds: readonly MediaKind[]): string {
@@ -131,6 +145,8 @@ export function mediaKindPhrase(kinds: readonly MediaKind[]): string {
         return "videos";
       case "audio":
         return "audio";
+      case "document":
+        return "PDFs";
       default: {
         const _exhaustive: never = kind;
         return _exhaustive;
@@ -175,7 +191,7 @@ export function appendAttachMention(
   existingCount: number,
   addedCount: number,
 ): string {
-  if (addedCount <= 0) return prompt;
+  if (addedCount <= 0 || kind === "document") return prompt;
   let next = prompt;
   for (let offset = 0; offset < addedCount; offset += 1) {
     const token = mentionToken(kind, existingCount + offset);

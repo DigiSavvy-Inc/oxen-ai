@@ -227,18 +227,46 @@ function TagEditor({
   );
 }
 
+function draftStillRenderable(expiresAt: string | null | undefined): boolean {
+  if (!expiresAt) return true;
+  const at = Date.parse(expiresAt);
+  if (!Number.isFinite(at)) return true;
+  return at > Date.now();
+}
+
+function draftExpiryLabel(expiresAt: string | null | undefined): string | null {
+  if (!expiresAt) return null;
+  const at = Date.parse(expiresAt);
+  if (!Number.isFinite(at)) return null;
+  return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function draftResultNote(expiresAt: string | null | undefined): string {
+  if (!draftStillRenderable(expiresAt)) {
+    return "This 480p preview has expired, so it cannot be rendered at 1080p.";
+  }
+  const until = draftExpiryLabel(expiresAt);
+  return until
+    ? `This preview is 480p. Render 1080p re-makes the same shot. Available until ${until}.`
+    : "This preview is 480p. Render 1080p re-makes the same shot. Available for 7 days.";
+}
+
 export function Canvas({
   generation,
   variants,
   onSelect,
   onTagsChange,
   onDelete,
+  onRenderFinal,
+  renderBusy,
 }: {
   generation: Generation | null;
   variants: Generation[];
   onSelect: (id: string) => void;
   onTagsChange: (id: string, tags: string[]) => void;
   onDelete?: (id: string) => void;
+  onRenderFinal?: (generation: Generation) => void;
+  renderBusy?: boolean;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const generationId = generation?.id ?? null;
@@ -270,6 +298,21 @@ export function Canvas({
             Pick a mode, choose a model, and describe the image, video, or audio. This canvas stays on the
             current session — open Library when you want past work.
           </p>
+          <ul className="canvas-ways">
+            <li>
+              <strong>Draft mode.</strong> On Seedance 2.5, check 480p draft and generate. When the
+              preview finishes, press Render 1080p. It re-makes the same shot, and the preview lasts
+              7 days.
+            </li>
+            <li>
+              <strong>Multi-shot.</strong> When the model offers Add shot, the box is shot 1. Each
+              added shot has its own prompt and duration, and Generate sends them as one video.
+            </li>
+            <li>
+              <strong>Chat.</strong> Choose Chat, pick a chat model, and send a question. Drop an
+              image or a PDF, 24MB or smaller, if the model should look at it.
+            </li>
+          </ul>
         </div>
       </div>
     );
@@ -293,6 +336,21 @@ export function Canvas({
             <span className={`pill ${generation.status === "succeeded" ? "ok" : "warn"}`}>
               {generation.status}
             </span>
+            {generation.draftTaskId && generation.status === "succeeded" && onRenderFinal ? (
+              <button
+                type="button"
+                className="ghost-btn"
+                disabled={renderBusy || !draftStillRenderable(generation.draftExpiresAt)}
+                title={
+                  draftStillRenderable(generation.draftExpiresAt)
+                    ? "Re-render this 480p draft at 1080p"
+                    : "This 480p draft has expired"
+                }
+                onClick={() => onRenderFinal(generation)}
+              >
+                Render 1080p
+              </button>
+            ) : null}
             {onDelete ? (
               <button type="button" className="ghost-btn" onClick={() => onDelete(generation.id)}>
                 Delete
@@ -300,6 +358,9 @@ export function Canvas({
             ) : null}
           </div>
         </div>
+        {generation.draftTaskId && generation.status === "succeeded" ? (
+          <p className="result-note">{draftResultNote(generation.draftExpiresAt)}</p>
+        ) : null}
         <div className={`result-stage${showStrip ? " has-strip" : ""}`}>
           <div className={`result-media${washUrl ? " has-wash" : ""}`}>
             {washUrl ? (

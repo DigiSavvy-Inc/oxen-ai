@@ -10,7 +10,8 @@ export type GenerationMode =
   | "text-to-video"
   | "reference-to-video"
   | "video-to-video"
-  | "text-to-audio";
+  | "text-to-audio"
+  | "chat";
 
 export type SessionUser = {
   id: string;
@@ -69,6 +70,8 @@ export type ModelControls = {
   slots: MediaSlot[];
   mentions: boolean;
   pricing: OxenPricing | null;
+  /** Kling-style multi-shot. Sent as multi_prompt, never together with prompt. */
+  multiPrompt?: boolean;
 };
 
 export type SharedOxenParams = {
@@ -92,6 +95,7 @@ export type SharedOxenParams = {
 export type StudioSettings = {
   defaultModelByMode: Partial<Record<GenerationMode, string>>;
   lastParams: SharedOxenParams;
+  historyPageSize: number;
 };
 
 /** Instance-wide name and logo. `savedName` is null when the default is in use. */
@@ -126,6 +130,8 @@ export type Generation = {
   progress?: number | null;
   typicalSeconds?: number | null;
   tags?: string[];
+  draftTaskId?: string | null;
+  draftExpiresAt?: string | null;
 };
 
 export type SavedPrompt = {
@@ -163,6 +169,7 @@ export type CreditBalance = {
 };
 
 export const MODE_LABELS: Record<GenerationMode, string> = {
+  chat: "Chat",
   "text-to-image": "Text \u2192 Image",
   "image-to-image": "Image \u2192 Image",
   "text-to-video": "Text \u2192 Video",
@@ -178,6 +185,7 @@ export const ALL_MODES: GenerationMode[] = [
   "reference-to-video",
   "video-to-video",
   "text-to-audio",
+  "chat",
 ];
 
 export function modeNeedsVideo(mode: GenerationMode): boolean {
@@ -316,10 +324,30 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).then((r) => parseJson<{ generations: Generation[] }>(r)),
-  listGenerations: (scope: "active" | "library" = "library", signal?: AbortSignal) => {
+  chat: (body: { model: string; messages: unknown[] }) =>
+    fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => parseJson<{ reply: string }>(r)),
+  listGenerations: (
+    scope: "active" | "library" = "library",
+    options?: { signal?: AbortSignal; page?: number; pageSize?: number; tag?: string },
+  ) => {
     const params = new URLSearchParams({ scope });
-    return fetch(`/api/generations?${params}`, { signal }).then((r) =>
-      parseJson<{ generations: Generation[] }>(r),
+    if (scope === "library") {
+      if (options?.page) params.set("page", String(options.page));
+      if (options?.pageSize) params.set("pageSize", String(options.pageSize));
+      if (options?.tag) params.set("tag", options.tag);
+    }
+    return fetch(`/api/generations?${params}`, { signal: options?.signal }).then((r) =>
+      parseJson<{
+        generations: Generation[];
+        page?: number;
+        pageSize?: number;
+        total?: number;
+        tags?: string[];
+      }>(r),
     );
   },
   getGeneration: (id: string) =>

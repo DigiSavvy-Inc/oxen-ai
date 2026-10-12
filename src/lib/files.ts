@@ -1,10 +1,12 @@
-export type MediaKind = "image" | "video" | "audio";
+export type MediaKind = "image" | "video" | "audio" | "document";
 
 export function kindFromFile(file: File): MediaKind | null {
+  if (file.type === "application/pdf") return "document";
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("video/")) return "video";
   if (file.type.startsWith("audio/")) return "audio";
   const name = file.name.toLowerCase();
+  if (name.endsWith(".pdf")) return "document";
   if (/\.(png|jpe?g|gif|webp|avif|bmp)$/.test(name)) return "image";
   if (/\.(mp4|webm|mov|m4v|mkv)$/.test(name)) return "video";
   if (/\.(mp3|wav|m4a|aac|ogg|flac)$/.test(name)) return "audio";

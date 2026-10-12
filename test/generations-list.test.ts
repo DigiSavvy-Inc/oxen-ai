@@ -57,9 +57,16 @@ describe("GET /api/generations", () => {
       env,
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ generations: [] });
-    const listQuery = sql.find((query) => query.includes("FROM generations WHERE user_id"));
-    expect(listQuery).toContain("LIMIT 100");
+    expect(await res.json()).toEqual({
+      generations: [],
+      page: 1,
+      pageSize: 24,
+      total: 0,
+      tags: [],
+    });
+    const listQuery = sql.find((query) => query.includes("LIMIT ?"));
+    expect(listQuery).toBeTruthy();
+    expect(listQuery).not.toContain("LIMIT 100");
     expect(listQuery).not.toContain("status NOT IN");
   });
 

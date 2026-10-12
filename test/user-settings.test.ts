@@ -21,5 +21,12 @@ describe("parseStudioSettings", () => {
       num_generations: 4,
       generate_audio: true,
     });
+    expect(settings.historyPageSize).toBe(24);
+  });
+
+  it("keeps history page size on the allowed steps", () => {
+    expect(parseStudioSettings("{}", "{}", 48).historyPageSize).toBe(48);
+    expect(parseStudioSettings("{}", "{}", 13).historyPageSize).toBe(24);
+    expect(parseStudioSettings("{}", "{}", null).historyPageSize).toBe(24);
   });
 });

@@ -141,6 +141,7 @@ const SAFE_MEDIA_TYPES = new Set([
   "audio/aac",
   "audio/ogg",
   "audio/flac",
+  "application/pdf",
 ]);
 
 /** Image, video, and audio types Studio will show inline. SVG and HTML are not included. */
@@ -177,10 +178,11 @@ function fourCC(bytes: Uint8Array, offset: number): string {
 }
 
 /**
- * Identify a safe image, video, or audio payload from magic bytes.
+ * Identify a safe image, video, audio, or PDF payload from magic bytes.
  * Declared Content-Type is ignored so HTML or SVG cannot pretend to be media.
  */
 export function sniffSafeMediaType(bytes: Uint8Array): string | null {
+  if (bytesMatch(bytes, [0x25, 0x50, 0x44, 0x46])) return "application/pdf";
   if (bytesMatch(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "image/png";
   if (bytesMatch(bytes, [0xff, 0xd8, 0xff])) return "image/jpeg";
   if (
@@ -270,6 +272,7 @@ export function guessMediaContentType(key: string): string {
   if (lower.endsWith(".ogg") || lower.endsWith(".opus")) return "audio/ogg";
   if (lower.endsWith(".flac")) return "audio/flac";
   if (lower.endsWith(".aac")) return "audio/aac";
+  if (lower.endsWith(".pdf")) return "application/pdf";
   return "application/octet-stream";
 }
 

@@ -21,7 +21,7 @@ import {
   type GalleryExpandState,
 } from "../lib/gallery-expand";
 import { historyKeySelected } from "../lib/gallery-history";
-import { collectUniqueTags, suggestTags, tagsMatchQuery } from "../lib/tags";
+import { suggestTags } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
 import { CreateGalleryPalette } from "./CreateGalleryPalette";
 import type { GalleryDraftItem } from "./GalleryDrawer";
@@ -169,9 +169,9 @@ const CLOSED_EXPAND: GalleryExpandState = {
 
 const GALLERY_COLUMNS = 3;
 
-function emptyLibraryMessage(tagQuery: string, loadError?: string | null): string {
+function emptyLibraryMessage(appliedTag: string, loadError?: string | null): string {
   if (loadError) return loadError;
-  if (tagQuery.trim()) return "No media with that tag.";
+  if (appliedTag.trim()) return "No media with that tag.";
   return "No generations yet. Write a prompt and hit Generate — jobs run through Oxen's async queue.";
 }
 
@@ -190,6 +190,13 @@ export function Sidebar({
   loading,
   loadError,
   downloadingAll,
+  tagInput,
+  appliedTag,
+  allTags,
+  onTagInput,
+  page,
+  pageCount,
+  onPage,
   onSelect,
   onClose,
   onDownloadAll,
@@ -219,6 +226,13 @@ export function Sidebar({
   loading?: boolean;
   loadError?: string | null;
   downloadingAll?: boolean;
+  tagInput: string;
+  appliedTag: string;
+  allTags: string[];
+  onTagInput: (value: string) => void;
+  page: number;
+  pageCount: number;
+  onPage: (page: number) => void;
   onSelect: (id: string | null) => void;
   onClose?: () => void;
   onDownloadAll?: () => void;
@@ -242,27 +256,21 @@ export function Sidebar({
   galleryAccept: string;
   galleryDropLabel: string;
 }) {
-  const [tagQuery, setTagQuery] = useState("");
+  const pagingKey = `${page}\0${appliedTag}`;
+  const [expandKey, setExpandKey] = useState(pagingKey);
   const [expand, setExpand] = useState<GalleryExpandState>(CLOSED_EXPAND);
   const expandRef = useRef(expand);
+  const expandKeyRef = useRef(pagingKey);
   const expandedTileRef = useRef<HTMLDivElement>(null);
-  const allTags = useMemo(
-    () => collectUniqueTags(generations.map((item) => item.tags)),
-    [generations],
-  );
-  const previews = useMemo(() => suggestTags(allTags, tagQuery), [allTags, tagQuery]);
-  const batches = useMemo(() => {
-    const grouped = groupGenerationBatches(generations);
-    if (!tagQuery.trim()) return grouped;
-    return grouped.filter((batch) =>
-      batch.items.some((item) => tagsMatchQuery(item.tags, tagQuery)),
-    );
-  }, [generations, tagQuery]);
+  const historyRef = useRef<HTMLDivElement>(null);
+  const previews = useMemo(() => suggestTags(allTags, tagInput), [allTags, tagInput]);
+  const batches = useMemo(() => groupGenerationBatches(generations), [generations]);
   const readyAll = useMemo(() => completedMedia(generations), [generations]);
   const galleryKeySet = useMemo(() => new Set(galleryItems.map((item) => item.key)), [galleryItems]);
+  const expandForPage = expandKey === pagingKey ? expand : CLOSED_EXPAND;
   const expandVisible =
-    !expand.expandedId || batches.some((batch) => batch.id === expand.expandedId)
-      ? expand
+    !expandForPage.expandedId || batches.some((batch) => batch.id === expandForPage.expandedId)
+      ? expandForPage
       : CLOSED_EXPAND;
 
   useEffect(() => {
@@ -270,9 +278,18 @@ export function Sidebar({
     expandedTileRef.current?.scrollIntoView({ block: "nearest" });
   }, [expandVisible.expandedId]);
 
+  useEffect(() => {
+    expandKeyRef.current = pagingKey;
+    expandRef.current = CLOSED_EXPAND;
+    historyRef.current?.scrollTo({ top: 0 });
+  }, [pagingKey]);
+
   function commit(action: GalleryExpandAction) {
-    const next = galleryExpandTransition(expandRef.current, action);
+    const base = expandKeyRef.current === pagingKey ? expandRef.current : CLOSED_EXPAND;
+    const next = galleryExpandTransition(base, action);
+    expandKeyRef.current = pagingKey;
     expandRef.current = next;
+    setExpandKey(pagingKey);
     setExpand(next);
     if (next.peek !== undefined) onSelect(next.peek);
   }
@@ -380,7 +397,13 @@ export function Sidebar({
               disabled={downloadingAll}
               onClick={onDownloadAll}
             >
-              {downloadingAll ? <Loader size="sm" label="Downloading…" /> : "Download all"}
+              {downloadingAll ? (
+                <Loader size="sm" label="Downloading…" />
+              ) : pageCount > 1 ? (
+                "Download page"
+              ) : (
+                "Download all"
+              )}
             </button>
           ) : null}
           {onClose ? (
@@ -411,15 +434,15 @@ export function Sidebar({
       <div className="tag-filter">
         <input
           className="tag-filter-input"
-          value={tagQuery}
+          value={tagInput}
           placeholder="Filter by tag"
           aria-label="Filter by tag"
-          onChange={(event) => setTagQuery(event.target.value)}
+          onChange={(event) => onTagInput(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Escape") setTagQuery("");
+            if (event.key === "Escape") onTagInput("");
             if (event.key === "Enter" && previews[0]) {
               event.preventDefault();
-              setTagQuery(previews[0]);
+              onTagInput(previews[0]);
             }
           }}
         />
@@ -429,19 +452,19 @@ export function Sidebar({
               <button
                 key={tag.toLowerCase()}
                 type="button"
-                className={`tag-chip preview${tagQuery.trim().toLowerCase() === tag.toLowerCase() ? " active" : ""}`}
-                onClick={() => setTagQuery(tag)}
+                className={`tag-chip preview${tagInput.trim().toLowerCase() === tag.toLowerCase() ? " active" : ""}`}
+                onClick={() => onTagInput(tag)}
               >
                 {tag}
               </button>
             ))}
           </div>
-        ) : tagQuery.trim() && allTags.length > 0 ? (
-          <div className="tag-preview-empty">No tags match “{tagQuery.trim()}”</div>
+        ) : tagInput.trim() && allTags.length > 0 ? (
+          <div className="tag-preview-empty">No tags match “{tagInput.trim()}”</div>
         ) : null}
       </div>
 
-      <div className="history">
+      <div className="history" ref={historyRef}>
         <div className="history-grid">
           {loading && batches.length === 0 ? (
             <div className="history-empty">
@@ -449,7 +472,7 @@ export function Sidebar({
             </div>
           ) : batches.length === 0 ? (
             <div className="history-empty">
-              {emptyLibraryMessage(tagQuery, loadError)}
+              {emptyLibraryMessage(appliedTag, loadError)}
             </div>
           ) : (
             chunkBatches(batches).map((row) => {
@@ -596,6 +619,29 @@ export function Sidebar({
           )}
         </div>
       </div>
+      {pageCount > 1 ? (
+        <nav className="history-pager" aria-label="Library pages">
+          <button
+            type="button"
+            className="ghost-btn"
+            disabled={page <= 1}
+            onClick={() => onPage(page - 1)}
+          >
+            Previous
+          </button>
+          <span>
+            Page {page} of {pageCount}
+          </span>
+          <button
+            type="button"
+            className="ghost-btn"
+            disabled={page >= pageCount}
+            onClick={() => onPage(page + 1)}
+          >
+            Next
+          </button>
+        </nav>
+      ) : null}
     </aside>
   );
 }

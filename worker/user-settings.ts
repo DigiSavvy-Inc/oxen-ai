@@ -1,4 +1,7 @@
+import { clampHistoryPageSize, DEFAULT_HISTORY_PAGE_SIZE, HISTORY_PAGE_SIZES } from "./history-page-size";
 import type { GenerationMode } from "./types";
+
+export { clampHistoryPageSize, DEFAULT_HISTORY_PAGE_SIZE, HISTORY_PAGE_SIZES };
 
 export type SharedOxenParams = {
   aspect_ratio?: string;
@@ -20,11 +23,13 @@ export type SharedOxenParams = {
 export type StudioSettings = {
   defaultModelByMode: Partial<Record<GenerationMode, string>>;
   lastParams: SharedOxenParams;
+  historyPageSize: number;
 };
 
 const EMPTY: StudioSettings = {
   defaultModelByMode: {},
   lastParams: {},
+  historyPageSize: DEFAULT_HISTORY_PAGE_SIZE,
 };
 
 function parseJsonObject(value: string | null | undefined): Record<string, unknown> {
@@ -86,25 +91,47 @@ function asParams(raw: Record<string, unknown>): SharedOxenParams {
 export function parseStudioSettings(
   defaultModelByMode: string | null | undefined,
   lastParams: string | null | undefined,
+  historyPageSize?: number | string | null,
 ): StudioSettings {
   return {
     defaultModelByMode: asModeMap(parseJsonObject(defaultModelByMode)),
     lastParams: asParams(parseJsonObject(lastParams)),
+    historyPageSize: clampHistoryPageSize(historyPageSize ?? DEFAULT_HISTORY_PAGE_SIZE),
   };
 }
+
+function missingHistoryColumn(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("history_page_size") || message.includes("no such column");
+}
+
+type SettingsRow = {
+  default_model_by_mode: string;
+  last_params: string;
+  history_page_size?: number | null;
+};
 
 export async function getStudioSettings(
   db: D1Database,
   userId: string,
 ): Promise<StudioSettings> {
-  const row = await db
-    .prepare(
-      `SELECT default_model_by_mode, last_params FROM user_settings WHERE user_id = ?`,
-    )
-    .bind(userId)
-    .first<{ default_model_by_mode: string; last_params: string }>();
+  let row: SettingsRow | null = null;
+  try {
+    row = await db
+      .prepare(
+        `SELECT default_model_by_mode, last_params, history_page_size FROM user_settings WHERE user_id = ?`,
+      )
+      .bind(userId)
+      .first<SettingsRow>();
+  } catch (err) {
+    if (!missingHistoryColumn(err)) throw err;
+    row = await db
+      .prepare(`SELECT default_model_by_mode, last_params FROM user_settings WHERE user_id = ?`)
+      .bind(userId)
+      .first<SettingsRow>();
+  }
   if (!row) return { ...EMPTY, defaultModelByMode: {}, lastParams: {} };
-  return parseStudioSettings(row.default_model_by_mode, row.last_params);
+  return parseStudioSettings(row.default_model_by_mode, row.last_params, row.history_page_size);
 }
 
 export async function saveStudioSettings(
@@ -113,6 +140,7 @@ export async function saveStudioSettings(
   patch: {
     defaultModelByMode?: Partial<Record<GenerationMode, string>>;
     lastParams?: Record<string, unknown>;
+    historyPageSize?: number;
   },
 ): Promise<StudioSettings> {
   const current = await getStudioSettings(db, userId);
@@ -124,23 +152,37 @@ export async function saveStudioSettings(
       ...current.lastParams,
       ...(patch.lastParams ?? {}),
     }),
+    historyPageSize: clampHistoryPageSize(patch.historyPageSize ?? current.historyPageSize),
   };
   const now = Math.floor(Date.now() / 1000);
-  await db
-    .prepare(
-      `INSERT INTO user_settings (user_id, default_model_by_mode, last_params, updated_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(user_id) DO UPDATE SET
-         default_model_by_mode = excluded.default_model_by_mode,
-         last_params = excluded.last_params,
-         updated_at = excluded.updated_at`,
-    )
-    .bind(
-      userId,
-      JSON.stringify(next.defaultModelByMode),
-      JSON.stringify(next.lastParams),
-      now,
-    )
-    .run();
+  const models = JSON.stringify(next.defaultModelByMode);
+  const params = JSON.stringify(next.lastParams);
+  try {
+    await db
+      .prepare(
+        `INSERT INTO user_settings (user_id, default_model_by_mode, last_params, history_page_size, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET
+           default_model_by_mode = excluded.default_model_by_mode,
+           last_params = excluded.last_params,
+           history_page_size = excluded.history_page_size,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(userId, models, params, next.historyPageSize, now)
+      .run();
+  } catch (err) {
+    if (!missingHistoryColumn(err)) throw err;
+    await db
+      .prepare(
+        `INSERT INTO user_settings (user_id, default_model_by_mode, last_params, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET
+           default_model_by_mode = excluded.default_model_by_mode,
+           last_params = excluded.last_params,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(userId, models, params, now)
+      .run();
+  }
   return next;
 }
