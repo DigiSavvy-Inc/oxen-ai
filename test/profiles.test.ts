@@ -132,4 +132,21 @@ describe("profiles", () => {
     expect(removed.activeId).toBe(personal);
     expect(await deleteProfile(store.db, "user-1", personal!)).toEqual({ error: "last" });
   });
+
+  it("folds a second Personal created in the same moment back into the active one", async () => {
+    const store = profileDb();
+    const personal = await ensureDefaultProfile(store.db, "user-1");
+    const createdAt = store.profiles[0]?.created_at ?? 0;
+    store.profiles.push({
+      id: "dup",
+      user_id: "user-1",
+      name: "Personal",
+      created_at: createdAt,
+      updated_at: createdAt,
+    });
+    store.galleries.push({ id: "gal-dup", user_id: "user-1", profile_id: "dup" });
+    expect(await ensureDefaultProfile(store.db, "user-1")).toBe(personal);
+    expect(store.profiles.map((row) => row.id)).toEqual([personal]);
+    expect(store.galleries[0]?.profile_id).toBe(personal);
+  });
 });

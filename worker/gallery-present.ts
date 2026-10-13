@@ -18,7 +18,8 @@ export type GalleryCardJson = {
   previews: GalleryPreviewJson[];
 };
 
-const PREVIEW_COUNT = 4;
+/** Enough thumbs to fill a gallery card across the library panel. */
+const PREVIEW_COUNT = 24;
 const THUMB_CHUNK = 40;
 
 async function thumbKeyByResult(

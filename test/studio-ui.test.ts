@@ -1101,6 +1101,8 @@ describe("library history layout", () => {
     expect(header.indexOf("Galleries")).toBeLessThan(header.indexOf("Create gallery"));
     expect(header.indexOf("Create gallery")).toBeGreaterThan(-1);
     expect(header.indexOf("Create gallery")).toBeLessThan(header.indexOf("Download all"));
+    expect(sidebar).toContain('aria-label={galleriesOpen ? "Back to history" : "Close library"}');
+    expect(sidebar).toContain("if (open !== false) return;");
     expect(sidebar).toContain("if (createGalleryOpen)");
     expect(sidebar).toContain("onToggleHistory(batch.items)");
     expect(css).toContain(".history-gallery-mark");

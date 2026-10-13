@@ -200,6 +200,7 @@ export function Sidebar({
   onPage,
   onSelect,
   onClose,
+  open,
   onDownloadAll,
   onDelete,
   attachedIds,
@@ -242,6 +243,7 @@ export function Sidebar({
   pageCount: number;
   onPage: (page: number) => void;
   onSelect: (id: string | null) => void;
+  open?: boolean;
   onClose?: () => void;
   onDownloadAll?: () => void;
   onDelete?: (ids: string[], fromOxen?: boolean) => void;
@@ -267,7 +269,7 @@ export function Sidebar({
   galleryId: string | null;
   onGalleryOpen: (id: string) => void;
   onManageGallerySave: () => void;
-  onGalleryAttach: () => string[];
+  onGalleryAttach: (items?: GalleryDraftItem[]) => string[];
   onGalleryFeature: (index: number) => void;
   onGalleryDelete: () => void;
 }) {
@@ -287,6 +289,17 @@ export function Sidebar({
   const readyAll = useMemo(() => completedMedia(generations), [generations]);
   const galleryKeySet = useMemo(() => new Set(galleryItems.map((item) => item.key)), [galleryItems]);
   const galleryDetail = galleriesOpen && managingGallery && Boolean(galleryId);
+
+  function leaveGalleries() {
+    setGalleriesOpen(false);
+    setManagingGallery(false);
+  }
+
+  useEffect(() => {
+    if (open !== false) return;
+    setGalleriesOpen(false);
+    setManagingGallery(false);
+  }, [open]);
   const expandForPage = expandKey === pagingKey ? expand : CLOSED_EXPAND;
   const expandVisible =
     !expandForPage.expandedId || batches.some((batch) => batch.id === expandForPage.expandedId)
@@ -447,7 +460,18 @@ export function Sidebar({
             </button>
           ) : null}
           {onClose ? (
-            <button type="button" className="icon-btn sidebar-close" aria-label="Close library" onClick={onClose}>
+            <button
+              type="button"
+              className="icon-btn sidebar-close"
+              aria-label={galleriesOpen ? "Back to history" : "Close library"}
+              onClick={() => {
+                if (galleriesOpen) {
+                  leaveGalleries();
+                  return;
+                }
+                onClose();
+              }}
+            >
               ×
             </button>
           ) : null}

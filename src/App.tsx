@@ -1596,6 +1596,7 @@ export default function App() {
         onPage={setLibraryPage}
         downloadingAll={downloadingAll}
         onSelect={setPeekId}
+        open={libraryOpen}
         onClose={closeLibrary}
         onDownloadAll={() => void onDownloadAll()}
         onDelete={(ids, fromOxen) => {

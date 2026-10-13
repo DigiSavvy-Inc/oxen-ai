@@ -115,6 +115,37 @@ async function backfillProfile(db: D1Database, userId: string, profileId: string
     .run();
 }
 
+/**
+ * Two requests can each insert Personal before either sees the other.
+ * Fold those copies, created in the same moment, back into one profile.
+ */
+async function mergeRacedDefaultProfiles(
+  db: D1Database,
+  userId: string,
+  profiles: StudioProfile[],
+  activeId: string | null,
+): Promise<void> {
+  const defaults = profiles.filter((profile) => profile.name === DEFAULT_PROFILE_NAME);
+  if (defaults.length < 2) return;
+  const newest = Math.max(...defaults.map((profile) => profile.createdAt));
+  const cluster = defaults.filter((profile) => newest - profile.createdAt <= 5);
+  if (cluster.length < 2) return;
+  const keeper = cluster.find((profile) => profile.id === activeId) ?? cluster[0];
+  if (!keeper) return;
+  for (const extra of cluster) {
+    if (extra.id === keeper.id) continue;
+    await db
+      .prepare(`UPDATE generations SET profile_id = ? WHERE user_id = ? AND profile_id = ?`)
+      .bind(keeper.id, userId, extra.id)
+      .run();
+    await db
+      .prepare(`UPDATE galleries SET profile_id = ? WHERE user_id = ? AND profile_id = ?`)
+      .bind(keeper.id, userId, extra.id)
+      .run();
+    await db.prepare(`DELETE FROM profiles WHERE id = ? AND user_id = ?`).bind(extra.id, userId).run();
+  }
+}
+
 /** The account's active profile. Null when the profiles table is not there yet. */
 export async function ensureDefaultProfile(db: D1Database, userId: string): Promise<string | null> {
   let profiles: StudioProfile[];
@@ -149,6 +180,15 @@ export async function ensureDefaultProfile(db: D1Database, userId: string): Prom
     }
     if (profiles.length === 0) return null;
   }
+  const activeBeforeMerge = await readActiveProfile(db, userId);
+  await mergeRacedDefaultProfiles(db, userId, profiles, activeBeforeMerge);
+  try {
+    profiles = await listProfiles(db, userId);
+  } catch (err) {
+    if (!missingProfileStorage(err)) throw err;
+    return null;
+  }
+  if (profiles.length === 0) return null;
   const active = await readActiveProfile(db, userId);
   const chosen = profiles.some((profile) => profile.id === active) ? active! : profiles[0]!.id;
   if (chosen !== active) await setActiveProfile(db, userId, chosen);

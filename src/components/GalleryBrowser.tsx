@@ -14,16 +14,11 @@ type Props = {
   onBack: () => void;
   onNameChange: (value: string) => void;
   onSave: () => void;
-  onAttach: () => string[];
+  onAttach: (items?: GalleryDraftItem[]) => string[];
   onRemove: (index: number) => void;
   onFeature: (index: number) => void;
   onDelete: () => void;
 };
-
-function coverPreview(gallery: GallerySummary) {
-  const previews = gallery.previews ?? [];
-  return previews.find((item) => item.kind === "image" && item.thumbUrl) ?? previews[0] ?? null;
-}
 
 export function GalleryBrowser(props: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -37,9 +32,8 @@ export function GalleryBrowser(props: Props) {
         ) : (
           <div className="gallery-card-list">
             {props.summaries.map((gallery) => {
-              const cover = coverPreview(gallery);
-              const rest = (gallery.previews ?? []).filter((item) => item !== cover).slice(0, 4);
-              const count = gallery.count ?? gallery.previews?.length ?? 0;
+              const previews = gallery.previews ?? [];
+              const count = gallery.count ?? previews.length;
               return (
                 <button
                   key={gallery.id}
@@ -48,36 +42,28 @@ export function GalleryBrowser(props: Props) {
                   onClick={() => props.onOpen(gallery.id)}
                 >
                   <span className="gallery-card-mosaic">
-                    <span className="gallery-card-cover">
-                      {cover?.thumbUrl ? (
-                        <GalleryThumb
-                          kind={cover.kind}
-                          name={cover.name}
-                          preview={cover.thumbUrl}
-                          slot="cover"
-                        />
-                      ) : (
+                    {previews.length === 0 ? (
+                      <span className="gallery-card-thumb">
                         <span className="gallery-audio">Empty</span>
-                      )}
-                    </span>
-                    {rest.length > 0 ? (
-                      <span className="gallery-card-set">
-                        {rest.map((item, index) => (
-                          <span key={`${gallery.id}-${index}`} className="gallery-card-mini">
-                            {item.thumbUrl ? (
-                              <GalleryThumb
-                                kind={item.kind}
-                                name={item.name}
-                                preview={item.thumbUrl}
-                                slot="strip"
-                              />
-                            ) : (
-                              <span className="gallery-audio">{item.kind === "video" ? "Video" : "Audio"}</span>
-                            )}
-                          </span>
-                        ))}
                       </span>
-                    ) : null}
+                    ) : (
+                      previews.map((item, index) => (
+                        <span key={`${gallery.id}-${index}`} className="gallery-card-thumb">
+                          {item.thumbUrl ? (
+                            <GalleryThumb
+                              kind={item.kind}
+                              name={item.name}
+                              preview={item.thumbUrl}
+                              slot="strip"
+                            />
+                          ) : (
+                            <span className="gallery-audio">
+                              {item.kind === "video" ? "Video" : item.kind === "audio" ? "Audio" : "Image"}
+                            </span>
+                          )}
+                        </span>
+                      ))
+                    )}
                   </span>
                   <span className="gallery-card-meta">
                     <span className="gallery-card-name">{gallery.name}</span>
@@ -120,7 +106,7 @@ export function GalleryBrowser(props: Props) {
           disabled={props.items.length === 0}
           onClick={() => setSkipped(props.onAttach())}
         >
-          Attach
+          Attach all
         </button>
         {confirmDelete ? (
           <button
@@ -156,15 +142,20 @@ export function GalleryBrowser(props: Props) {
               >
                 ×
               </button>
-              {index > 0 && item.kind === "image" ? (
+              <div className="gallery-tile-actions">
                 <button
                   type="button"
-                  className="gallery-feature"
-                  onClick={() => props.onFeature(index)}
+                  className="gallery-attach-one"
+                  onClick={() => setSkipped(props.onAttach([item]))}
                 >
-                  Feature
+                  Attach
                 </button>
-              ) : null}
+                {index > 0 && item.kind === "image" ? (
+                  <button type="button" className="gallery-feature" onClick={() => props.onFeature(index)}>
+                    Feature
+                  </button>
+                ) : null}
+              </div>
             </div>
           ))}
         </div>
