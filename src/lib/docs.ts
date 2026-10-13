@@ -181,7 +181,7 @@ export const DOC_ARTICLES: DocArticle[] = [
       },
       {
         type: "p",
-        text: "Gallery, on image edit and video modes, keeps a named set of references. Attach adds that set to the composer.",
+        text: "Gallery, on image edit and video modes, keeps a named set of references. Attach adds that set to the composer. Library → Galleries lists every gallery, with a cover and a few of its images, before a mode is chosen. Open one to rename it, feature a cover, remove items, or attach them.",
       },
     ],
   },
@@ -201,6 +201,10 @@ export const DOC_ARTICLES: DocArticle[] = [
       {
         type: "p",
         text: "Click a library image to open the peek. Esc or X closes it. Click the image, or a variation thumb, to open it full size.",
+      },
+      {
+        type: "p",
+        text: "Profiles share this account and Oxen key. The name in the top bar switches among work, personal, and project media. Library and galleries follow the active profile. Saved prompts stay on the account. Deleting a profile moves its media to another profile.",
       },
     ],
   },

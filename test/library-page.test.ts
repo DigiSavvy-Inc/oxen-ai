@@ -35,5 +35,9 @@ describe("library page sql", () => {
     const count = libraryCountSql("user-1", query);
     expect(count.sql).toContain("COUNT(*)");
     expect(count.binds).toEqual(["user-1", "", "user-1", "%%"]);
+    const scoped = libraryListSql("user-1", query, "profile-1");
+    expect(scoped.sql).toContain("profile_id = ?");
+    expect(scoped.binds).toEqual(["user-1", "profile-1", "", "user-1", "%%", 12, 24, "user-1", "profile-1"]);
+    expect(libraryListSql("user-1", query).sql).not.toContain("profile_id");
   });
 });

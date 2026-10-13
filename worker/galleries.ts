@@ -94,25 +94,31 @@ export async function listGalleries(
   db: D1Database,
   userId: string,
   query = "",
+  profileId?: string | null,
 ): Promise<GallerySummary[]> {
   const q = query.trim();
+  const profile = profileId ? " AND profile_id = ?" : "";
   const statement = q
     ? db
         .prepare(
           `SELECT id, name, updated_at FROM galleries
-           WHERE user_id = ? AND name LIKE ? ESCAPE '\\'
+           WHERE user_id = ? AND name LIKE ? ESCAPE '\\'${profile}
            ORDER BY updated_at DESC
            LIMIT ?`,
         )
-        .bind(userId, `%${escapeLike(q)}%`, GALLERY_MAX_ROWS)
+        .bind(
+          ...(profileId
+            ? [userId, `%${escapeLike(q)}%`, profileId, GALLERY_MAX_ROWS]
+            : [userId, `%${escapeLike(q)}%`, GALLERY_MAX_ROWS]),
+        )
     : db
         .prepare(
           `SELECT id, name, updated_at FROM galleries
-           WHERE user_id = ?
+           WHERE user_id = ?${profile}
            ORDER BY updated_at DESC
            LIMIT ?`,
         )
-        .bind(userId, GALLERY_MAX_ROWS);
+        .bind(...(profileId ? [userId, profileId, GALLERY_MAX_ROWS] : [userId, GALLERY_MAX_ROWS]));
   const { results } = await statement.all<GalleryRow>();
   return (results ?? []).map((row) => ({
     id: row.id,
@@ -213,10 +219,18 @@ async function replaceItems(
   return stored;
 }
 
+export async function deleteGallery(db: D1Database, userId: string, id: string): Promise<boolean> {
+  const existing = await getGallery(db, userId, id);
+  if (!existing) return false;
+  await db.prepare(`DELETE FROM gallery_items WHERE gallery_id = ? AND user_id = ?`).bind(id, userId).run();
+  await db.prepare(`DELETE FROM galleries WHERE id = ? AND user_id = ?`).bind(id, userId).run();
+  return true;
+}
+
 export async function saveGallery(
   db: D1Database,
   userId: string,
-  input: { id?: string | null; name: unknown; items: unknown },
+  input: { id?: string | null; name: unknown; items: unknown; profileId?: string | null },
 ): Promise<StoredGallery | null> {
   const name = acceptGalleryName(input.name);
   const items = acceptGalleryItems(userId, input.items);
@@ -234,13 +248,26 @@ export async function saveGallery(
     return { id: requestedId, name, updatedAt: now, items: stored };
   }
   const id = crypto.randomUUID();
-  await db
-    .prepare(
-      `INSERT INTO galleries (id, user_id, name, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`,
-    )
-    .bind(id, userId, name, now, now)
-    .run();
+  const profileId = typeof input.profileId === "string" ? input.profileId : null;
+  try {
+    await db
+      .prepare(
+        `INSERT INTO galleries (id, user_id, name, created_at, updated_at, profile_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(id, userId, name, now, now, profileId)
+      .run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes("no such column")) throw err;
+    await db
+      .prepare(
+        `INSERT INTO galleries (id, user_id, name, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .bind(id, userId, name, now, now)
+      .run();
+  }
   const stored = await replaceItems(db, userId, id, items);
   await trimGalleries(db, userId);
   return { id, name, updatedAt: now, items: stored };

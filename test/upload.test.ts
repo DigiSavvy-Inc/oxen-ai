@@ -121,6 +121,47 @@ describe("GET /api/media/*", () => {
     expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual([1, 2, 3, 4]);
   });
 
+  it("serves a slot-sized image when w is a gallery thumb width", async () => {
+    const { bucket } = createMockR2();
+    const key = "u/user-1/thumbs/still.png";
+    const original = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+    await bucket.put(key, original.buffer, { httpMetadata: { contentType: "image/png" } });
+    const small = new Uint8Array([9, 9]);
+    const images = {
+      input() {
+        const chain = {
+          transform(options: { width?: number }) {
+            expect(options.width).toBe(96);
+            return chain;
+          },
+          output() {
+            return {
+              response() {
+                return { arrayBuffer: async () => small.buffer };
+              },
+              contentType: () => "image/webp",
+            };
+          },
+        };
+        return chain;
+      },
+    };
+    const env = createEnv({ MEDIA: bucket, IMAGES: images as unknown as ImagesBinding });
+    const signed = await createSignedMediaUrl("https://studio.digisavvy.dev", key, TEST_SECRET);
+    const sized = new URL(signed);
+    sized.searchParams.set("w", "96");
+    const res = await app.request(sized.toString(), {}, env);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("image/webp");
+    expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual([9, 9]);
+
+    const ignored = new URL(signed);
+    ignored.searchParams.set("w", "256");
+    const full = await app.request(ignored.toString(), {}, env);
+    expect(full.headers.get("Content-Type")).toBe("image/png");
+    expect(full.headers.get("Content-Length")).toBe(String(original.byteLength));
+  });
+
   it("rejects expired signatures before reading R2", async () => {
     const { bucket } = createMockR2();
     const key = "u/user-1/clip.mp4";

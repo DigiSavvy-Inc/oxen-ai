@@ -5,7 +5,7 @@ import {
   isActiveGeneration,
   type GenerationBatch,
 } from "../lib/batches";
-import type { Generation } from "../lib/api";
+import type { GallerySummary, Generation } from "../lib/api";
 import { brandMarkClass } from "../lib/branding";
 import {
   completedMedia,
@@ -24,6 +24,7 @@ import { historyKeySelected } from "../lib/gallery-history";
 import { suggestTags } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
 import { CreateGalleryPalette } from "./CreateGalleryPalette";
+import { GalleryBrowser } from "./GalleryBrowser";
 import type { GalleryDraftItem } from "./GalleryDrawer";
 import { DownloadButton } from "./DownloadButton";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
@@ -219,6 +220,13 @@ export function Sidebar({
   onToggleHistory,
   galleryAccept,
   galleryDropLabel,
+  gallerySummaries,
+  galleryId,
+  onGalleryOpen,
+  onManageGallerySave,
+  onGalleryAttach,
+  onGalleryFeature,
+  onGalleryDelete,
 }: {
   logoUrl: string;
   generations: Generation[];
@@ -255,10 +263,19 @@ export function Sidebar({
   onToggleHistory: (items: Generation[]) => void;
   galleryAccept: string;
   galleryDropLabel: string;
+  gallerySummaries: GallerySummary[];
+  galleryId: string | null;
+  onGalleryOpen: (id: string) => void;
+  onManageGallerySave: () => void;
+  onGalleryAttach: () => string[];
+  onGalleryFeature: (index: number) => void;
+  onGalleryDelete: () => void;
 }) {
   const pagingKey = `${page}\0${appliedTag}`;
   const [pageDraft, setPageDraft] = useState(String(page));
   const pageCommitSkip = useRef(false);
+  const [galleriesOpen, setGalleriesOpen] = useState(false);
+  const [managingGallery, setManagingGallery] = useState(false);
   const [expandKey, setExpandKey] = useState(pagingKey);
   const [expand, setExpand] = useState<GalleryExpandState>(CLOSED_EXPAND);
   const expandRef = useRef(expand);
@@ -269,6 +286,7 @@ export function Sidebar({
   const batches = useMemo(() => groupGenerationBatches(generations), [generations]);
   const readyAll = useMemo(() => completedMedia(generations), [generations]);
   const galleryKeySet = useMemo(() => new Set(galleryItems.map((item) => item.key)), [galleryItems]);
+  const galleryDetail = galleriesOpen && managingGallery && Boolean(galleryId);
   const expandForPage = expandKey === pagingKey ? expand : CLOSED_EXPAND;
   const expandVisible =
     !expandForPage.expandedId || batches.some((batch) => batch.id === expandForPage.expandedId)
@@ -383,16 +401,32 @@ export function Sidebar({
           <img className={brandMarkClass(logoUrl)} src={logoUrl} alt="" />
           <div className="brand-copy">
             <strong>Library</strong>
-            <span>Past work</span>
+            <span>{galleriesOpen ? "Galleries" : "Past work"}</span>
           </div>
         </div>
         <div className="sidebar-header-actions">
           <button
             type="button"
+            className={`ghost-btn${galleriesOpen ? " active" : ""}`}
+            aria-pressed={galleriesOpen}
+            onClick={() => {
+              if (createGalleryOpen) onCreateGalleryClose();
+              setManagingGallery(false);
+              setGalleriesOpen((open) => !open);
+            }}
+          >
+            Galleries
+          </button>
+          <button
+            type="button"
             className={`ghost-btn${createGalleryOpen ? " active" : ""}`}
             aria-expanded={createGalleryOpen}
             aria-controls="create-gallery"
-            onClick={onCreateGallery}
+            onClick={() => {
+              setGalleriesOpen(false);
+              setManagingGallery(false);
+              onCreateGallery();
+            }}
           >
             Create gallery
           </button>
@@ -437,6 +471,28 @@ export function Sidebar({
         />
       ) : null}
 
+      {galleriesOpen ? (
+        <GalleryBrowser
+          summaries={gallerySummaries}
+          detail={galleryDetail}
+          name={galleryName}
+          items={galleryItems}
+          saving={gallerySaving}
+          status={galleryStatus}
+          onOpen={(id) => {
+            setManagingGallery(true);
+            onGalleryOpen(id);
+          }}
+          onBack={() => setManagingGallery(false)}
+          onNameChange={onGalleryNameChange}
+          onSave={onManageGallerySave}
+          onAttach={onGalleryAttach}
+          onRemove={onGalleryRemove}
+          onFeature={onGalleryFeature}
+          onDelete={onGalleryDelete}
+        />
+      ) : (
+      <>
       <div className="tag-filter">
         <input
           className="tag-filter-input"
@@ -682,6 +738,8 @@ export function Sidebar({
           </button>
         </nav>
       ) : null}
+      </>
+      )}
     </aside>
   );
 }

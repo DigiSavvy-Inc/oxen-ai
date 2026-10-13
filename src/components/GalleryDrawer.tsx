@@ -1,9 +1,9 @@
 import { useEffect, useState, type DragEvent } from "react";
 import { createPortal } from "react-dom";
 import type { GallerySummary } from "../lib/api";
-import { shortenFileName } from "../lib/files";
 import { GALLERY_ITEM_DRAG_TYPE } from "../lib/gallery-attach";
 import { indexAfterInsertBefore } from "../lib/mentions";
+import { GalleryThumb } from "./GalleryThumb";
 
 export type GalleryDraftItem = {
   id: string;
@@ -221,13 +221,7 @@ export function GalleryDrawer(props: Props) {
               setDropInsertBefore(null);
             }}
           >
-            {item.kind === "image" ? (
-              <img src={item.preview} alt="" draggable={false} />
-            ) : item.kind === "video" ? (
-              <video src={item.preview} muted playsInline draggable={false} />
-            ) : (
-              <span className="gallery-audio">{shortenFileName(item.name, 16)}</span>
-            )}
+            <GalleryThumb kind={item.kind} name={item.name} preview={item.preview} slot="tile" />
             <button
               type="button"
               className="gallery-remove"

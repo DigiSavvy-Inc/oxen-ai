@@ -101,10 +101,12 @@ import {
 import {
   acceptGalleryItems,
   acceptGalleryName,
+  deleteGallery,
   getGallery,
-  listGalleries,
   saveGallery,
 } from "./galleries";
+import { presentGallery, presentGalleryList } from "./gallery-present";
+import { parseServedThumbWidth, resizeServedImage } from "./gallery-thumbs";
 import {
   deleteSavedPrompt,
   listSavedPrompts,
@@ -112,7 +114,17 @@ import {
   updateSavedPrompt,
 } from "./saved-prompts";
 import { parseTagList } from "./tags";
-import { createImageThumbnail } from "./thumbs";
+import { createImageThumbnail, isRasterImage } from "./thumbs";
+import {
+  activateProfile,
+  createProfile,
+  deleteProfile,
+  ensureDefaultProfile,
+  profileState,
+  renameProfile,
+  stampGenerationProfile,
+  type ProfileFailure,
+} from "./profiles";
 import {
   backfillMissingThumbnails,
   deleteAllUserMedia,
@@ -519,6 +531,7 @@ type GenerationRow = {
   params_json?: string | null;
   error_message: string | null;
   batch_id?: string | null;
+  profile_id?: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -574,6 +587,7 @@ function toGenerationJson(
     progress: extras?.progress ?? null,
     typicalSeconds: extras?.typicalSeconds ?? null,
     tags: extras?.tags ?? [],
+    profileId: row.profile_id ?? null,
     draftTaskId: draftMetaFromParams(row.params_json)?.draftTaskId ?? null,
     draftExpiresAt: draftMetaFromParams(row.params_json)?.draftExpiresAt ?? null,
   };
@@ -678,10 +692,12 @@ async function typicalWaitByMedia(
   return out;
 }
 
-function generationListQuery(scope: GenerationListScope): string {
+function generationListQuery(scope: GenerationListScope, profileId?: string | null): string {
   switch (scope) {
-    case "active":
-      return `SELECT * FROM generations WHERE user_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled') ORDER BY created_at DESC LIMIT 50`;
+    case "active": {
+      const profile = profileId ? " AND profile_id = ?" : "";
+      return `SELECT * FROM generations WHERE user_id = ?${profile} AND status NOT IN ('succeeded', 'failed', 'cancelled') ORDER BY created_at DESC LIMIT 50`;
+    }
     case "library":
       throw new Error("Library lists use libraryListSql");
     default: {
@@ -1214,25 +1230,75 @@ app.delete("/api/prompts/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-async function galleryResponse(
-  env: Env,
-  gallery: NonNullable<Awaited<ReturnType<typeof getGallery>>>,
-) {
-  const items = await Promise.all(
-    gallery.items.map(async (item) => ({
-      id: item.id,
-      kind: item.kind,
-      name: item.name,
-      key: item.key,
-      url: (await displayStoredMediaUrl(env, item.key, null)) ?? "",
-    })),
-  );
-  return { id: gallery.id, name: gallery.name, updatedAt: gallery.updatedAt, items };
+function profileError(error: ProfileFailure): { status: 400 | 404; message: string } {
+  switch (error) {
+    case "missing":
+      return { status: 404, message: "Profile not found" };
+    case "last":
+      return { status: 400, message: "Keep at least one profile" };
+    case "name":
+      return { status: 400, message: "Profile needs a name" };
+    case "limit":
+      return { status: 400, message: "Profile limit is 20" };
+    case "unavailable":
+      return { status: 400, message: "Profiles are not available yet" };
+    default: {
+      const _never: never = error;
+      return _never;
+    }
+  }
 }
+
+app.get("/api/profiles", async (c) => {
+  const user = await requireUser(c);
+  return c.json(await profileState(c.env.DB, user.id));
+});
+
+app.post("/api/profiles", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ name?: unknown }>();
+  const result = await createProfile(c.env.DB, user.id, body.name);
+  if ("error" in result) {
+    const failure = profileError(result.error);
+    throw new HTTPException(failure.status, { message: failure.message });
+  }
+  return c.json(result);
+});
+
+app.patch("/api/profiles/:id", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ name?: unknown }>();
+  const result = await renameProfile(c.env.DB, user.id, c.req.param("id"), body.name);
+  if ("error" in result) {
+    const failure = profileError(result.error);
+    throw new HTTPException(failure.status, { message: failure.message });
+  }
+  return c.json(result);
+});
+
+app.post("/api/profiles/:id/activate", async (c) => {
+  const user = await requireUser(c);
+  const result = await activateProfile(c.env.DB, user.id, c.req.param("id"));
+  if ("error" in result) {
+    const failure = profileError(result.error);
+    throw new HTTPException(failure.status, { message: failure.message });
+  }
+  return c.json(result);
+});
+
+app.delete("/api/profiles/:id", async (c) => {
+  const user = await requireUser(c);
+  const result = await deleteProfile(c.env.DB, user.id, c.req.param("id"));
+  if ("error" in result) {
+    const failure = profileError(result.error);
+    throw new HTTPException(failure.status, { message: failure.message });
+  }
+  return c.json(result);
+});
 
 app.get("/api/galleries", async (c) => {
   const user = await requireUser(c);
-  const galleries = await listGalleries(c.env.DB, user.id, c.req.query("q") || "");
+  const galleries = await presentGalleryList(c.env, user.id, c.req.query("q") || "");
   return c.json({ galleries });
 });
 
@@ -1242,17 +1308,28 @@ app.get("/api/galleries/:id", async (c) => {
   if (!gallery) {
     throw new HTTPException(404, { message: "Gallery not found" });
   }
-  return c.json({ gallery: await galleryResponse(c.env, gallery) });
+  return c.json({ gallery: await presentGallery(c.env, user.id, gallery) });
+});
+
+app.delete("/api/galleries/:id", async (c) => {
+  const user = await requireUser(c);
+  const removed = await deleteGallery(c.env.DB, user.id, c.req.param("id"));
+  if (!removed) {
+    throw new HTTPException(404, { message: "Gallery not found" });
+  }
+  return c.json({ ok: true });
 });
 
 app.post("/api/galleries", async (c) => {
   const user = await requireUser(c);
   const body = await c.req.json<{ id?: unknown; name?: unknown; items?: unknown }>();
   const id = typeof body.id === "string" ? body.id : null;
+  const profileId = id ? null : await ensureDefaultProfile(c.env.DB, user.id);
   const gallery = await saveGallery(c.env.DB, user.id, {
     id,
     name: body.name,
     items: body.items,
+    profileId,
   });
   if (!gallery) {
     const named = acceptGalleryName(body.name);
@@ -1262,7 +1339,7 @@ app.post("/api/galleries", async (c) => {
     }
     throw new HTTPException(400, { message: "Gallery needs a name and media that belong to you" });
   }
-  return c.json({ gallery: await galleryResponse(c.env, gallery) });
+  return c.json({ gallery: await presentGallery(c.env, user.id, gallery) });
 });
 
 app.get("/api/models/favorites", async (c) => {
@@ -1419,12 +1496,8 @@ app.get("/api/media/*", async (c) => {
   object.writeHttpMetadata(headers);
   const storedType = object.httpMetadata?.contentType || guessMediaContentType(key);
   const served = mediaServeDisposition(storedType);
-  headers.set("Content-Type", served.contentType);
   headers.set("Content-Disposition", served.disposition);
   headers.set("X-Content-Type-Options", "nosniff");
-  if (typeof object.size === "number" && Number.isFinite(object.size)) {
-    headers.set("Content-Length", String(object.size));
-  }
   headers.set("Access-Control-Allow-Origin", "*");
   headers.set("Cross-Origin-Resource-Policy", "cross-origin");
   const remaining = Number(exp) - Math.floor(Date.now() / 1000);
@@ -1432,6 +1505,27 @@ app.get("/api/media/*", async (c) => {
     "Cache-Control",
     `public, max-age=${Math.max(0, remaining)}, immutable`,
   );
+  const width = parseServedThumbWidth(c.req.query("w"));
+  if (width && isRasterImage(served.contentType)) {
+    const bytes = await object.arrayBuffer();
+    const resized = await resizeServedImage(c.env.IMAGES, bytes, width);
+    const body = resized?.bytes ?? bytes;
+    headers.set("Content-Type", resized?.contentType ?? served.contentType);
+    headers.set("Content-Length", String(body.byteLength));
+    const response = new Response(body, { headers });
+    if (resized) {
+      try {
+        c.executionCtx.waitUntil(caches.default.put(c.req.raw, response.clone()));
+      } catch {
+        /* tests have no cache or execution context */
+      }
+    }
+    return response;
+  }
+  headers.set("Content-Type", served.contentType);
+  if (typeof object.size === "number" && Number.isFinite(object.size)) {
+    headers.set("Content-Length", String(object.size));
+  }
   return new Response(object.body, { headers });
 });
 
@@ -1718,6 +1812,7 @@ app.post("/api/generate", async (c) => {
   const generations = await enqueueGeneration(apiKey, payload);
   const now = Math.floor(Date.now() / 1000);
   const batchId = crypto.randomUUID();
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
   const saved = [];
 
   for (const gen of generations) {
@@ -1767,6 +1862,7 @@ app.post("/api/generate", async (c) => {
         )
         .run();
     }
+    await stampGenerationProfile(c.env.DB, user.id, id, profileId);
     saved.push({
       id,
       oxenGenerationId: gen.generation_id,
@@ -1852,13 +1948,14 @@ app.get("/api/generations", async (c) => {
     throw new HTTPException(400, { message: "Invalid generation list scope" });
   }
   const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
   let pageMeta: { page: number; pageSize: number; total: number; tags: string[] } | null = null;
   let rows: { results?: GenerationRow[] };
   if (scope === "library") {
     const query = parseLibraryPage(c.req.query("page"), c.req.query("pageSize"), c.req.query("tag"));
-    const count = libraryCountSql(user.id, query);
+    const count = libraryCountSql(user.id, query, profileId);
     const totalRow = await c.env.DB.prepare(count.sql).bind(...count.binds).first<{ total: number }>();
-    const list = libraryListSql(user.id, query);
+    const list = libraryListSql(user.id, query, profileId);
     rows = await c.env.DB.prepare(list.sql).bind(...list.binds).all<GenerationRow>();
     pageMeta = {
       page: query.page,
@@ -1867,7 +1964,8 @@ app.get("/api/generations", async (c) => {
       tags: await listLibraryTags(c.env, user.id),
     };
   } else if (scope === "active") {
-    rows = await c.env.DB.prepare(generationListQuery(scope)).bind(user.id).all<GenerationRow>();
+    const binds = profileId ? [user.id, profileId] : [user.id];
+    rows = await c.env.DB.prepare(generationListQuery(scope, profileId)).bind(...binds).all<GenerationRow>();
   } else {
     const _never: never = scope;
     throw new Error(`Unhandled generation list scope: ${_never}`);

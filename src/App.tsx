@@ -12,6 +12,7 @@ import { LoginPage } from "./components/LoginPage";
 import { Loader } from "./components/Loader";
 import { SettingsModal } from "./components/SettingsModal";
 import { Sidebar } from "./components/Sidebar";
+import { ProfileSwitch } from "./components/ProfileSwitch";
 import {
   api,
   firstSupportedMode,
@@ -24,8 +25,10 @@ import {
   type GenerationMode,
   type ModelControls,
   type OxenModel,
+  type GalleryItem,
   type GallerySummary,
   type SavedPrompt,
+  type StudioProfile,
   type StudioSettings,
 } from "./lib/api";
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations, siblingAfterRemoval } from "./lib/batches";
@@ -82,6 +85,17 @@ function initialLibraryOpen(): boolean {
   }
 }
 
+function draftFromGalleryItem(item: GalleryItem): GalleryDraftItem {
+  return {
+    id: item.id,
+    kind: item.kind,
+    name: item.name,
+    preview: item.thumbUrl || (item.kind === "image" ? item.url : ""),
+    key: item.key,
+    url: item.url,
+  };
+}
+
 export default function App() {
   const { user, loading, logout } = useAuth();
   const { branding, setBranding } = useInstanceBranding();
@@ -114,6 +128,8 @@ export default function App() {
   const [galleryAdding, setGalleryAdding] = useState(false);
   const [galleryStatus, setGalleryStatus] = useState<string | null>(null);
   const [createGalleryOpen, setCreateGalleryOpen] = useState(false);
+  const [profiles, setProfiles] = useState<StudioProfile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [quality, setQuality] = useState("");
   const [resolution, setResolution] = useState("");
   const [outputFormat, setOutputFormat] = useState("");
@@ -156,29 +172,34 @@ export default function App() {
     };
   }
 
+  const scopedGenerations = useMemo(() => {
+    if (!activeProfileId) return generations;
+    return generations.filter((item) => !item.profileId || item.profileId === activeProfileId);
+  }, [generations, activeProfileId]);
+
   const selected = useMemo(
-    () => generations.find((g) => g.id === selectedId) ?? null,
-    [generations, selectedId],
+    () => scopedGenerations.find((g) => g.id === selectedId) ?? null,
+    [scopedGenerations, selectedId],
   );
 
   const selectedVariants = useMemo(() => {
     if (!selected) return [];
-    const batches = groupGenerationBatches(generations);
+    const batches = groupGenerationBatches(scopedGenerations);
     const batch = batches.find((entry) => entry.items.some((item) => item.id === selected.id));
     return batch?.items ?? [selected];
-  }, [generations, selected]);
+  }, [scopedGenerations, selected]);
 
   const peek = useMemo(
-    () => generations.find((g) => g.id === peekId) ?? null,
-    [generations, peekId],
+    () => scopedGenerations.find((g) => g.id === peekId) ?? null,
+    [scopedGenerations, peekId],
   );
 
   const peekVariants = useMemo(() => {
     if (!peek) return [];
-    const batches = groupGenerationBatches(generations);
+    const batches = groupGenerationBatches(scopedGenerations);
     const batch = batches.find((entry) => entry.items.some((item) => item.id === peek.id));
     return batch?.items ?? [peek];
-  }, [generations, peek]);
+  }, [scopedGenerations, peek]);
 
   const attachedIds = useMemo(
     () => new Set(staged.map((item) => item.generationId).filter((id): id is string => Boolean(id))),
@@ -220,6 +241,74 @@ export default function App() {
     setLibraryTags(data.tags ?? []);
     setGenerations((prev) => mergeGenerations(prev, data.generations));
   }, [historyPageSize, libraryPage, libraryTag]);
+
+  async function replaceProfileMedia() {
+    const [active, library, galleries] = await Promise.all([
+      api.listGenerations("active"),
+      api.listGenerations("library", { page: 1, pageSize: historyPageSize, tag: "" }),
+      api.galleries(),
+    ]);
+    const seen = new Set<string>();
+    const merged: Generation[] = [];
+    for (const item of [...active.generations, ...library.generations]) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      merged.push(item);
+    }
+    setGenerations(merged);
+    setLibraryItems(library.generations);
+    setLibraryTotal(library.total ?? library.generations.length);
+    setLibraryTags(library.tags ?? []);
+    setLibraryPage(1);
+    setLibraryTag("");
+    setLibraryTagInput("");
+    setGallerySummaries(galleries.galleries);
+    setPeekId(null);
+    setSelectedId(keepCanvasClear ? null : (merged[0]?.id ?? null));
+    setGalleryId(null);
+    setGalleryName("");
+    setGalleryItems([]);
+    setGalleryStatus(null);
+  }
+
+  async function applyProfileState(data: { profiles: StudioProfile[]; activeId: string | null }, reload: boolean) {
+    setProfiles(data.profiles);
+    setActiveProfileId(data.activeId);
+    if (reload) await replaceProfileMedia();
+  }
+
+  async function onActivateProfile(id: string) {
+    if (id === activeProfileId) return;
+    try {
+      await applyProfileState(await api.activateProfile(id), true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn’t switch profiles");
+    }
+  }
+
+  async function onCreateProfile(name: string) {
+    try {
+      await applyProfileState(await api.createProfile(name), true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn’t create that profile");
+    }
+  }
+
+  async function onRenameProfile(id: string, name: string) {
+    try {
+      await applyProfileState(await api.renameProfile(id, name), false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn’t rename that profile");
+    }
+  }
+
+  async function onDeleteProfile(id: string) {
+    try {
+      await applyProfileState(await api.deleteProfile(id), true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn’t delete that profile");
+    }
+  }
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -341,6 +430,31 @@ export default function App() {
       })
       .catch(() => {
         if (!cancelled) setGallerySummaries([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setProfiles([]);
+      setActiveProfileId(null);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .profiles()
+      .then((data) => {
+        if (cancelled) return;
+        setProfiles(data.profiles);
+        setActiveProfileId(data.activeId);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setProfiles([]);
+          setActiveProfileId(null);
+        }
       });
     return () => {
       cancelled = true;
@@ -995,8 +1109,9 @@ export default function App() {
     }
   }
 
-  async function onGallerySave(): Promise<boolean> {
+  async function onGallerySave(nextItems?: GalleryDraftItem[]): Promise<boolean> {
     const name = galleryName.trim();
+    const items = nextItems ?? galleryItems;
     if (!name || gallerySaving) return false;
     setGallerySaving(true);
     setGalleryStatus(null);
@@ -1004,7 +1119,7 @@ export default function App() {
       const saved = await api.saveGallery({
         id: galleryId,
         name,
-        items: galleryItems.map((item) => ({
+        items: items.map((item) => ({
           kind: item.kind,
           name: item.name,
           key: item.key,
@@ -1012,20 +1127,19 @@ export default function App() {
       });
       setGalleryId(saved.gallery.id);
       setGalleryName(saved.gallery.name);
-      setGalleryItems(
-        saved.gallery.items.map((item) => ({
-          id: item.id,
-          kind: item.kind,
-          name: item.name,
-          preview: item.url,
-          key: item.key,
-          url: item.url,
-        })),
+      setGalleryItems(saved.gallery.items.map(draftFromGalleryItem));
+      const listed = await api.galleries().catch(() => null);
+      setGallerySummaries(
+        listed?.galleries ?? [
+          {
+            id: saved.gallery.id,
+            name: saved.gallery.name,
+            updatedAt: saved.gallery.updatedAt,
+            count: saved.gallery.items.length,
+          },
+          ...gallerySummaries.filter((item) => item.id !== saved.gallery.id),
+        ],
       );
-      setGallerySummaries((prev) => [
-        { id: saved.gallery.id, name: saved.gallery.name, updatedAt: saved.gallery.updatedAt },
-        ...prev.filter((item) => item.id !== saved.gallery.id),
-      ]);
       return true;
     } catch (err) {
       setGalleryStatus(err instanceof Error ? err.message : "Couldn’t save the gallery");
@@ -1081,18 +1195,32 @@ export default function App() {
       const { gallery } = await api.gallery(id);
       setGalleryId(gallery.id);
       setGalleryName(gallery.name);
-      setGalleryItems(
-        gallery.items.map((item) => ({
-          id: item.id,
-          kind: item.kind,
-          name: item.name,
-          preview: item.url,
-          key: item.key,
-          url: item.url,
-        })),
-      );
+      setGalleryItems(gallery.items.map(draftFromGalleryItem));
     } catch (err) {
       setGalleryStatus(err instanceof Error ? err.message : "Couldn’t load that gallery");
+    }
+  }
+
+  async function onGalleryFeature(index: number) {
+    const item = galleryItems[index];
+    if (!item || index === 0) return;
+    const next = [item, ...galleryItems.filter((_, itemIndex) => itemIndex !== index)];
+    setGalleryItems(next);
+    await onGallerySave(next);
+  }
+
+  async function onGalleryDelete() {
+    if (!galleryId) return;
+    setGalleryStatus(null);
+    try {
+      await api.deleteGallery(galleryId);
+      setGalleryId(null);
+      setGalleryName("");
+      setGalleryItems([]);
+      const listed = await api.galleries();
+      setGallerySummaries(listed.galleries);
+    } catch (err) {
+      setGalleryStatus(err instanceof Error ? err.message : "Couldn’t delete that gallery");
     }
   }
 
@@ -1495,6 +1623,13 @@ export default function App() {
         onToggleHistory={onToggleHistory}
         galleryAccept={galleryAccept}
         galleryDropLabel={galleryDropPhrase ? `Drop ${galleryDropPhrase}` : "Drop media"}
+        gallerySummaries={gallerySummaries}
+        galleryId={galleryId}
+        onGalleryOpen={(id) => void onGalleryLoad(id)}
+        onManageGallerySave={() => void onGallerySave()}
+        onGalleryAttach={onGalleryAttach}
+        onGalleryFeature={(index) => void onGalleryFeature(index)}
+        onGalleryDelete={() => void onGalleryDelete()}
       />
       {libraryOpen ? (
         <button
@@ -1534,6 +1669,14 @@ export default function App() {
               <button type="button" className="ghost-btn" onClick={startNew}>
                 New
               </button>
+              <ProfileSwitch
+                profiles={profiles}
+                activeId={activeProfileId}
+                onActivate={(id) => void onActivateProfile(id)}
+                onCreate={(name) => void onCreateProfile(name)}
+                onRename={(id, name) => void onRenameProfile(id, name)}
+                onDelete={(id) => void onDeleteProfile(id)}
+              />
             </div>
             <div className="main-top-right">
               <CreditMeter credits={credits} />

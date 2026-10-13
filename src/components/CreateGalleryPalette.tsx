@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { shortenFileName } from "../lib/files";
 import type { GalleryDraftItem } from "./GalleryDrawer";
+import { GalleryThumb } from "./GalleryThumb";
 
 type Props = {
   name: string;
@@ -95,13 +95,7 @@ export function CreateGalleryPalette(props: Props) {
         <div className="create-gallery-items">
           {props.items.map((item, index) => (
             <div key={item.id} className="create-gallery-thumb">
-              {item.kind === "image" ? (
-                <img src={item.preview} alt="" />
-              ) : item.kind === "video" ? (
-                <video src={item.preview} muted playsInline />
-              ) : (
-                <span className="gallery-audio">{shortenFileName(item.name, 12)}</span>
-              )}
+              <GalleryThumb kind={item.kind} name={item.name} preview={item.preview} slot="strip" />
               <button
                 type="button"
                 className="gallery-remove"

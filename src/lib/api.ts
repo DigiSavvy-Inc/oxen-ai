@@ -132,6 +132,7 @@ export type Generation = {
   tags?: string[];
   draftTaskId?: string | null;
   draftExpiresAt?: string | null;
+  profileId?: string | null;
 };
 
 export type SavedPrompt = {
@@ -141,10 +142,18 @@ export type SavedPrompt = {
   createdAt: number;
 };
 
+export type GalleryPreview = {
+  kind: "image" | "video" | "audio";
+  name: string;
+  thumbUrl: string | null;
+};
+
 export type GallerySummary = {
   id: string;
   name: string;
   updatedAt: number;
+  count?: number;
+  previews?: GalleryPreview[];
 };
 
 export type GalleryItem = {
@@ -153,6 +162,7 @@ export type GalleryItem = {
   name: string;
   key: string;
   url: string;
+  thumbUrl?: string | null;
 };
 
 export type Gallery = {
@@ -160,6 +170,18 @@ export type Gallery = {
   name: string;
   updatedAt: number;
   items: GalleryItem[];
+};
+
+export type StudioProfile = {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ProfileState = {
+  profiles: StudioProfile[];
+  activeId: string | null;
 };
 
 export type CreditBalance = {
@@ -438,6 +460,31 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }).then((r) => parseJson<{ gallery: Gallery }>(r)),
+  deleteGallery: (id: string) =>
+    fetch(`/api/galleries/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
+      parseJson<{ ok: boolean }>(r),
+    ),
+  profiles: () => fetch("/api/profiles").then((r) => parseJson<ProfileState>(r)),
+  createProfile: (name: string) =>
+    fetch("/api/profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }).then((r) => parseJson<ProfileState>(r)),
+  renameProfile: (id: string, name: string) =>
+    fetch(`/api/profiles/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }).then((r) => parseJson<ProfileState>(r)),
+  activateProfile: (id: string) =>
+    fetch(`/api/profiles/${encodeURIComponent(id)}/activate`, { method: "POST" }).then((r) =>
+      parseJson<ProfileState>(r),
+    ),
+  deleteProfile: (id: string) =>
+    fetch(`/api/profiles/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
+      parseJson<ProfileState>(r),
+    ),
   credits: () =>
     fetch("/api/billing/credits").then((r) => parseJson<CreditBalance>(r)),
   pushConfig: () =>

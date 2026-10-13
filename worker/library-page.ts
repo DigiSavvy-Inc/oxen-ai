@@ -8,11 +8,12 @@ export type LibraryPage = {
 
 const BATCH_KEY = `CASE WHEN batch_id IS NOT NULL AND TRIM(batch_id) != '' THEN batch_id ELSE 'legacy' || char(0) || created_at || char(0) || mode || char(0) || IFNULL(media_type, '') || char(0) || model || char(0) || IFNULL(prompt, '') END`;
 
-function keyedAndMatched(): string {
+function keyedAndMatched(profileId?: string | null): string {
+  const profile = profileId ? " AND profile_id = ?" : "";
   return `keyed AS (
     SELECT id, created_at, ${BATCH_KEY} AS batch_key
     FROM generations
-    WHERE user_id = ?
+    WHERE user_id = ?${profile}
   ),
   matched AS (
     SELECT k.batch_key AS batch_key, MAX(k.created_at) AS newest
@@ -44,22 +45,33 @@ export function tagLikePattern(tag: string): string {
   return `%${needle.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
 }
 
-function matchBinds(userId: string, tag: string): unknown[] {
-  return [userId, tag ? "1" : "", userId, tagLikePattern(tag)];
+function matchBinds(userId: string, tag: string, profileId?: string | null): unknown[] {
+  const profile = profileId ? [profileId] : [];
+  return [userId, ...profile, tag ? "1" : "", userId, tagLikePattern(tag)];
 }
 
-export function libraryCountSql(userId: string, query: LibraryPage): { sql: string; binds: unknown[] } {
+export function libraryCountSql(
+  userId: string,
+  query: LibraryPage,
+  profileId?: string | null,
+): { sql: string; binds: unknown[] } {
   return {
-    sql: `WITH ${keyedAndMatched()}
+    sql: `WITH ${keyedAndMatched(profileId)}
       SELECT COUNT(*) AS total FROM matched`,
-    binds: matchBinds(userId, query.tag),
+    binds: matchBinds(userId, query.tag, profileId),
   };
 }
 
-export function libraryListSql(userId: string, query: LibraryPage): { sql: string; binds: unknown[] } {
+export function libraryListSql(
+  userId: string,
+  query: LibraryPage,
+  profileId?: string | null,
+): { sql: string; binds: unknown[] } {
   const offset = (query.page - 1) * query.pageSize;
+  const profile = profileId ? " AND g.profile_id = ?" : "";
+  const profileBind = profileId ? [profileId] : [];
   return {
-    sql: `WITH ${keyedAndMatched()},
+    sql: `WITH ${keyedAndMatched(profileId)},
       paged AS (
         SELECT batch_key FROM matched
         ORDER BY newest DESC, batch_key DESC
@@ -69,9 +81,9 @@ export function libraryListSql(userId: string, query: LibraryPage): { sql: strin
       FROM generations g
       JOIN keyed k ON k.id = g.id
       JOIN paged p ON p.batch_key = k.batch_key
-      WHERE g.user_id = ?
+      WHERE g.user_id = ?${profile}
       ORDER BY g.created_at DESC, g.id DESC`,
-    binds: [...matchBinds(userId, query.tag), query.pageSize, offset, userId],
+    binds: [...matchBinds(userId, query.tag, profileId), query.pageSize, offset, userId, ...profileBind],
   };
 }
 

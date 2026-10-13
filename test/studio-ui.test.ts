@@ -1097,6 +1097,8 @@ describe("library history layout", () => {
       sidebar.indexOf('className="sidebar-header-actions"'),
       sidebar.indexOf('className="tag-filter"'),
     );
+    expect(header.indexOf("Galleries")).toBeGreaterThan(-1);
+    expect(header.indexOf("Galleries")).toBeLessThan(header.indexOf("Create gallery"));
     expect(header.indexOf("Create gallery")).toBeGreaterThan(-1);
     expect(header.indexOf("Create gallery")).toBeLessThan(header.indexOf("Download all"));
     expect(sidebar).toContain("if (createGalleryOpen)");
