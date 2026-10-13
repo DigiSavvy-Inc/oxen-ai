@@ -51,6 +51,31 @@ export function historyItemsForGallery(items: readonly HistoryGallerySource[]): 
   return out;
 }
 
+export type HistoryGalleryNotice =
+  | { kind: "added"; count: number; name: string }
+  | { kind: "already"; name: string }
+  | { kind: "created"; count: number; name: string }
+  | { kind: "error"; message: string };
+
+export function historyGalleryNoticeText(notice: HistoryGalleryNotice): string {
+  switch (notice.kind) {
+    case "added":
+      return notice.count === 1 ? `Added 1 to ${notice.name}` : `Added ${notice.count} to ${notice.name}`;
+    case "already":
+      return `Already in ${notice.name}`;
+    case "created":
+      return notice.count === 1
+        ? `Created ${notice.name} with 1 item`
+        : `Created ${notice.name} with ${notice.count} items`;
+    case "error":
+      return notice.message;
+    default: {
+      const unreachable: never = notice;
+      return unreachable;
+    }
+  }
+}
+
 export type HistoryToggleResult<T> = {
   items: T[];
   added: number;

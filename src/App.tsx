@@ -53,6 +53,7 @@ import {
   historyItemsForGallery,
   toggleHistoryInGallery,
   type HistoryGalleryItem,
+  type HistoryGalleryNotice,
 } from "./lib/gallery-history";
 import { insertAttachMentions, moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
@@ -1342,8 +1343,11 @@ export default function App() {
     return items.map((item) => ({ kind: item.kind, name: item.name, key: item.key }));
   }
 
-  async function addHistoryToGallery(targetId: string, items: HistoryGalleryItem[]): Promise<string | null> {
-    if (items.length === 0 || gallerySaving) return "Nothing to add";
+  async function addHistoryToGallery(
+    targetId: string,
+    items: HistoryGalleryItem[],
+  ): Promise<HistoryGalleryNotice> {
+    if (items.length === 0 || gallerySaving) return { kind: "error", message: "Nothing to add" };
     setGallerySaving(true);
     setGalleryStatus(null);
     try {
@@ -1352,7 +1356,9 @@ export default function App() {
       const extra = items.filter((item) => !have.has(item.key));
       const accepted = extra.slice(0, Math.max(0, GALLERY_ITEM_CAP - gallery.items.length));
       if (accepted.length === 0) {
-        return extra.length === 0 ? "Already in that gallery" : `A gallery holds ${GALLERY_ITEM_CAP} items`;
+        return extra.length === 0
+          ? { kind: "already", name: gallery.name }
+          : { kind: "error", message: `A gallery holds ${GALLERY_ITEM_CAP} items` };
       }
       const saved = await api.saveGallery({
         id: gallery.id,
@@ -1365,30 +1371,36 @@ export default function App() {
       }
       const listed = await api.galleries();
       setGallerySummaries(listed.galleries);
-      return accepted.length < extra.length ? `A gallery holds ${GALLERY_ITEM_CAP} items` : null;
+      if (accepted.length < extra.length) {
+        return { kind: "error", message: `Added ${accepted.length}. A gallery holds ${GALLERY_ITEM_CAP} items` };
+      }
+      return { kind: "added", count: accepted.length, name: saved.gallery.name };
     } catch (err) {
-      return err instanceof Error ? err.message : "Couldn’t add to that gallery";
+      return { kind: "error", message: err instanceof Error ? err.message : "Couldn’t add to that gallery" };
     } finally {
       setGallerySaving(false);
     }
   }
 
-  async function createHistoryGallery(name: string, items: HistoryGalleryItem[]): Promise<string | null> {
+  async function createHistoryGallery(name: string, items: HistoryGalleryItem[]): Promise<HistoryGalleryNotice> {
     const trimmed = name.trim();
-    if (!trimmed || items.length === 0 || gallerySaving) return "Name the gallery";
+    if (!trimmed || items.length === 0 || gallerySaving) return { kind: "error", message: "Name the gallery" };
     setGallerySaving(true);
     setGalleryStatus(null);
     try {
       const accepted = items.slice(0, GALLERY_ITEM_CAP);
-      await api.saveGallery({
+      const saved = await api.saveGallery({
         name: trimmed,
         items: galleryPayload(accepted),
       });
       const listed = await api.galleries();
       setGallerySummaries(listed.galleries);
-      return accepted.length < items.length ? `A gallery holds ${GALLERY_ITEM_CAP} items` : null;
+      if (accepted.length < items.length) {
+        return { kind: "error", message: `A gallery holds ${GALLERY_ITEM_CAP} items` };
+      }
+      return { kind: "created", count: accepted.length, name: saved.gallery.name };
     } catch (err) {
-      return err instanceof Error ? err.message : "Couldn’t create that gallery";
+      return { kind: "error", message: err instanceof Error ? err.message : "Couldn’t create that gallery" };
     } finally {
       setGallerySaving(false);
     }

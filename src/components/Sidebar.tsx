@@ -25,6 +25,7 @@ import {
   historyItemsForGallery,
   historyKeySelected,
   type HistoryGalleryItem,
+  type HistoryGalleryNotice,
 } from "../lib/gallery-history";
 import { suggestTags } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
@@ -286,8 +287,8 @@ export function Sidebar({
   onGalleryRename: (id: string, name: string) => void;
   onGalleryDeleteSelected: (ids: string[]) => Promise<boolean>;
   onGalleryPlace: (input: GalleryPlace) => Promise<boolean>;
-  onHistoryAddToGallery: (galleryId: string, items: HistoryGalleryItem[]) => Promise<string | null>;
-  onHistoryCreateGallery: (name: string, items: HistoryGalleryItem[]) => Promise<string | null>;
+  onHistoryAddToGallery: (galleryId: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
+  onHistoryCreateGallery: (name: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
 }) {
   const pagingKey = `${page}\0${appliedTag}`;
   const [pageDraft, setPageDraft] = useState(String(page));
