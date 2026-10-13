@@ -107,7 +107,7 @@ export function ProfileSwitch(props: Props) {
                   }}
                 />
                 <button type="submit" className="prompt-action" disabled={!renameDraft.trim()}>
-                  Save changes
+                  Save
                 </button>
               </form>
             ) : (
