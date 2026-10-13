@@ -20,13 +20,19 @@ import {
   type GalleryExpandAction,
   type GalleryExpandState,
 } from "../lib/gallery-expand";
-import { historyKeySelected } from "../lib/gallery-history";
+import {
+  historyItemForGallery,
+  historyItemsForGallery,
+  historyKeySelected,
+  type HistoryGalleryItem,
+} from "../lib/gallery-history";
 import { suggestTags } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
 import { CreateGalleryPalette } from "./CreateGalleryPalette";
-import { GalleryBrowser } from "./GalleryBrowser";
+import { GalleryBrowser, type GalleryPlace } from "./GalleryBrowser";
 import type { GalleryDraftItem } from "./GalleryDrawer";
 import { DownloadButton } from "./DownloadButton";
+import { HistoryGalleryActions } from "./HistoryGalleryActions";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
 import { MediaDeleteGroup } from "./MediaDeleteGroup";
@@ -228,6 +234,11 @@ export function Sidebar({
   onGalleryAttach,
   onGalleryFeature,
   onGalleryDelete,
+  onGalleryRename,
+  onGalleryDeleteSelected,
+  onGalleryPlace,
+  onHistoryAddToGallery,
+  onHistoryCreateGallery,
 }: {
   logoUrl: string;
   generations: Generation[];
@@ -271,7 +282,12 @@ export function Sidebar({
   onManageGallerySave: () => void;
   onGalleryAttach: (items?: GalleryDraftItem[]) => string[];
   onGalleryFeature: (index: number) => void;
-  onGalleryDelete: () => void;
+  onGalleryDelete: (id?: string) => void;
+  onGalleryRename: (id: string, name: string) => void;
+  onGalleryDeleteSelected: (ids: string[]) => Promise<boolean>;
+  onGalleryPlace: (input: GalleryPlace) => Promise<boolean>;
+  onHistoryAddToGallery: (galleryId: string, items: HistoryGalleryItem[]) => Promise<string | null>;
+  onHistoryCreateGallery: (name: string, items: HistoryGalleryItem[]) => Promise<string | null>;
 }) {
   const pagingKey = `${page}\0${appliedTag}`;
   const [pageDraft, setPageDraft] = useState(String(page));
@@ -499,6 +515,7 @@ export function Sidebar({
         <GalleryBrowser
           summaries={gallerySummaries}
           detail={galleryDetail}
+          galleryId={galleryId}
           name={galleryName}
           items={galleryItems}
           saving={gallerySaving}
@@ -513,7 +530,11 @@ export function Sidebar({
           onAttach={onGalleryAttach}
           onRemove={onGalleryRemove}
           onFeature={onGalleryFeature}
-          onDelete={onGalleryDelete}
+          onDelete={() => onGalleryDelete()}
+          onRenameGallery={onGalleryRename}
+          onDeleteGallery={onGalleryDelete}
+          onDeleteSelected={onGalleryDeleteSelected}
+          onPlaceSelected={onGalleryPlace}
         />
       ) : (
       <>
@@ -626,23 +647,36 @@ export function Sidebar({
                               ) : null}
                             </div>
                           ) : null}
-                          {onAttach ? (
-                            <button
-                              type="button"
-                              className={`history-expand-attach${attachedIds?.has(preview.id) ? " is-attached" : ""}`}
-                              disabled={!attachSupported?.(preview)}
-                              onMouseDown={(event) => event.preventDefault()}
-                              onClick={() => {
-                                if (!attachSupported?.(preview)) return;
-                                onAttach(preview);
-                              }}
-                            >
-                              {attachedIds?.has(preview.id)
-                                ? "Attached"
-                                : attachSupported?.(preview)
-                                  ? "Click to attach"
-                                  : `Can't attach ${attachKindLabel(preview)}`}
-                            </button>
+                          {onAttach || historyItemsForGallery(openBatch.items).length > 0 ? (
+                            <div className="history-expand-bar">
+                              {onAttach ? (
+                                <button
+                                  type="button"
+                                  className={`history-expand-attach${attachedIds?.has(preview.id) ? " is-attached" : ""}`}
+                                  disabled={!attachSupported?.(preview)}
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() => {
+                                    if (!attachSupported?.(preview)) return;
+                                    onAttach(preview);
+                                  }}
+                                >
+                                  {attachedIds?.has(preview.id)
+                                    ? "Attached"
+                                    : attachSupported?.(preview)
+                                      ? "Click to attach"
+                                      : `Can't attach ${attachKindLabel(preview)}`}
+                                </button>
+                              ) : (
+                                <span className="history-expand-spacer" />
+                              )}
+                              <HistoryGalleryActions
+                                image={historyItemForGallery(preview)}
+                                setItems={historyItemsForGallery(openBatch.items)}
+                                summaries={gallerySummaries}
+                                onAdd={onHistoryAddToGallery}
+                                onCreate={onHistoryCreateGallery}
+                              />
+                            </div>
                           ) : null}
                           {canFit ? <ExpandCorners /> : null}
                         </div>

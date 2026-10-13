@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import type { OxenModel } from "../lib/api";
 import { filterModels, groupPreferredModels, modelLabel } from "../lib/model-menu";
 
@@ -15,7 +16,9 @@ export function ModelMenu(props: Props) {
   const { models, preferred, value, query, onQueryChange, onChange } = props;
   const [open, setOpen] = useState(false);
   const [hot, setHot] = useState(0);
+  const [box, setBox] = useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -42,10 +45,34 @@ export function ModelMenu(props: Props) {
     close();
   }
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    function place() {
+      const trigger = rootRef.current?.querySelector(".model-menu-trigger");
+      if (!(trigger instanceof HTMLElement)) return;
+      const rect = trigger.getBoundingClientRect();
+      const spaceAbove = Math.max(160, rect.top - 12);
+      setBox({
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - 328)),
+        bottom: window.innerHeight - rect.top + 6,
+        maxHeight: Math.min(320, spaceAbove),
+      });
+    }
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     function onPointer(event: MouseEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) close();
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target) || popRef.current?.contains(target)) return;
+      close();
     }
     function onDocumentKey(event: globalThis.KeyboardEvent) {
       if (event.key === "Escape") close();
@@ -142,8 +169,13 @@ export function ModelMenu(props: Props) {
           ▾
         </span>
       </button>
-      {open ? (
-        <div className="model-menu-pop">
+      {open && box
+        ? createPortal(
+        <div
+          ref={popRef}
+          className="model-menu-pop"
+          style={{ left: box.left, bottom: box.bottom, maxHeight: box.maxHeight }}
+        >
           <input
             ref={searchRef}
             className="field model-menu-search"
@@ -216,8 +248,10 @@ export function ModelMenu(props: Props) {
             })}
             {options.length === 0 ? <div className="model-menu-empty">{emptyLabel}</div> : null}
           </div>
-        </div>
-      ) : null}
+        </div>,
+        document.body,
+      )
+        : null}
     </div>
   );
 }

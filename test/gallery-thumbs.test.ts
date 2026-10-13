@@ -45,7 +45,8 @@ describe("gallery slot thumbs", () => {
     expect(drawer).not.toContain("<video");
     expect(palette).toContain('slot="strip"');
     expect(palette).not.toContain("<video");
-    expect(browser).toContain('slot="strip"');
+    expect(browser).toContain('"strip"');
+    expect(browser).toContain('"cover"');
     expect(browser).toContain('slot="tile"');
     expect(browser).toContain("Attach all");
     expect(browser).toContain("onAttach([item])");

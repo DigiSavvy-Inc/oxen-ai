@@ -1103,6 +1103,10 @@ describe("library history layout", () => {
     expect(header.indexOf("Create gallery")).toBeLessThan(header.indexOf("Download all"));
     expect(sidebar).toContain('aria-label={galleriesOpen ? "Back to history" : "Close library"}');
     expect(sidebar).toContain("if (open !== false) return;");
+    const modelMenu = readFileSync(new URL("../src/components/ModelMenu.tsx", import.meta.url), "utf8");
+    expect(modelMenu).toContain("createPortal");
+    expect(css).toContain(".model-menu-pop");
+    expect(css).toMatch(/\.model-menu-pop\s*\{[^}]*z-index:\s*60/);
     expect(sidebar).toContain("if (createGalleryOpen)");
     expect(sidebar).toContain("onToggleHistory(batch.items)");
     expect(css).toContain(".history-gallery-mark");

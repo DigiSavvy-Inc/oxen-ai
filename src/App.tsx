@@ -49,7 +49,11 @@ import {
   supportedMediaNotice,
 } from "./lib/library-refs";
 import { planGalleryAttach } from "./lib/gallery-attach";
-import { historyItemsForGallery, toggleHistoryInGallery } from "./lib/gallery-history";
+import {
+  historyItemsForGallery,
+  toggleHistoryInGallery,
+  type HistoryGalleryItem,
+} from "./lib/gallery-history";
 import { insertAttachMentions, moveItem } from "./lib/mentions";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 import { captureVideoLastFrame } from "./lib/last-frame";
@@ -1209,18 +1213,184 @@ export default function App() {
     await onGallerySave(next);
   }
 
-  async function onGalleryDelete() {
-    if (!galleryId) return;
+  async function onGalleryRename(id: string, name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
     setGalleryStatus(null);
     try {
-      await api.deleteGallery(galleryId);
-      setGalleryId(null);
-      setGalleryName("");
-      setGalleryItems([]);
+      const { gallery } = await api.gallery(id);
+      const saved = await api.saveGallery({
+        id,
+        name: trimmed,
+        items: gallery.items.map((item) => ({
+          kind: item.kind,
+          name: item.name,
+          key: item.key,
+        })),
+      });
+      if (galleryId === id) setGalleryName(saved.gallery.name);
+      const listed = await api.galleries();
+      setGallerySummaries(listed.galleries);
+    } catch (err) {
+      setGalleryStatus(err instanceof Error ? err.message : "Couldn’t rename that gallery");
+    }
+  }
+
+  async function onGalleryDelete(id?: string) {
+    const target = id ?? galleryId;
+    if (!target) return;
+    setGalleryStatus(null);
+    try {
+      await api.deleteGallery(target);
+      if (target === galleryId) {
+        setGalleryId(null);
+        setGalleryName("");
+        setGalleryItems([]);
+      }
       const listed = await api.galleries();
       setGallerySummaries(listed.galleries);
     } catch (err) {
       setGalleryStatus(err instanceof Error ? err.message : "Couldn’t delete that gallery");
+    }
+  }
+
+  async function onGalleryDeleteSelected(ids: string[]): Promise<boolean> {
+    const drop = new Set(ids);
+    const next = galleryItems.filter((item) => !drop.has(item.id));
+    if (next.length === galleryItems.length) return false;
+    return onGallerySave(next);
+  }
+
+  async function onGalleryPlace(input: {
+    ids: string[];
+    mode: "copy" | "move";
+    targetId: string | null;
+    newName: string;
+  }): Promise<boolean> {
+    const chosen = galleryItems.filter((item) => input.ids.includes(item.id) && item.key);
+    if (chosen.length === 0 || gallerySaving) return false;
+    const payload = chosen.map((item) => ({
+      kind: item.kind,
+      name: item.name,
+      key: item.key,
+    }));
+    setGallerySaving(true);
+    setGalleryStatus(null);
+    try {
+      let note: string | null = null;
+      if (input.targetId) {
+        const { gallery } = await api.gallery(input.targetId);
+        const have = new Set(gallery.items.map((item) => item.key));
+        const extra = payload.filter((item) => !have.has(item.key));
+        const room = GALLERY_ITEM_CAP - gallery.items.length;
+        const accepted = extra.slice(0, Math.max(0, room));
+        if (extra.length === 0) note = "Those items are already in that gallery";
+        else if (accepted.length < extra.length) note = `A gallery holds ${GALLERY_ITEM_CAP} items`;
+        if (accepted.length > 0) {
+          await api.saveGallery({
+            id: gallery.id,
+            name: gallery.name,
+            items: [
+              ...gallery.items.map((item) => ({
+                kind: item.kind,
+                name: item.name,
+                key: item.key,
+              })),
+              ...accepted,
+            ],
+          });
+        } else if (input.mode === "copy") {
+          setGalleryStatus(note);
+          return false;
+        }
+      } else {
+        const name = input.newName.trim();
+        if (!name) return false;
+        const accepted = payload.slice(0, GALLERY_ITEM_CAP);
+        if (accepted.length < payload.length) note = `A gallery holds ${GALLERY_ITEM_CAP} items`;
+        await api.saveGallery({ name, items: accepted });
+      }
+      if (input.mode === "move" && galleryId) {
+        const drop = new Set(input.ids);
+        const next = galleryItems.filter((item) => !drop.has(item.id));
+        const saved = await api.saveGallery({
+          id: galleryId,
+          name: galleryName.trim() || "Gallery",
+          items: next.map((item) => ({
+            kind: item.kind,
+            name: item.name,
+            key: item.key,
+          })),
+        });
+        setGalleryId(saved.gallery.id);
+        setGalleryName(saved.gallery.name);
+        setGalleryItems(saved.gallery.items.map(draftFromGalleryItem));
+      }
+      const listed = await api.galleries();
+      setGallerySummaries(listed.galleries);
+      if (note) setGalleryStatus(note);
+      return true;
+    } catch (err) {
+      setGalleryStatus(err instanceof Error ? err.message : "Couldn’t update that gallery");
+      return false;
+    } finally {
+      setGallerySaving(false);
+    }
+  }
+
+  function galleryPayload(items: { kind: GalleryItem["kind"]; name: string; key: string }[]) {
+    return items.map((item) => ({ kind: item.kind, name: item.name, key: item.key }));
+  }
+
+  async function addHistoryToGallery(targetId: string, items: HistoryGalleryItem[]): Promise<string | null> {
+    if (items.length === 0 || gallerySaving) return "Nothing to add";
+    setGallerySaving(true);
+    setGalleryStatus(null);
+    try {
+      const { gallery } = await api.gallery(targetId);
+      const have = new Set(gallery.items.map((item) => item.key));
+      const extra = items.filter((item) => !have.has(item.key));
+      const accepted = extra.slice(0, Math.max(0, GALLERY_ITEM_CAP - gallery.items.length));
+      if (accepted.length === 0) {
+        return extra.length === 0 ? "Already in that gallery" : `A gallery holds ${GALLERY_ITEM_CAP} items`;
+      }
+      const saved = await api.saveGallery({
+        id: gallery.id,
+        name: gallery.name,
+        items: [...galleryPayload(gallery.items), ...galleryPayload(accepted)],
+      });
+      if (galleryId === saved.gallery.id) {
+        setGalleryName(saved.gallery.name);
+        setGalleryItems(saved.gallery.items.map(draftFromGalleryItem));
+      }
+      const listed = await api.galleries();
+      setGallerySummaries(listed.galleries);
+      return accepted.length < extra.length ? `A gallery holds ${GALLERY_ITEM_CAP} items` : null;
+    } catch (err) {
+      return err instanceof Error ? err.message : "Couldn’t add to that gallery";
+    } finally {
+      setGallerySaving(false);
+    }
+  }
+
+  async function createHistoryGallery(name: string, items: HistoryGalleryItem[]): Promise<string | null> {
+    const trimmed = name.trim();
+    if (!trimmed || items.length === 0 || gallerySaving) return "Name the gallery";
+    setGallerySaving(true);
+    setGalleryStatus(null);
+    try {
+      const accepted = items.slice(0, GALLERY_ITEM_CAP);
+      await api.saveGallery({
+        name: trimmed,
+        items: galleryPayload(accepted),
+      });
+      const listed = await api.galleries();
+      setGallerySummaries(listed.galleries);
+      return accepted.length < items.length ? `A gallery holds ${GALLERY_ITEM_CAP} items` : null;
+    } catch (err) {
+      return err instanceof Error ? err.message : "Couldn’t create that gallery";
+    } finally {
+      setGallerySaving(false);
     }
   }
 
@@ -1630,7 +1800,12 @@ export default function App() {
         onManageGallerySave={() => void onGallerySave()}
         onGalleryAttach={onGalleryAttach}
         onGalleryFeature={(index) => void onGalleryFeature(index)}
-        onGalleryDelete={() => void onGalleryDelete()}
+        onGalleryDelete={(id) => void onGalleryDelete(id)}
+        onGalleryRename={(id, name) => void onGalleryRename(id, name)}
+        onGalleryDeleteSelected={onGalleryDeleteSelected}
+        onGalleryPlace={onGalleryPlace}
+        onHistoryAddToGallery={addHistoryToGallery}
+        onHistoryCreateGallery={createHistoryGallery}
       />
       {libraryOpen ? (
         <button

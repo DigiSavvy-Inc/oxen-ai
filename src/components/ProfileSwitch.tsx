@@ -13,7 +13,7 @@ type Props = {
 export function ProfileSwitch(props: Props) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
-  const [renaming, setRenaming] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -25,7 +25,12 @@ export function ProfileSwitch(props: Props) {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     }
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key !== "Escape") return;
+      if (renamingId) {
+        setRenamingId(null);
+        return;
+      }
+      setOpen(false);
     }
     window.addEventListener("pointerdown", onPointer);
     window.addEventListener("keydown", onKey);
@@ -33,71 +38,32 @@ export function ProfileSwitch(props: Props) {
       window.removeEventListener("pointerdown", onPointer);
       window.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [open, renamingId]);
 
   if (!active) return null;
 
   function close() {
     setOpen(false);
     setDraft("");
-    setRenaming(false);
+    setRenamingId(null);
     setConfirmDelete(false);
   }
 
-  function startRename() {
-    setOpen(false);
-    setRenameDraft(active.name);
-    setRenaming(true);
-    setConfirmDelete(false);
+  function commitRename(id: string) {
+    const name = renameDraft.trim();
+    const profile = props.profiles.find((item) => item.id === id);
+    if (!name || !profile || name === profile.name) {
+      setRenamingId(null);
+      return;
+    }
+    props.onRename(id, name);
+    setRenamingId(null);
   }
 
   return (
     <div className="profile-switch" ref={rootRef}>
       <div className={`profile-chip${open ? " is-open" : ""}`}>
-        {renaming ? (
-          <form
-            className="profile-name-editor"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const name = renameDraft.trim();
-              if (!name || name === active.name) {
-                setRenaming(false);
-                return;
-              }
-              props.onRename(active.id, name);
-              setRenaming(false);
-            }}
-          >
-            <input
-              className="field"
-              value={renameDraft}
-              aria-label="Profile name"
-              autoFocus
-              onChange={(event) => setRenameDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key !== "Escape") return;
-                event.preventDefault();
-                setRenaming(false);
-              }}
-            />
-            <button type="submit" className="prompt-action" disabled={!renameDraft.trim()}>
-              Save changes
-            </button>
-          </form>
-        ) : (
-          <>
-            <span className="profile-name">{active.name}</span>
-            <button
-              type="button"
-              className="saved-prompt-edit"
-              aria-label={`Edit ${active.name}`}
-              onClick={startRename}
-            >
-              <PencilIcon />
-              Edit
-            </button>
-          </>
-        )}
+        <span className="profile-name">{active.name}</span>
         <span className="profile-chip-rule" aria-hidden="true">
           |
         </span>
@@ -107,7 +73,7 @@ export function ProfileSwitch(props: Props) {
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={() => {
-            setRenaming(false);
+            setRenamingId(null);
             setOpen((value) => !value);
           }}
         >
@@ -117,20 +83,62 @@ export function ProfileSwitch(props: Props) {
       </div>
       {open ? (
         <div className="profile-menu" role="menu" aria-label="Profiles">
-          {props.profiles.map((profile) => (
-            <button
-              key={profile.id}
-              type="button"
-              role="menuitem"
-              className={`profile-option${profile.id === active.id ? " active" : ""}`}
-              onClick={() => {
-                props.onActivate(profile.id);
-                close();
-              }}
-            >
-              {profile.name}
-            </button>
-          ))}
+          {props.profiles.map((profile) =>
+            renamingId === profile.id ? (
+              <form
+                key={profile.id}
+                className="profile-row-editor"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  commitRename(profile.id);
+                }}
+              >
+                <input
+                  className="field"
+                  value={renameDraft}
+                  aria-label="Profile name"
+                  autoFocus
+                  onChange={(event) => setRenameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Escape") return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setRenamingId(null);
+                  }}
+                />
+                <button type="submit" className="prompt-action" disabled={!renameDraft.trim()}>
+                  Save changes
+                </button>
+              </form>
+            ) : (
+              <div key={profile.id} className="profile-row">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`profile-option${profile.id === active.id ? " active" : ""}`}
+                  onClick={() => {
+                    props.onActivate(profile.id);
+                    close();
+                  }}
+                >
+                  {profile.name}
+                </button>
+                <button
+                  type="button"
+                  className="saved-prompt-edit"
+                  aria-label={`Edit ${profile.name}`}
+                  onClick={() => {
+                    setRenameDraft(profile.name);
+                    setRenamingId(profile.id);
+                    setConfirmDelete(false);
+                  }}
+                >
+                  <PencilIcon />
+                  Edit
+                </button>
+              </div>
+            ),
+          )}
           <form
             className="profile-create"
             onSubmit={(event) => {
