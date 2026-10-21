@@ -230,6 +230,7 @@ export function Sidebar({
   galleryDropLabel,
   gallerySummaries,
   galleryId,
+  galleryPageSize,
   onGalleryOpen,
   onManageGallerySave,
   onGalleryAttach,
@@ -279,6 +280,7 @@ export function Sidebar({
   galleryDropLabel: string;
   gallerySummaries: GallerySummary[];
   galleryId: string | null;
+  galleryPageSize: number;
   onGalleryOpen: (id: string) => void;
   onManageGallerySave: () => void;
   onGalleryAttach: (items?: GalleryDraftItem[]) => string[];
@@ -517,6 +519,7 @@ export function Sidebar({
           summaries={gallerySummaries}
           detail={galleryDetail}
           galleryId={galleryId}
+          pageSize={galleryPageSize}
           name={galleryName}
           items={galleryItems}
           saving={gallerySaving}

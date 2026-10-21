@@ -6,6 +6,7 @@ import { flux3VideoModel } from "../worker/flux-video";
 import { parseModelControls } from "../worker/schema";
 import { modelSupportsMode } from "../worker/model-modes";
 import { Canvas } from "../src/components/Canvas";
+import { GalleryBrowser } from "../src/components/GalleryBrowser";
 import { Sidebar } from "../src/components/Sidebar";
 import { StagedStill } from "../src/components/StagedStill";
 import { Composer } from "../src/components/Composer";
@@ -1172,6 +1173,51 @@ describe("library history layout", () => {
     expect(closed).not.toContain("history-gallery-mark");
     expect(closed).not.toContain('id="create-gallery"');
     expect(closed).toContain("Open image");
+  });
+
+  it("pages the images inside a gallery", () => {
+    const browser = readFileSync(new URL("../src/components/GalleryBrowser.tsx", import.meta.url), "utf8");
+    expect(browser).toContain('aria-label="Gallery pages"');
+    expect(browser).toContain("of {pageCount}");
+    const items = Array.from({ length: 25 }, (_, index) => ({
+      id: `item-${index}`,
+      kind: "image" as const,
+      name: `frame-${String(index).padStart(3, "0")}.png`,
+      preview: "https://studio.example/t.png",
+      key: `u/user-1/galleries/${index}.png`,
+      url: `https://studio.example/${index}.png`,
+    }));
+    const html = renderToStaticMarkup(
+      createElement(GalleryBrowser, {
+        summaries: [],
+        detail: true,
+        galleryId: "gal-1",
+        pageSize: 24,
+        name: "Launch",
+        items,
+        saving: false,
+        status: null,
+        onOpen: () => {},
+        onBack: () => {},
+        onNameChange: () => {},
+        onSave: () => {},
+        onAttach: () => [],
+        onRemove: () => {},
+        onFeature: () => {},
+        onDelete: () => {},
+        onRenameGallery: () => {},
+        onDeleteGallery: () => {},
+        onDeleteSelected: async () => true,
+        onPlaceSelected: async () => true,
+      }),
+    );
+    expect(html).toContain("25 items");
+    expect(html).toContain("frame-000.png");
+    expect(html).toContain("frame-023.png");
+    expect(html).not.toContain("frame-024.png");
+    expect(html).toContain('aria-label="Gallery pages"');
+    expect(html).toContain("of 2");
+    expect(html).toContain('aria-label="Page 1 of 2"');
   });
 });
 

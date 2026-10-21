@@ -9,6 +9,8 @@ import {
   listGalleries,
   saveGallery,
 } from "../worker/galleries";
+import { GALLERY_MAX_ITEMS } from "../worker/gallery-limits";
+import { galleryPageWindow } from "../src/lib/gallery-page";
 import {
   GALLERY_ITEM_DRAG_TYPE,
   galleryItemsForDrop,
@@ -158,6 +160,27 @@ describe("galleries", () => {
         { kind: "audio", name: "bed.mp3", key: "u/someone/galleries/b.mp3" },
       ]),
     ).toBeNull();
+    const page = Array.from({ length: 25 }, (_, index) => ({
+      kind: "image" as const,
+      name: `shot-${index}.png`,
+      key: `u/user-1/galleries/${index}.png`,
+    }));
+    expect(acceptGalleryItems("user-1", page)).toHaveLength(25);
+    const over = Array.from({ length: GALLERY_MAX_ITEMS + 1 }, (_, index) => ({
+      kind: "image" as const,
+      name: `shot-${index}.png`,
+      key: `u/user-1/galleries/${index}.png`,
+    }));
+    expect(acceptGalleryItems("user-1", over)).toBeNull();
+  });
+
+  it("pages a gallery so later images stay reachable", () => {
+    expect(galleryPageWindow(0, 1, 24)).toEqual({ page: 1, pageCount: 1, start: 0, end: 0 });
+    expect(galleryPageWindow(24, 1, 24)).toEqual({ page: 1, pageCount: 1, start: 0, end: 24 });
+    expect(galleryPageWindow(25, 1, 24)).toEqual({ page: 1, pageCount: 2, start: 0, end: 24 });
+    expect(galleryPageWindow(25, 2, 24)).toEqual({ page: 2, pageCount: 2, start: 24, end: 25 });
+    expect(galleryPageWindow(25, 9, 24).page).toBe(2);
+    expect(galleryPageWindow(48, 2, 12)).toEqual({ page: 2, pageCount: 4, start: 12, end: 24 });
   });
 
   it("stores a gallery for the signed-in user and loads it back in order", async () => {

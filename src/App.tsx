@@ -66,6 +66,7 @@ import {
   safetyToleranceSelection,
 } from "../worker/schema";
 import { DEFAULT_HISTORY_PAGE_SIZE } from "../worker/history-page-size";
+import { GALLERY_MAX_ITEMS } from "../worker/gallery-limits";
 
 type StagedMedia = {
   file?: File;
@@ -78,7 +79,6 @@ type StagedMedia = {
   role?: "character" | "scene";
 };
 
-const GALLERY_ITEM_CAP = 24;
 const LIBRARY_LOAD_TIMEOUT_MS = 20_000;
 
 function initialLibraryOpen(): boolean {
@@ -1082,9 +1082,9 @@ export default function App() {
       setGalleryStatus(supportedMediaNotice(acceptedMediaKinds(controls, mode, currentModel())));
     }
     if (accepted.length === 0) return;
-    const room = Math.max(0, GALLERY_ITEM_CAP - galleryItems.length);
+    const room = Math.max(0, GALLERY_MAX_ITEMS - galleryItems.length);
     if (room === 0) {
-      setGalleryStatus(`A gallery holds ${GALLERY_ITEM_CAP} items`);
+      setGalleryStatus(`A gallery holds ${GALLERY_MAX_ITEMS} items`);
       return;
     }
     setGalleryAdding(true);
@@ -1103,7 +1103,7 @@ export default function App() {
           url: uploaded.url,
         });
       }
-      setGalleryItems((prev) => [...prev, ...added].slice(0, GALLERY_ITEM_CAP));
+      setGalleryItems((prev) => [...prev, ...added].slice(0, GALLERY_MAX_ITEMS));
       if (rejected.length > 0) {
         setGalleryStatus(supportedMediaNotice(acceptedMediaKinds(controls, mode, currentModel())));
       }
@@ -1160,10 +1160,10 @@ export default function App() {
       setGalleryStatus("That media isn’t stored in Studio yet");
       return;
     }
-    const result = toggleHistoryInGallery(galleryItems, incoming, GALLERY_ITEM_CAP);
+    const result = toggleHistoryInGallery(galleryItems, incoming, GALLERY_MAX_ITEMS);
     setGalleryItems(result.items);
     if (result.skipped > 0) {
-      setGalleryStatus(`A gallery holds ${GALLERY_ITEM_CAP} items`);
+      setGalleryStatus(`A gallery holds ${GALLERY_MAX_ITEMS} items`);
       return;
     }
     setGalleryStatus(null);
@@ -1283,10 +1283,10 @@ export default function App() {
         const { gallery } = await api.gallery(input.targetId);
         const have = new Set(gallery.items.map((item) => item.key));
         const extra = payload.filter((item) => !have.has(item.key));
-        const room = GALLERY_ITEM_CAP - gallery.items.length;
+        const room = GALLERY_MAX_ITEMS - gallery.items.length;
         const accepted = extra.slice(0, Math.max(0, room));
         if (extra.length === 0) note = "Those items are already in that gallery";
-        else if (accepted.length < extra.length) note = `A gallery holds ${GALLERY_ITEM_CAP} items`;
+        else if (accepted.length < extra.length) note = `A gallery holds ${GALLERY_MAX_ITEMS} items`;
         if (accepted.length > 0) {
           await api.saveGallery({
             id: gallery.id,
@@ -1307,8 +1307,8 @@ export default function App() {
       } else {
         const name = input.newName.trim();
         if (!name) return false;
-        const accepted = payload.slice(0, GALLERY_ITEM_CAP);
-        if (accepted.length < payload.length) note = `A gallery holds ${GALLERY_ITEM_CAP} items`;
+        const accepted = payload.slice(0, GALLERY_MAX_ITEMS);
+        if (accepted.length < payload.length) note = `A gallery holds ${GALLERY_MAX_ITEMS} items`;
         await api.saveGallery({ name, items: accepted });
       }
       if (input.mode === "move" && galleryId) {
@@ -1354,11 +1354,11 @@ export default function App() {
       const { gallery } = await api.gallery(targetId);
       const have = new Set(gallery.items.map((item) => item.key));
       const extra = items.filter((item) => !have.has(item.key));
-      const accepted = extra.slice(0, Math.max(0, GALLERY_ITEM_CAP - gallery.items.length));
+      const accepted = extra.slice(0, Math.max(0, GALLERY_MAX_ITEMS - gallery.items.length));
       if (accepted.length === 0) {
         return extra.length === 0
           ? { kind: "already", name: gallery.name }
-          : { kind: "error", message: `A gallery holds ${GALLERY_ITEM_CAP} items` };
+          : { kind: "error", message: `A gallery holds ${GALLERY_MAX_ITEMS} items` };
       }
       const saved = await api.saveGallery({
         id: gallery.id,
@@ -1372,7 +1372,7 @@ export default function App() {
       const listed = await api.galleries();
       setGallerySummaries(listed.galleries);
       if (accepted.length < extra.length) {
-        return { kind: "error", message: `Added ${accepted.length}. A gallery holds ${GALLERY_ITEM_CAP} items` };
+        return { kind: "error", message: `Added ${accepted.length}. A gallery holds ${GALLERY_MAX_ITEMS} items` };
       }
       return { kind: "added", count: accepted.length, name: saved.gallery.name };
     } catch (err) {
@@ -1388,7 +1388,7 @@ export default function App() {
     setGallerySaving(true);
     setGalleryStatus(null);
     try {
-      const accepted = items.slice(0, GALLERY_ITEM_CAP);
+      const accepted = items.slice(0, GALLERY_MAX_ITEMS);
       const saved = await api.saveGallery({
         name: trimmed,
         items: galleryPayload(accepted),
@@ -1396,7 +1396,7 @@ export default function App() {
       const listed = await api.galleries();
       setGallerySummaries(listed.galleries);
       if (accepted.length < items.length) {
-        return { kind: "error", message: `A gallery holds ${GALLERY_ITEM_CAP} items` };
+        return { kind: "error", message: `A gallery holds ${GALLERY_MAX_ITEMS} items` };
       }
       return { kind: "created", count: accepted.length, name: saved.gallery.name };
     } catch (err) {
@@ -1808,6 +1808,7 @@ export default function App() {
         galleryDropLabel={galleryDropPhrase ? `Drop ${galleryDropPhrase}` : "Drop media"}
         gallerySummaries={gallerySummaries}
         galleryId={galleryId}
+        galleryPageSize={historyPageSize}
         onGalleryOpen={(id) => void onGalleryLoad(id)}
         onManageGallerySave={() => void onGallerySave()}
         onGalleryAttach={onGalleryAttach}

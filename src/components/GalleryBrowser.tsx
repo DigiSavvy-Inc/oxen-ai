@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { GallerySummary } from "../lib/api";
+import { galleryPageWindow } from "../lib/gallery-page";
 import type { GalleryDraftItem } from "./GalleryDrawer";
 import { FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { GalleryThumb } from "./GalleryThumb";
@@ -16,6 +17,7 @@ type Props = {
   summaries: GallerySummary[];
   detail: boolean;
   galleryId: string | null;
+  pageSize: number;
   name: string;
   items: GalleryDraftItem[];
   saving: boolean;
@@ -43,33 +45,52 @@ export function GalleryBrowser(props: Props) {
   const [newName, setNewName] = useState("");
   const [fitId, setFitId] = useState<string | null>(null);
   const [playing, setPlaying] = useState<Playing | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageDraft, setPageDraft] = useState("1");
+  const pageCommitSkip = useRef(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setSelected([]);
     setConfirmSelected(false);
     setFitId(null);
     setPlaying(null);
+    setPage(1);
+    setPageDraft("1");
   }, [props.galleryId]);
+
+  const view = galleryPageWindow(props.items.length, page, props.pageSize);
+  if (page !== view.page) {
+    setPage(view.page);
+    setPageDraft(String(view.page));
+  }
+  const visibleItems = props.items.slice(view.start, view.end);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [view.page, props.galleryId]);
 
   if (!props.detail) {
     return (
       <div className="gallery-browser" aria-label="Galleries">
-        {props.status ? <p className="gallery-status">{props.status}</p> : null}
-        {props.summaries.length === 0 ? (
-          <div className="history-empty">No galleries yet. Create one, then pick library tiles.</div>
-        ) : (
-          <div className="gallery-card-list">
-            {props.summaries.map((gallery) => (
-              <GalleryCard
-                key={gallery.id}
-                gallery={gallery}
-                onOpen={props.onOpen}
-                onRename={props.onRenameGallery}
-                onDelete={props.onDeleteGallery}
-              />
-            ))}
-          </div>
-        )}
+        <div className="gallery-browser-scroll" ref={scrollRef}>
+          {props.status ? <p className="gallery-status">{props.status}</p> : null}
+          {props.summaries.length === 0 ? (
+            <div className="history-empty">No galleries yet. Create one, then pick library tiles.</div>
+          ) : (
+            <div className="gallery-card-list">
+              {props.summaries.map((gallery) => (
+                <GalleryCard
+                  key={gallery.id}
+                  gallery={gallery}
+                  onOpen={props.onOpen}
+                  onRename={props.onRenameGallery}
+                  onDelete={props.onDeleteGallery}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -119,6 +140,7 @@ export function GalleryBrowser(props: Props) {
 
   return (
     <div className="gallery-browser" aria-label="Gallery">
+      <div className="gallery-browser-scroll" ref={scrollRef}>
       <div className="gallery-manage-head">
         <button type="button" className="ghost-btn" onClick={props.onBack}>
           Galleries
@@ -130,6 +152,9 @@ export function GalleryBrowser(props: Props) {
           aria-label="Gallery name"
           onChange={(event) => props.onNameChange(event.target.value)}
         />
+        <span className="gallery-card-count">
+          {props.items.length} {props.items.length === 1 ? "item" : "items"}
+        </span>
       </div>
       <div className="gallery-manage-actions">
         <button type="button" className="ghost-btn" disabled={!canSave} onClick={props.onSave}>
@@ -226,7 +251,9 @@ export function GalleryBrowser(props: Props) {
         <div className="history-empty">This gallery is empty.</div>
       ) : (
         <div className="gallery-manage-grid">
-          {props.items.map((item, index) => (
+          {visibleItems.map((item, offset) => {
+            const index = view.start + offset;
+            return (
             <div
               key={item.id}
               className={`gallery-manage-tile${selected.includes(item.id) ? " is-selected" : ""}`}
@@ -303,9 +330,24 @@ export function GalleryBrowser(props: Props) {
                 ) : null}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
+      </div>
+      {view.pageCount > 1 ? (
+        <GalleryPager
+          page={view.page}
+          pageCount={view.pageCount}
+          draft={pageDraft}
+          skipRef={pageCommitSkip}
+          onDraft={setPageDraft}
+          onPage={(next) => {
+            setPage(next);
+            setPageDraft(String(next));
+          }}
+        />
+      ) : null}
       {fit ? (
         <FullSizeMedia
           src={fit.src}
@@ -318,6 +360,68 @@ export function GalleryBrowser(props: Props) {
       ) : null}
       {playing ? <PlayingView playing={playing} onClose={() => setPlaying(null)} /> : null}
     </div>
+  );
+}
+
+function GalleryPager({
+  page,
+  pageCount,
+  draft,
+  skipRef,
+  onDraft,
+  onPage,
+}: {
+  page: number;
+  pageCount: number;
+  draft: string;
+  skipRef: { current: boolean };
+  onDraft: (value: string) => void;
+  onPage: (page: number) => void;
+}) {
+  return (
+    <nav className="gallery-pager" aria-label="Gallery pages">
+      <button type="button" className="ghost-btn" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+        Previous
+      </button>
+      <label className="history-page-jump">
+        <input
+          className="history-page-input"
+          type="text"
+          inputMode="numeric"
+          aria-label={`Page ${page} of ${pageCount}`}
+          value={draft}
+          onChange={(event) => onDraft(event.target.value.replace(/[^\d]/g, ""))}
+          onBlur={() => {
+            if (skipRef.current) {
+              skipRef.current = false;
+              onDraft(String(page));
+              return;
+            }
+            const next = Number(draft);
+            if (!draft || !Number.isFinite(next)) {
+              onDraft(String(page));
+              return;
+            }
+            onPage(Math.min(pageCount, Math.max(1, Math.round(next))));
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              skipRef.current = true;
+              onDraft(String(page));
+              event.currentTarget.blur();
+            }
+          }}
+        />
+        <span>of {pageCount}</span>
+      </label>
+      <button type="button" className="ghost-btn" disabled={page >= pageCount} onClick={() => onPage(page + 1)}>
+        Next
+      </button>
+    </nav>
   );
 }
 
