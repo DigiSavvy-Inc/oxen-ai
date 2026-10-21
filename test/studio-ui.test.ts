@@ -1166,7 +1166,10 @@ describe("library history layout", () => {
     expect(sidebar).toContain("if (open !== false) return;");
     const modelMenu = readFileSync(new URL("../src/components/ModelMenu.tsx", import.meta.url), "utf8");
     expect(modelMenu).toContain("createPortal");
-    expect(modelMenu).toContain('"(hover: hover) and (pointer: fine)"');
+    expect(modelMenu).toContain("flushSync");
+    expect(modelMenu).toContain("searchRef.current?.focus");
+    expect(modelMenu).not.toContain("(hover: hover) and (pointer: fine)");
+    expect(modelMenu).toContain("tabIndex={-1}");
     expect(modelMenu).toContain("modelMenuKeyAction");
     expect(css).toContain(".model-menu-pop");
     expect(css).toMatch(/\.model-menu-pop\s*\{[^}]*z-index:\s*60/);

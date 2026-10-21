@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import type { OxenModel } from "../lib/api";
 import {
   filterModels,
@@ -34,10 +34,6 @@ function isTextEntry(target: EventTarget | null): boolean {
   return target.isContentEditable;
 }
 
-function finePointer(): boolean {
-  return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-}
-
 export function ModelMenu(props: Props) {
   const { models, preferred, value, query, onQueryChange, onChange } = props;
   const [open, setOpen] = useState(false);
@@ -65,6 +61,7 @@ export function ModelMenu(props: Props) {
   const hotRef = useRef(activeHot);
   const queryRef = useRef(query);
   const applyRef = useRef<(action: ModelMenuKeyAction) => void>(() => {});
+  const caretToEnd = useRef(false);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -85,6 +82,13 @@ export function ModelMenu(props: Props) {
     setHot(index >= 0 ? index : 0);
     setBox(null);
     setOpen(true);
+  }
+
+  function revealMenu() {
+    flushSync(() => {
+      openMenu();
+    });
+    searchRef.current?.focus({ preventScroll: true });
   }
 
   useLayoutEffect(() => {
@@ -148,9 +152,21 @@ export function ModelMenu(props: Props) {
 
   const placed = box !== null;
   useEffect(() => {
-    if (!open || !placed || !finePointer()) return;
-    searchRef.current?.focus({ preventScroll: true });
+    if (!open || !placed) return;
+    const input = searchRef.current;
+    if (!input || document.activeElement === input) return;
+    input.focus({ preventScroll: true });
   }, [open, placed]);
+
+  useEffect(() => {
+    if (!open || !caretToEnd.current) return;
+    const input = searchRef.current;
+    if (!input) return;
+    caretToEnd.current = false;
+    input.focus({ preventScroll: true });
+    const end = input.value.length;
+    input.setSelectionRange(end, end);
+  }, [open, query]);
 
   useEffect(() => {
     if (!open) return;
@@ -200,6 +216,7 @@ export function ModelMenu(props: Props) {
   function applyMenuAction(action: ModelMenuKeyAction) {
     switch (action.type) {
       case "query":
+        caretToEnd.current = true;
         onQueryChange(action.query);
         setHot(0);
         break;
@@ -267,13 +284,13 @@ export function ModelMenu(props: Props) {
         aria-label="Model"
         onClick={() => {
           if (open) close();
-          else openMenu();
+          else revealMenu();
         }}
         onKeyDown={(event) => {
           if (open) return;
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
-            openMenu();
+            revealMenu();
           }
         }}
       >
@@ -282,17 +299,18 @@ export function ModelMenu(props: Props) {
           ▾
         </span>
       </button>
-      {open && box
+      {open
         ? createPortal(
             <div
               ref={popRef}
               className="model-menu-pop"
               style={{
-                left: box.left,
-                width: box.width,
-                maxHeight: box.maxHeight,
-                top: box.top,
-                bottom: box.bottom,
+                left: box?.left ?? 0,
+                width: box?.width,
+                maxHeight: box?.maxHeight,
+                top: box?.top,
+                bottom: box?.bottom,
+                visibility: box ? "visible" : "hidden",
               }}
             >
               <div
@@ -419,6 +437,7 @@ function ModelOption({
       aria-selected={selected}
       data-hot={hot ? "true" : undefined}
       className={`model-menu-option${hot ? " is-hot" : ""}${selected ? " is-selected" : ""}`}
+      tabIndex={-1}
       onPointerEnter={onHot}
       onPointerDown={(event) => {
         event.preventDefault();

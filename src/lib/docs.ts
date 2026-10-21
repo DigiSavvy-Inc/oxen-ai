@@ -75,7 +75,7 @@ export const DOC_ARTICLES: DocArticle[] = [
     blocks: [
       {
         type: "p",
-        text: "The model menu searches the live Oxen catalog. Open it and type to filter — on a computer you can type as soon as the menu is open, even if the search field is not focused. On a phone, tap the search field. Star a model to keep it on your Oxen account. Starred models are listed first.",
+        text: "The model menu searches the live Oxen catalog. Open it and the search field is ready: type to filter, including while a model row is highlighted, on a computer or a phone. Star a model to keep it on your Oxen account. Starred models are listed first.",
       },
       {
         type: "p",
