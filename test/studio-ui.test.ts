@@ -62,7 +62,7 @@ import {
   tokenForItem,
   promptHighlightParts,
 } from "../src/lib/mentions";
-import { defaultModelChoices, filterModels, generationCountForModelChange, groupPreferredModels, modelLabel, pickModel } from "../src/lib/model-menu";
+import { defaultModelChoices, filterModels, generationCountForModelChange, groupPreferredModels, modelLabel, modelMenuCssBox, modelMenuKeyAction, pickModel, placeModelMenu } from "../src/lib/model-menu";
 import {
   aspectCatalog,
   aspectSelectOptions,
@@ -714,6 +714,67 @@ describe("model menu filter", () => {
     expect(pickModel(models, favorites, "flux", "kling", false)).toBe("kling");
     expect(pickModel(models, favorites, "flux", "", true)).toBe("flux");
   });
+
+  it("filters from the keyboard without a focused search field", () => {
+    expect(modelMenuKeyAction("s", "", {})).toEqual({ type: "query", query: "s" });
+    expect(modelMenuKeyAction("e", "s", {})).toEqual({ type: "query", query: "se" });
+    expect(modelMenuKeyAction("Backspace", "se", {})).toEqual({ type: "query", query: "s" });
+    expect(modelMenuKeyAction("ArrowDown", "s", {})).toEqual({ type: "move", delta: 1 });
+    expect(modelMenuKeyAction("ArrowUp", "s", {})).toEqual({ type: "move", delta: -1 });
+    expect(modelMenuKeyAction("Enter", "s", {})).toEqual({ type: "choose" });
+    expect(modelMenuKeyAction("Escape", "s", {})).toEqual({ type: "close" });
+    expect(modelMenuKeyAction("k", "s", { metaKey: true })).toBeNull();
+    expect(modelMenuKeyAction("a", "s", { ctrlKey: true })).toBeNull();
+    expect(modelMenuKeyAction("Process", "s", { isComposing: true })).toBeNull();
+  });
+
+  it("keeps the menu on screen when the trigger sits near the top", () => {
+    const placement = placeModelMenu({
+      trigger: { top: 36, bottom: 72, left: 16 },
+      viewport: { width: 390, height: 700 },
+    });
+    expect(placement.edge).toBe("top");
+    if (placement.edge !== "top") return;
+    expect(placement.top).toBeGreaterThanOrEqual(8);
+    expect(placement.top).toBeGreaterThanOrEqual(72);
+    expect(placement.top + placement.maxHeight).toBeLessThanOrEqual(700 - 8);
+    expect(placement.maxHeight).toBeGreaterThan(120);
+    expect(placement.left + placement.width).toBeLessThanOrEqual(390 - 8);
+  });
+
+  it("opens upward from a trigger near the bottom of the screen", () => {
+    const placement = placeModelMenu({
+      trigger: { top: 820, bottom: 852, left: 24 },
+      viewport: { width: 1280, height: 900 },
+    });
+    expect(placement.edge).toBe("bottom");
+    if (placement.edge !== "bottom") return;
+    const bottomEdge = 900 - placement.bottom;
+    expect(bottomEdge).toBeLessThanOrEqual(820);
+    expect(bottomEdge).toBeGreaterThan(800);
+    expect(bottomEdge - placement.maxHeight).toBeGreaterThanOrEqual(8);
+  });
+
+  it("pins the menu inside the visual viewport when the keyboard covers the trigger", () => {
+    const placement = placeModelMenu({
+      trigger: { top: 640, bottom: 672, left: 300 },
+      viewport: { width: 390, height: 420 },
+    });
+    const css = modelMenuCssBox(placement, {
+      offsetTop: 0,
+      offsetLeft: 0,
+      layoutHeight: 800,
+      visualHeight: 420,
+    });
+    expect(placement.edge).toBe("bottom");
+    expect(css.bottom).toBeDefined();
+    const menuBottom = 800 - (css.bottom ?? 0);
+    const menuTop = menuBottom - css.maxHeight;
+    expect(menuTop).toBeGreaterThanOrEqual(0);
+    expect(menuBottom).toBeLessThanOrEqual(420);
+    expect(css.left + css.width).toBeLessThanOrEqual(390 - 8);
+    expect(css.left).toBeGreaterThanOrEqual(8);
+  });
 });
 
 describe("library refs", () => {
@@ -1105,8 +1166,12 @@ describe("library history layout", () => {
     expect(sidebar).toContain("if (open !== false) return;");
     const modelMenu = readFileSync(new URL("../src/components/ModelMenu.tsx", import.meta.url), "utf8");
     expect(modelMenu).toContain("createPortal");
+    expect(modelMenu).toContain('"(hover: hover) and (pointer: fine)"');
+    expect(modelMenu).toContain("modelMenuKeyAction");
     expect(css).toContain(".model-menu-pop");
     expect(css).toMatch(/\.model-menu-pop\s*\{[^}]*z-index:\s*60/);
+    expect(css).toMatch(/\.model-menu-search-row\s*\{[^}]*flex:\s*0 0 auto/);
+    expect(css).toMatch(/\.model-menu-search\s*\{[^}]*font-size:\s*16px/);
     expect(sidebar).toContain("if (createGalleryOpen)");
     expect(sidebar).toContain("onToggleHistory(batch.items)");
     expect(css).toContain(".history-gallery-mark");
