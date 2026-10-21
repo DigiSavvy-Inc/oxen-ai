@@ -570,14 +570,15 @@ export function Composer(props: Props) {
     const anchor = hoverAnchorRef.current;
     const tip = hoverTipRef.current;
     if (!hoveredMention || !anchor || !tip) return;
+    const vv = window.visualViewport;
     const next = placeMentionPreview(
       anchor.getBoundingClientRect(),
       { width: tip.offsetWidth, height: tip.offsetHeight },
-      { width: window.innerWidth, height: window.innerHeight },
+      { width: vv?.width ?? window.innerWidth, height: vv?.height ?? window.innerHeight },
     );
-    setHoverPos((current) =>
-      current && current.left === next.left && current.top === next.top ? current : next,
-    );
+    const left = next.left + (vv?.offsetLeft ?? 0);
+    const top = next.top + (vv?.offsetTop ?? 0);
+    setHoverPos((current) => (current && current.left === left && current.top === top ? current : { left, top }));
   }, [hoveredMention, hoverLayout]);
 
   useEffect(() => {
@@ -585,9 +586,13 @@ export function Composer(props: Props) {
     const bump = () => setHoverLayout((n) => n + 1);
     window.addEventListener("resize", bump);
     window.addEventListener("scroll", bump, true);
+    window.visualViewport?.addEventListener("resize", bump);
+    window.visualViewport?.addEventListener("scroll", bump);
     return () => {
       window.removeEventListener("resize", bump);
       window.removeEventListener("scroll", bump, true);
+      window.visualViewport?.removeEventListener("resize", bump);
+      window.visualViewport?.removeEventListener("scroll", bump);
     };
   }, [hoveredMention]);
 
