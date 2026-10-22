@@ -7,6 +7,7 @@ export {
   isMediaGenerationModel,
   isUnifiedImageModel,
   modelSupportsMode,
+  modelsForComposer,
 } from "./model-modes";
 
 const OXEN_BASE = "https://hub.oxen.ai/api/ai";
@@ -522,6 +523,24 @@ export async function listModels(apiKey: string): Promise<OxenModel[]> {
     throw new OxenApiError(oxenErrorText(data, `Oxen models failed (${res.status})`));
   }
   return modelsFromListPayload(data);
+}
+
+const CATALOG_TTL_MS = 120_000;
+const liveCatalogCache = new Map<string, { at: number; models: OxenModel[] }>();
+
+async function catalogCacheKey(apiKey: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(apiKey));
+  return [...new Uint8Array(digest).slice(0, 8)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** One Oxen catalog fetch per key, reused while the composer switches modes. */
+export async function cachedLiveCatalog(apiKey: string): Promise<OxenModel[]> {
+  const key = await catalogCacheKey(apiKey);
+  const hit = liveCatalogCache.get(key);
+  if (hit && Date.now() - hit.at < CATALOG_TTL_MS) return hit.models;
+  const models = await mergeMissingFeaturedModels(apiKey, await listModels(apiKey));
+  liveCatalogCache.set(key, { at: Date.now(), models });
+  return models;
 }
 
 export async function searchModels(apiKey: string, query: string): Promise<OxenModel[]> {

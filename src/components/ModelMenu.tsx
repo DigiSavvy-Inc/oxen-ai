@@ -15,6 +15,7 @@ type Props = {
   models: OxenModel[];
   preferred: OxenModel[];
   value: string;
+  loading?: boolean;
   query: string;
   onQueryChange: (value: string) => void;
   onChange: (value: string) => void;
@@ -35,7 +36,7 @@ function isTextEntry(target: EventTarget | null): boolean {
 }
 
 export function ModelMenu(props: Props) {
-  const { models, preferred, value, query, onQueryChange, onChange } = props;
+  const { models, preferred, value, loading, query, onQueryChange, onChange } = props;
   const [open, setOpen] = useState(false);
   const [hot, setHot] = useState(0);
   const [box, setBox] = useState<MenuBox | null>(null);
@@ -265,11 +266,15 @@ export function ModelMenu(props: Props) {
     applyMenuAction(action);
   }
 
-  const triggerLabel = selected ? modelLabel(selected) : value || "Select a model";
+  const triggerLabel = selected
+    ? modelLabel(selected)
+    : value || (loading ? "Loading models…" : "Select a model");
   const headingRest = grouped.preferred.length > 0 ? "All" : "Models";
-  const emptyLabel = query.trim()
-    ? `No models match “${query.trim()}”`
-    : "No models";
+  const emptyLabel = loading
+    ? "Loading models…"
+    : query.trim()
+      ? `No models match “${query.trim()}”`
+      : "No models";
   const activeId = options[activeHot] ? `model-option-${activeHot}` : undefined;
 
   return (
