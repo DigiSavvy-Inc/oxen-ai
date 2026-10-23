@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateGenerationCost, parseOxenPricing } from "../worker/pricing";
+import { combineGenerationCosts, estimateGenerationCost, parseOxenPricing } from "../worker/pricing";
 
 describe("parseOxenPricing", () => {
   it("returns null for empty or unknown objects", () => {
@@ -168,6 +168,22 @@ describe("estimateGenerationCost", () => {
 
   it("returns unavailable when pricing is missing", () => {
     expect(estimateGenerationCost({ pricing: null, numGenerations: 1 })).toEqual({
+      amount: null,
+      label: "Price unavailable",
+    });
+  });
+
+  it("sums a run across models only when every price is known", () => {
+    const one = estimateGenerationCost({
+      pricing: { method: "per_image", cost_per_image: 0.04 },
+      numGenerations: 1,
+    });
+    const four = estimateGenerationCost({
+      pricing: { method: "per_image", cost_per_image: 0.04 },
+      numGenerations: 4,
+    });
+    expect(combineGenerationCosts([one, four]).amount).toBeCloseTo(0.2);
+    expect(combineGenerationCosts([one, { amount: null }])).toEqual({
       amount: null,
       label: "Price unavailable",
     });

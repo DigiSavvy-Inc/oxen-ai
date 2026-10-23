@@ -310,3 +310,14 @@ export function estimateGenerationCost(opts: {
 
   return { amount: null, label: "Price varies" };
 }
+
+/** Sum one estimate per model. A missing price leaves the total unknown. */
+export function combineGenerationCosts(
+  costs: { amount: number | null }[],
+): { amount: number | null; label: string } {
+  if (costs.length === 0 || costs.some((item) => item.amount == null)) {
+    return { amount: null, label: "Price unavailable" };
+  }
+  const amount = costs.reduce((sum, item) => sum + (item.amount ?? 0), 0);
+  return { amount, label: formatUsd(amount) };
+}

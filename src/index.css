@@ -3722,8 +3722,44 @@ button.history-expand-preview {
   color: var(--text-muted);
 }
 
+.model-menu-note {
+  padding: 0 8px 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.model-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+}
+
+.model-menu-row.is-drop {
+  background: var(--bg-active);
+}
+
+.model-menu-grip {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: grab;
+  font-size: 12px;
+  letter-spacing: -1px;
+}
+
+.model-menu-check {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+}
+
 .model-menu-option {
-  width: 100%;
+  width: auto;
   display: block;
   text-align: left;
   border: 0;
@@ -3731,6 +3767,33 @@ button.history-expand-preview {
   border-radius: 8px;
   padding: 7px 8px;
   font-size: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.preset-save {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preset-save .field {
+  width: 140px;
+}
+
+.preset-rename {
+  flex: 1;
+  min-width: 0;
+}
+
+.preset-rename .field {
+  width: 100%;
+}
+
+.preset-summary {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .model-menu-option:hover,

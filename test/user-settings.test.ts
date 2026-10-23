@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseStudioSettings } from "../worker/user-settings";
+import { parseComposerPrefs, parseStudioSettings } from "../worker/user-settings";
 
 describe("parseStudioSettings", () => {
   it("reads optional per-mode defaults and shared last params", () => {
@@ -22,6 +22,46 @@ describe("parseStudioSettings", () => {
       generate_audio: true,
     });
     expect(settings.historyPageSize).toBe(24);
+    expect(settings.composerPrefs).toEqual({
+      favoriteOrder: [],
+      presets: [],
+      activePresetId: null,
+    });
+  });
+
+  it("keeps a favorite order and named presets", () => {
+    const prefs = parseComposerPrefs(
+      JSON.stringify({
+        favoriteOrder: ["wan-v3-0-video-prime", "wan-v3-0-video", ""],
+        activePresetId: "p1",
+        presets: [
+          {
+            id: "p1",
+            name: "  4× studio  ",
+            numGenerations: 9,
+            aspectRatio: "16:9",
+            quality: "high",
+            resolution: "1K",
+          },
+          { id: "", name: "skip" },
+        ],
+      }),
+    );
+    expect(prefs.favoriteOrder).toEqual(["wan-v3-0-video-prime", "wan-v3-0-video"]);
+    expect(prefs.activePresetId).toBe("p1");
+    expect(prefs.presets).toEqual([
+      {
+        id: "p1",
+        name: "4× studio",
+        numGenerations: 4,
+        aspectRatio: "16:9",
+        quality: "high",
+        resolution: "1K",
+      },
+    ]);
+    expect(parseComposerPrefs(JSON.stringify({ activePresetId: "missing", presets: [] })).activePresetId).toBe(
+      null,
+    );
   });
 
   it("keeps history page size on the allowed steps", () => {

@@ -62,7 +62,18 @@ import {
   tokenForItem,
   promptHighlightParts,
 } from "../src/lib/mentions";
-import { defaultModelChoices, filterModels, generationCountForModelChange, groupPreferredModels, modelLabel, pickModel } from "../src/lib/model-menu";
+import { presetSummary, suggestedPresetName } from "../src/lib/composer-prefs";
+import {
+  defaultModelChoices,
+  filterModels,
+  generationCountForModelChange,
+  groupPreferredModels,
+  modelLabel,
+  orderFavorites,
+  pickModel,
+  reorderIds,
+  toggleBatchModel,
+} from "../src/lib/model-menu";
 import {
   aspectCatalog,
   aspectSelectOptions,
@@ -705,6 +716,45 @@ describe("model menu filter", () => {
     expect(generationCountForModelChange("flux", "kling", 4)).toBe(1);
     expect(generationCountForModelChange("flux", "flux", 3)).toBe(3);
     expect(generationCountForModelChange("", "flux", 4)).toBe(1);
+    expect(generationCountForModelChange("flux", "kling", 1, 4)).toBe(4);
+  });
+
+  it("orders favorites by the saved list and moves them", () => {
+    const favorites = [flux, kling, seedream];
+    expect(orderFavorites(favorites, [seedream.id, flux.id]).map((item) => item.id)).toEqual([
+      seedream.id,
+      flux.id,
+      kling.id,
+    ]);
+    expect(reorderIds([flux.id, kling.id, seedream.id], kling.id, flux.id)).toEqual([
+      kling.id,
+      flux.id,
+      seedream.id,
+    ]);
+  });
+
+  it("adds and removes models in one run without dropping the last model", () => {
+    expect(toggleBatchModel(["flux"], "kling", "flux")).toEqual({
+      batch: ["flux", "kling"],
+      primary: "flux",
+    });
+    expect(toggleBatchModel(["flux", "kling"], "flux", "flux")).toEqual({
+      batch: ["kling"],
+      primary: "kling",
+    });
+    expect(toggleBatchModel(["a", "b", "c", "d"], "e", "a").batch).toEqual(["a", "b", "c", "d"]);
+    expect(suggestedPresetName({ numGenerations: 4, aspectRatio: "16:9", quality: "high" })).toBe(
+      "4× · 16:9 · high",
+    );
+    expect(
+      presetSummary({
+        id: "p",
+        name: "Studio",
+        numGenerations: 4,
+        aspectRatio: "16:9",
+        resolution: "1K",
+      }),
+    ).toBe("4× · 16:9 · 1K");
   });
 
   it("does not auto-select a model until a mode is chosen", () => {

@@ -7,10 +7,12 @@ import {
   type GenerationMode,
   type OxenModel,
   type InstanceBranding,
+  type ComposerPrefs,
   type StudioSettings,
 } from "../lib/api";
 import { brandMarkClass, DEFAULT_LOGO_URL, DEFAULT_SITE_NAME } from "../lib/branding";
-import { defaultModelChoices, modelLabel } from "../lib/model-menu";
+import { presetSummary } from "../lib/composer-prefs";
+import { defaultModelChoices, modelLabel, orderFavorites, reorderIds } from "../lib/model-menu";
 import {
   canPromptInstall,
   canUseNotifications,
@@ -315,6 +317,26 @@ export function SettingsModal({
     }
   }
 
+  const composerPrefs: ComposerPrefs = settings?.composerPrefs ?? {
+    favoriteOrder: [],
+    presets: [],
+    activePresetId: null,
+  };
+  const orderedFavorites = orderFavorites(favorites, composerPrefs.favoriteOrder);
+
+  async function saveComposerPrefs(nextPrefs: ComposerPrefs) {
+    setModelBusy(true);
+    setModelError(null);
+    try {
+      const next = await api.saveStudioSettings({ composerPrefs: nextPrefs });
+      onSettingsChange(next);
+    } catch (err) {
+      setModelError(err instanceof Error ? err.message : "Failed to save model settings");
+    } finally {
+      setModelBusy(false);
+    }
+  }
+
   async function setHistoryPageSize(value: string) {
     setLibraryBusy(true);
     setLibraryError(null);
@@ -510,7 +532,7 @@ export function SettingsModal({
                   const current = settings?.defaultModelByMode[mode];
                   const choices = defaultModelChoices(
                     catalogByMode[mode] ?? [],
-                    favorites,
+                    orderedFavorites,
                     current,
                   );
                   return (
@@ -547,14 +569,42 @@ export function SettingsModal({
                   );
                 })}
                 <h3>Preferred</h3>
+                <p>Drag to set the order in the model menu. Stars stay on your Oxen account.</p>
                 <div className="allow-list">
-                  {favorites.length === 0 ? (
+                  {orderedFavorites.length === 0 ? (
                     <div className="history-empty" style={{ margin: 0 }}>
                       No Oxen favorites yet. Search below and star a model.
                     </div>
                   ) : (
-                    favorites.map((item) => (
-                      <div className="allow-row" key={item.id}>
+                    orderedFavorites.map((item) => (
+                      <div
+                        className="allow-row"
+                        key={item.id}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          const fromId = event.dataTransfer.getData("text/plain");
+                          const ids = reorderIds(
+                            orderedFavorites.map((favorite) => favorite.id),
+                            fromId,
+                            item.id,
+                          );
+                          void saveComposerPrefs({ ...composerPrefs, favoriteOrder: ids });
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="model-menu-grip"
+                          aria-label={`Drag to reorder ${item.display_name || item.id}`}
+                          draggable
+                          disabled={modelBusy}
+                          onDragStart={(event) => {
+                            event.dataTransfer.setData("text/plain", item.id);
+                            event.dataTransfer.effectAllowed = "move";
+                          }}
+                        >
+                          ⋮⋮
+                        </button>
                         <span>{item.display_name || item.id}</span>
                         <button
                           className="ghost-btn"
@@ -562,6 +612,59 @@ export function SettingsModal({
                           onClick={() => void toggleFavorite(item.id, true)}
                         >
                           Unstar
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <h3>Presets</h3>
+                <p>
+                  A preset keeps count, aspect, quality, resolution, and duration when you switch models.
+                  Without one, count returns to 1×. Save a preset from the prompt toolbar.
+                </p>
+                <div className="allow-list">
+                  {composerPrefs.presets.length === 0 ? (
+                    <div className="history-empty" style={{ margin: 0 }}>
+                      No presets yet.
+                    </div>
+                  ) : (
+                    composerPrefs.presets.map((preset) => (
+                      <div className="allow-row" key={preset.id}>
+                        <label className="preset-rename">
+                          <input
+                            className="field"
+                            aria-label={`Rename ${preset.name}`}
+                            defaultValue={preset.name}
+                            maxLength={40}
+                            disabled={modelBusy}
+                            onBlur={(event) => {
+                              const name = event.target.value.trim();
+                              if (!name || name === preset.name) return;
+                              void saveComposerPrefs({
+                                ...composerPrefs,
+                                presets: composerPrefs.presets.map((item) =>
+                                  item.id === preset.id ? { ...item, name } : item,
+                                ),
+                              });
+                            }}
+                          />
+                        </label>
+                        <span className="preset-summary">{presetSummary(preset)}</span>
+                        <button
+                          className="ghost-btn"
+                          disabled={modelBusy}
+                          onClick={() =>
+                            void saveComposerPrefs({
+                              ...composerPrefs,
+                              presets: composerPrefs.presets.filter((item) => item.id !== preset.id),
+                              activePresetId:
+                                composerPrefs.activePresetId === preset.id
+                                  ? null
+                                  : composerPrefs.activePresetId,
+                            })
+                          }
+                        >
+                          Delete
                         </button>
                       </div>
                     ))
