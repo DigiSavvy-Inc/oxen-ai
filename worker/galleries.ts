@@ -1,9 +1,12 @@
+import { normalizeMediaRole, type MediaRole } from "./schema";
+
 export type GalleryKind = "image" | "video" | "audio";
 
 export type GalleryItemInput = {
   kind: GalleryKind;
   name: string;
   key: string;
+  role: MediaRole | null;
 };
 
 export type StoredGalleryItem = GalleryItemInput & {
@@ -41,6 +44,7 @@ type ItemRow = {
   name: string;
   media_key: string;
   position: number;
+  role?: string | null;
 };
 
 export function acceptGalleryName(raw: unknown): string | null {
@@ -70,18 +74,35 @@ function acceptKind(raw: unknown): GalleryKind | null {
   }
 }
 
+function acceptItemRole(kind: GalleryKind, raw: unknown): MediaRole | null {
+  if (kind === "audio") return null;
+  if (typeof raw !== "string" || !raw.trim()) return "character";
+  return normalizeMediaRole(raw);
+}
+
+function storedRole(kind: GalleryKind, raw: string | null | undefined): MediaRole | null {
+  if (kind === "audio") return null;
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  return normalizeMediaRole(raw);
+}
+
+function missingColumn(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("no such column");
+}
+
 export function acceptGalleryItems(userId: string, raw: unknown): GalleryItemInput[] | null {
   if (!Array.isArray(raw) || raw.length > GALLERY_MAX_ITEMS) return null;
   const items: GalleryItemInput[] = [];
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") return null;
-    const record = entry as { kind?: unknown; name?: unknown; key?: unknown };
+    const record = entry as { kind?: unknown; name?: unknown; key?: unknown; role?: unknown };
     const kind = acceptKind(record.kind);
     const key = galleryKeyForUser(userId, record.key);
     if (!kind || typeof record.name !== "string" || !key) return null;
     const name = record.name.trim();
     if (!name || name.length > GALLERY_ITEM_NAME_MAX) return null;
-    items.push({ kind, name, key });
+    items.push({ kind, name, key, role: acceptItemRole(kind, record.role) });
   }
   return items;
 }
@@ -127,21 +148,43 @@ export async function listGalleries(
   }));
 }
 
+async function itemRows(
+  db: D1Database,
+  userId: string,
+  galleryId: string,
+): Promise<ItemRow[]> {
+  try {
+    const { results } = await db
+      .prepare(
+        `SELECT id, kind, name, media_key, position, role FROM gallery_items
+         WHERE gallery_id = ? AND user_id = ?
+         ORDER BY position ASC`,
+      )
+      .bind(galleryId, userId)
+      .all<ItemRow>();
+    return results ?? [];
+  } catch (err) {
+    if (!missingColumn(err)) throw err;
+    const { results } = await db
+      .prepare(
+        `SELECT id, kind, name, media_key, position FROM gallery_items
+         WHERE gallery_id = ? AND user_id = ?
+         ORDER BY position ASC`,
+      )
+      .bind(galleryId, userId)
+      .all<ItemRow>();
+    return results ?? [];
+  }
+}
+
 async function itemsForGallery(
   db: D1Database,
   userId: string,
   galleryId: string,
 ): Promise<StoredGalleryItem[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT id, kind, name, media_key, position FROM gallery_items
-       WHERE gallery_id = ? AND user_id = ?
-       ORDER BY position ASC`,
-    )
-    .bind(galleryId, userId)
-    .all<ItemRow>();
+  const rows = await itemRows(db, userId, galleryId);
   const items: StoredGalleryItem[] = [];
-  for (const row of results ?? []) {
+  for (const row of rows) {
     const kind = acceptKind(row.kind);
     if (!kind) continue;
     items.push({
@@ -150,6 +193,7 @@ async function itemsForGallery(
       name: row.name,
       key: row.media_key,
       position: row.position,
+      role: storedRole(kind, row.role),
     });
   }
   return items;
@@ -207,13 +251,24 @@ async function replaceItems(
     const item = items[position];
     if (!item) continue;
     const id = crypto.randomUUID();
-    await db
-      .prepare(
-        `INSERT INTO gallery_items (id, gallery_id, user_id, kind, name, media_key, position)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(id, galleryId, userId, item.kind, item.name, item.key, position)
-      .run();
+    try {
+      await db
+        .prepare(
+          `INSERT INTO gallery_items (id, gallery_id, user_id, kind, name, media_key, position, role)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(id, galleryId, userId, item.kind, item.name, item.key, position, item.role)
+        .run();
+    } catch (err) {
+      if (!missingColumn(err)) throw err;
+      await db
+        .prepare(
+          `INSERT INTO gallery_items (id, gallery_id, user_id, kind, name, media_key, position)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(id, galleryId, userId, item.kind, item.name, item.key, position)
+        .run();
+    }
     stored.push({ ...item, id, position });
   }
   return stored;

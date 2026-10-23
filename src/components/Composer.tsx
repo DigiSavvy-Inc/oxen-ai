@@ -215,6 +215,7 @@ type Props = {
   onGalleryNew?: () => void;
   onGalleryLoad?: (id: string) => Promise<void> | void;
   onGalleryAttach?: (items?: GalleryDraftItem[], caret?: number | null) => string[];
+  onGalleryRoleChange?: (index: number, role: MediaRole) => void;
   quality: string;
   onQualityChange: (value: string) => void;
   resolution: string;
@@ -1657,6 +1658,7 @@ export function Composer(props: Props) {
           skipped={gallerySkipped}
           onAddFiles={(files) => props.onGalleryAddFiles?.(files)}
           onRemove={(index) => props.onGalleryRemove?.(index)}
+          onRoleChange={(index, role) => props.onGalleryRoleChange?.(index, role)}
           onReorder={(from, to) => props.onGalleryReorder?.(from, to)}
           onSave={() => void props.onGallerySave?.()}
           onNew={() => {

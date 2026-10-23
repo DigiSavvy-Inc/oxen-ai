@@ -168,6 +168,7 @@ export type GalleryItem = {
   key: string;
   url: string;
   thumbUrl?: string | null;
+  role?: string | null;
 };
 
 export type Gallery = {
@@ -458,7 +459,7 @@ export const api = {
   saveGallery: (body: {
     id?: string | null;
     name: string;
-    items: { kind: GalleryItem["kind"]; name: string; key: string }[];
+    items: { kind: GalleryItem["kind"]; name: string; key: string; role?: string | null }[];
   }) =>
     fetch("/api/galleries", {
       method: "POST",

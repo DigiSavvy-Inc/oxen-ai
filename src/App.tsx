@@ -104,6 +104,7 @@ function draftFromGalleryItem(item: GalleryItem): GalleryDraftItem {
     preview: item.thumbUrl || (item.kind === "image" ? item.url : ""),
     key: item.key,
     url: item.url,
+    role: item.kind === "audio" ? undefined : item.role ? normalizeMediaRole(item.role) : undefined,
   };
 }
 
@@ -1125,6 +1126,7 @@ export default function App() {
           preview: uploaded.url,
           key: uploaded.key,
           url: uploaded.url,
+          role: item.kind === "audio" ? undefined : "character",
         });
       }
       setGalleryItems((prev) => [...prev, ...added].slice(0, GALLERY_ITEM_CAP));
@@ -1148,11 +1150,7 @@ export default function App() {
       const saved = await api.saveGallery({
         id: galleryId,
         name,
-        items: items.map((item) => ({
-          kind: item.kind,
-          name: item.name,
-          key: item.key,
-        })),
+        items: galleryPayload(items),
       });
       setGalleryId(saved.gallery.id);
       setGalleryName(saved.gallery.name);
@@ -1247,11 +1245,7 @@ export default function App() {
       const saved = await api.saveGallery({
         id,
         name: trimmed,
-        items: gallery.items.map((item) => ({
-          kind: item.kind,
-          name: item.name,
-          key: item.key,
-        })),
+        items: galleryPayload(gallery.items),
       });
       if (galleryId === id) setGalleryName(saved.gallery.name);
       const listed = await api.galleries();
@@ -1294,11 +1288,7 @@ export default function App() {
   }): Promise<boolean> {
     const chosen = galleryItems.filter((item) => input.ids.includes(item.id) && item.key);
     if (chosen.length === 0 || gallerySaving) return false;
-    const payload = chosen.map((item) => ({
-      kind: item.kind,
-      name: item.name,
-      key: item.key,
-    }));
+    const payload = galleryPayload(chosen);
     setGallerySaving(true);
     setGalleryStatus(null);
     try {
@@ -1315,14 +1305,7 @@ export default function App() {
           await api.saveGallery({
             id: gallery.id,
             name: gallery.name,
-            items: [
-              ...gallery.items.map((item) => ({
-                kind: item.kind,
-                name: item.name,
-                key: item.key,
-              })),
-              ...accepted,
-            ],
+            items: [...galleryPayload(gallery.items), ...accepted],
           });
         } else if (input.mode === "copy") {
           setGalleryStatus(note);
@@ -1341,11 +1324,7 @@ export default function App() {
         const saved = await api.saveGallery({
           id: galleryId,
           name: galleryName.trim() || "Gallery",
-          items: next.map((item) => ({
-            kind: item.kind,
-            name: item.name,
-            key: item.key,
-          })),
+          items: galleryPayload(next),
         });
         setGalleryId(saved.gallery.id);
         setGalleryName(saved.gallery.name);
@@ -1363,8 +1342,26 @@ export default function App() {
     }
   }
 
-  function galleryPayload(items: { kind: GalleryItem["kind"]; name: string; key: string }[]) {
-    return items.map((item) => ({ kind: item.kind, name: item.name, key: item.key }));
+  function galleryPayload(
+    items: { kind: GalleryItem["kind"]; name: string; key: string; role?: string | null }[],
+  ) {
+    return items.map((item) => ({
+      kind: item.kind,
+      name: item.name,
+      key: item.key,
+      role: item.kind === "audio" ? null : normalizeMediaRole(item.role),
+    }));
+  }
+
+  async function onGalleryRoleChange(index: number, role: MediaRole) {
+    const current = galleryItems[index];
+    if (!current || current.kind === "audio") return;
+    if (normalizeMediaRole(current.role) === role) return;
+    const next = galleryItems.map((item, itemIndex) =>
+      itemIndex === index ? { ...item, role } : item,
+    );
+    setGalleryItems(next);
+    if (galleryId && galleryName.trim()) await onGallerySave(next);
   }
 
   async function addHistoryToGallery(
@@ -1457,7 +1454,7 @@ export default function App() {
           preview: item.url || item.preview,
           url: item.url,
           key: item.key,
-          role: item.kind === "audio" ? undefined : ("character" as const),
+          role: item.kind === "audio" ? undefined : normalizeMediaRole(item.role),
         })),
       ]);
     }
@@ -1841,6 +1838,7 @@ export default function App() {
         onGalleryOpen={(id) => void onGalleryLoad(id)}
         onManageGallerySave={() => void onGallerySave()}
         onGalleryAttach={onGalleryAttach}
+        onGalleryRoleChange={(index, role) => void onGalleryRoleChange(index, role)}
         onGalleryFeature={(index) => void onGalleryFeature(index)}
         onGalleryDelete={(id) => void onGalleryDelete(id)}
         onGalleryRename={(id, name) => void onGalleryRename(id, name)}
@@ -1998,6 +1996,7 @@ export default function App() {
             onGalleryNew={onGalleryNew}
             onGalleryLoad={onGalleryLoad}
             onGalleryAttach={onGalleryAttach}
+            onGalleryRoleChange={(index, role) => void onGalleryRoleChange(index, role)}
             quality={quality}
             onQualityChange={rememberParam(setQuality)}
             resolution={resolution}

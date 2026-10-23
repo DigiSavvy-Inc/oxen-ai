@@ -40,17 +40,20 @@ type ItemRow = {
   name: string;
   media_key: string;
   position: number;
+  role: string | null;
 };
 
-function galleriesDb() {
+function galleriesDb(options?: { missingRole?: boolean }) {
   const galleries: GalleryRow[] = [];
   const items: ItemRow[] = [];
   const db = {
     prepare(sql: string) {
+      const missingRole = options?.missingRole === true && /\brole\b/.test(sql);
       return {
         bind(...args: unknown[]) {
           return {
             async all() {
+              if (missingRole) throw new Error("no such column: role");
               if (sql.includes("FROM galleries")) {
                 const userId = String(args[0]);
                 let matched = galleries.filter((row) => row.user_id === userId);
@@ -83,6 +86,7 @@ function galleriesDb() {
                       name: row.name,
                       media_key: row.media_key,
                       position: row.position,
+                      ...(sql.includes("role") ? { role: row.role } : {}),
                     })),
                 };
               }
@@ -100,6 +104,7 @@ function galleriesDb() {
               return null;
             },
             async run() {
+              if (missingRole) throw new Error("no such column: role");
               if (sql.includes("INSERT INTO galleries")) {
                 galleries.push({
                   id: String(args[0]),
@@ -123,6 +128,7 @@ function galleriesDb() {
                   name: String(args[4]),
                   media_key: String(args[5]),
                   position: Number(args[6]),
+                  role: sql.includes("role") ? (args[7] == null ? null : String(args[7])) : null,
                 });
               } else if (sql.includes("DELETE FROM gallery_items")) {
                 const galleryId = String(args[0]);
@@ -186,6 +192,53 @@ describe("galleries", () => {
     });
     expect(renamed?.items.map((item) => item.kind)).toEqual(["audio"]);
     expect(await listGalleries(db, TEST_USER.id, "launch")).toHaveLength(1);
+    expect(loaded?.items.map((item) => item.role)).toEqual(["character", "character"]);
+    expect(renamed?.items[0]?.role).toBeNull();
+  });
+
+  it("keeps image and video roles and clears audio", () => {
+    expect(
+      acceptGalleryItems("user-1", [
+        { kind: "image", name: "room.png", key: "u/user-1/a.png", role: "scene" },
+        { kind: "image", name: "prop.png", key: "u/user-1/b.png", role: "object" },
+        { kind: "video", name: "plate.mp4", key: "u/user-1/c.mp4", role: "style" },
+        { kind: "audio", name: "bed.mp3", key: "u/user-1/d.mp3", role: "character" },
+        { kind: "image", name: "face.png", key: "u/user-1/e.png" },
+      ]),
+    ).toEqual([
+      { kind: "image", name: "room.png", key: "u/user-1/a.png", role: "background" },
+      { kind: "image", name: "prop.png", key: "u/user-1/b.png", role: "object" },
+      { kind: "video", name: "plate.mp4", key: "u/user-1/c.mp4", role: "style" },
+      { kind: "audio", name: "bed.mp3", key: "u/user-1/d.mp3", role: null },
+      { kind: "image", name: "face.png", key: "u/user-1/e.png", role: "character" },
+    ]);
+  });
+
+  it("round-trips a reference role and still saves when the column is missing", async () => {
+    const { db } = galleriesDb();
+    const saved = await saveGallery(db, TEST_USER.id, {
+      name: "Sets",
+      items: [
+        { kind: "image", name: "room.png", key: "u/user-1/galleries/room.png", role: "background" },
+        { kind: "audio", name: "bed.mp3", key: "u/user-1/galleries/bed.mp3", role: "style" },
+      ],
+    });
+    const loaded = await getGallery(db, TEST_USER.id, saved!.id);
+    expect(loaded?.items.map((item) => [item.name, item.role])).toEqual([
+      ["room.png", "background"],
+      ["bed.mp3", null],
+    ]);
+
+    const legacy = galleriesDb({ missingRole: true });
+    const fallback = await saveGallery(legacy.db, TEST_USER.id, {
+      name: "Legacy",
+      items: [
+        { kind: "image", name: "room.png", key: "u/user-1/galleries/room.png", role: "object" },
+      ],
+    });
+    expect(fallback?.items[0]?.role).toBe("object");
+    const reread = await getGallery(legacy.db, TEST_USER.id, fallback!.id);
+    expect(reread?.items[0]?.role).toBeNull();
   });
 
   it("requires a signed-in user on the gallery routes", async () => {
@@ -220,6 +273,26 @@ describe("gallery attach", () => {
     key: "u/user-1/galleries/bed.mp3",
     url: "https://studio.example/bed.mp3",
   };
+
+  it("keeps a background or object role on attach", () => {
+    const plan = planGalleryAttach({
+      items: [
+        { ...image, role: "object" },
+        {
+          ...image,
+          name: "room.png",
+          key: "u/user-1/galleries/room.png",
+          url: "https://studio.example/room.png",
+          role: "background",
+        },
+      ],
+      staged: [],
+      caps: { image: 4, video: 0, audio: 0 },
+      prompt: "",
+      faceFirst: true,
+    });
+    expect(plan.add.map((item) => item.role)).toEqual(["object", "background"]);
+  });
 
   it("adds accepted media as mentions and names what the model skips", () => {
     const plan = planGalleryAttach({
