@@ -38,7 +38,8 @@ export type OxenModel = {
 export const FEATURED_VIDEO_SEARCHES = [
   { query: "seedance 2.5", present: /seedance-2-5/i },
   { query: "kling 3", present: /kling-video-v3|kling-3/i },
-  { query: "wan 3", present: /wan-3-0/i },
+  { query: "wan 3", present: /wan-v3-0-video(?!-prime)|wan-3-0(?!-prime)/i },
+  { query: "wan 3 prime", present: /wan-v3-0-video-prime|wan-3-0-prime/i },
   { query: "flux 3 video", present: /flux-3-video/i },
 ] as const;
 

@@ -298,7 +298,111 @@ describe("filterModelsForMode", () => {
     expect(ids(filterModelsForMode(models, "video-to-video")).sort()).toEqual([
       "bytedance-seedance-2-5-reference-to-video",
       "kling-video-v3-pro-motion-control",
+      "wan-3-0",
     ]);
+  });
+
+  it("keeps WAN 3.0 and Prime on text, reference, and clip modes", () => {
+    const wan: OxenModel = {
+      id: "wan-v3-0-video",
+      display_name: "WAN 3.0",
+      endpoint: "/videos/generate",
+      capabilities: { input: ["text", "image", "video", "audio"], output: ["video"] },
+    };
+    const prime: OxenModel = {
+      id: "wan-v3-0-video-prime",
+      display_name: "WAN 3.0 Prime",
+      endpoint: "/videos/generate",
+      capabilities: { input: ["text", "image", "video", "audio"], output: ["video"] },
+    };
+    const older: OxenModel = {
+      id: "wan-v2-7-text-to-video",
+      display_name: "WAN 2.7 Text to Video",
+      endpoint: "/videos/generate",
+      capabilities: { input: ["text", "image"], output: ["video"] },
+    };
+    const models = [wan, prime, older];
+    expect(ids(filterModelsForMode(models, "text-to-video")).sort()).toEqual([
+      "wan-v3-0-video",
+      "wan-v3-0-video-prime",
+    ]);
+    expect(ids(filterModelsForMode(models, "reference-to-video")).sort()).toEqual([
+      "wan-v2-7-text-to-video",
+      "wan-v3-0-video",
+      "wan-v3-0-video-prime",
+    ]);
+    expect(ids(filterModelsForMode(models, "video-to-video")).sort()).toEqual([
+      "wan-v3-0-video",
+      "wan-v3-0-video-prime",
+    ]);
+    expect(filterModelsForMode(models, "text-to-image")).toEqual([]);
+  });
+
+  it("lists live WAN 3.0 and Prime for every video mode and does not offer the old ids", async () => {
+    const { ciphertext, iv } = await encryptSecret("sk-user", TEST_SECRET);
+    const user: UserRow = { ...TEST_USER, oxen_key_ciphertext: ciphertext, oxen_key_iv: iv };
+    const live = [
+      {
+        id: "wan-v3-0-video",
+        display_name: "WAN 3.0 Omni",
+        endpoint: "/videos/generate",
+        capabilities: { input: ["text", "image", "video", "audio"], output: ["video"] },
+      },
+      {
+        id: "wan-v3-0-video-prime",
+        display_name: "WAN 3.0 Omni Prime",
+        endpoint: "/videos/generate",
+        capabilities: { input: ["text", "image", "video", "audio"], output: ["video"] },
+      },
+    ];
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "https://hub.oxen.ai/api/ai/models") return jsonResponse({ data: live });
+      if (url.startsWith("https://hub.oxen.ai/api/ai/models/search")) return jsonResponse({ data: [] });
+      throw new Error(`unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const env = createEnv({
+      DB: {
+        prepare(sql: string) {
+          return {
+            bind(...args: unknown[]) {
+              return {
+                async first() {
+                  if (sql.includes("FROM sessions") && args[0] === TEST_SESSION_ID) return user;
+                  return null;
+                },
+                async all() {
+                  return { results: [] };
+                },
+                async run() {
+                  return { success: true };
+                },
+              };
+            },
+          };
+        },
+      } as unknown as D1Database,
+    });
+
+    for (const mode of ["text-to-video", "reference-to-video", "video-to-video"]) {
+      const res = await app.request(
+        `https://studio.digisavvy.dev/api/models?mode=${mode}`,
+        { headers: { Cookie: `${SESSION_COOKIE}=${TEST_SESSION_ID}` } },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { models: OxenModel[] };
+      const listed = body.models.filter((model) => /wan/i.test(model.id));
+      expect(listed.map((model) => model.id).sort()).toEqual([
+        "wan-v3-0-video",
+        "wan-v3-0-video-prime",
+      ]);
+      expect(listed.map((model) => model.display_name).sort()).toEqual([
+        "WAN 3.0 Omni",
+        "WAN 3.0 Omni Prime",
+      ]);
+    }
   });
 
   it("keeps Flux 3 Video on text, image, and continuation modes of one id", () => {

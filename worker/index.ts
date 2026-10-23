@@ -312,7 +312,18 @@ async function signInWithLocalGithub(c: Context<{ Bindings: Env; Variables: Vari
   return c.redirect("/");
 }
 
+function wan30Model(id: "wan-v3-0-video" | "wan-v3-0-video-prime", displayName: string): OxenModel {
+  return {
+    id,
+    display_name: displayName,
+    endpoint: "/videos/generate",
+    capabilities: { input: ["text", "image", "video", "audio"], output: ["video"] },
+  };
+}
+
 function fallbackModels(mode: GenerationMode): OxenModel[] {
+  const wan30 = wan30Model("wan-v3-0-video", "WAN 3.0");
+  const wan30Prime = wan30Model("wan-v3-0-video-prime", "WAN 3.0 Prime");
   const catalog: Record<GenerationMode, OxenModel[]> = {
     "text-to-image": [
       {
@@ -403,12 +414,8 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         endpoint: "/videos/generate",
         capabilities: { input: ["text"], output: ["video"] },
       },
-      {
-        id: "wan-3-0",
-        display_name: "Wan 3.0",
-        endpoint: "/videos/generate",
-        capabilities: { input: ["text"], output: ["video"] },
-      },
+      wan30,
+      wan30Prime,
       flux3VideoModel,
     ],
     "reference-to-video": [
@@ -448,18 +455,8 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         endpoint: "/videos/generate",
         capabilities: { input: ["text", "image", "video"], output: ["video"] },
       },
-      {
-        id: "wan-3-0",
-        display_name: "Wan 3.0",
-        endpoint: "/videos/generate",
-        capabilities: { input: ["text"], output: ["video"] },
-      },
-      {
-        id: "wan-3-0-prime",
-        display_name: "Wan 3.0 Prime",
-        endpoint: "/videos/generate",
-        capabilities: { input: ["text", "image"], output: ["video"] },
-      },
+      wan30,
+      wan30Prime,
       flux3VideoModel,
     ],
     "video-to-video": [
@@ -481,6 +478,8 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         endpoint: "/videos/generate",
         capabilities: { input: ["text", "image", "video"], output: ["video"] },
       },
+      wan30,
+      wan30Prime,
       flux3VideoModel,
     ],
     "text-to-audio": [seedAudioModel],
@@ -495,8 +494,8 @@ function featuredVideoFallbacks(mode: GenerationMode): OxenModel[] {
     "bytedance-seedance-2-5-image-to-video",
     "bytedance-seedance-2-5-reference-to-video",
     "kling-video-v3-pro-motion-control",
-    "wan-3-0",
-    "wan-3-0-prime",
+    "wan-v3-0-video",
+    "wan-v3-0-video-prime",
     "flux-3-video",
   ]);
   return fallbackModels(mode).filter((model) => featured.has(model.id));

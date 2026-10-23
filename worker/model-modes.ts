@@ -109,9 +109,12 @@ function isSeedance25TextToVideo(model: ModeFilterModel): boolean {
   return /seedance-2-5-text-to-video/i.test(modelIdName(model));
 }
 
-function isWan30TextToVideo(model: ModeFilterModel): boolean {
-  const text = modelIdName(model);
-  return /wan-3-0/i.test(text) && /text-to-video/i.test(text);
+/**
+ * WAN 3.0 and WAN 3.0 Prime (`wan-v3-0-video`, `wan-v3-0-video-prime`) each cover
+ * prompt-only, reference, and clip jobs. Oxen ids use `v3-0`, not `wan-3-0`.
+ */
+function isWan30Video(model: ModeFilterModel): boolean {
+  return /wan-v3-0|wan[\s-]?3(?:\.0|-0)/i.test(modelIdName(model));
 }
 
 /** One catalog id: text, keyframes, and continuation. Not a separate image-to-video model. */
@@ -124,7 +127,7 @@ function isReferenceToVideoId(model: ModeFilterModel): boolean {
   return (
     /seedance-2-5-image-to-video/i.test(text) ||
     /seedance-2-5-reference-to-video/i.test(text) ||
-    /wan-3-0/i.test(text) ||
+    isWan30Video(model) ||
     /kling-video-v3-pro-motion-control/i.test(text)
   );
 }
@@ -135,6 +138,7 @@ function isVideoToVideoId(model: ModeFilterModel): boolean {
     /video-to-video/i.test(text) ||
     /motion-control/i.test(text) ||
     /wan-3-0-prime.*edit/i.test(text) ||
+    isWan30Video(model) ||
     /seedance-2-5-reference-to-video/i.test(text)
   );
 }
@@ -178,9 +182,8 @@ export function modelSupportsMode(model: ModeFilterModel, mode: GenerationMode):
         (imageEdit || caps.hasImageIn || (caps.noCaps && imageGen))
       );
     case "text-to-video":
-      if (isSeedance25TextToVideo(model) || isWan30TextToVideo(model) || isFlux3Video(model)) {
-        return true;
-      }
+      if (isSeedance25TextToVideo(model) || isFlux3Video(model)) return true;
+      if (isWan30Video(model) && caps.videoOut) return true;
       return (
         caps.videoOut &&
         caps.hasText &&
