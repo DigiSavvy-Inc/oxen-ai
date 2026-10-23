@@ -181,7 +181,7 @@ export const DOC_ARTICLES: DocArticle[] = [
       },
       {
         type: "p",
-        text: "Gallery, on image edit and video modes, keeps a named set of references. Attach adds that set to the composer. Library → Galleries lists every gallery before a mode is chosen. A gallery with more than four items shows its featured image larger. Edit and Delete are on each card. Inside a gallery, click an image to open a lightbox and page through the set, then click the image again for actual size. Play opens video in that lightbox and audio in a small player. Select items to delete them, or copy or move them into another gallery or a new one. On a history preview, Add, Add set, and New gallery sit on the right of Click to attach. Choosing a gallery keeps the list open and says how many items were added.",
+        text: "Gallery, on image edit and video modes, keeps a named set of references. Attach adds that set to the composer. Library → Galleries lists every gallery before a mode is chosen. Each card shows the first image large and three rows of thumbs. Drop images, video, or audio on a card, or click the dashed box, to add files from this computer. The same box is inside an open gallery. Edit and Delete are on each card. Inside a gallery, click an image to open a lightbox and page through the set, then click the image again for actual size. Play opens video in that lightbox and audio in a small player. Select items to delete them, or copy or move them into another gallery or a new one. On a history preview, Add, Add set, and New gallery sit on the right of Click to attach. Choosing a gallery keeps the list open and says how many items were added.",
       },
     ],
   },

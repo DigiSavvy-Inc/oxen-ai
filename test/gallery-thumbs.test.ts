@@ -49,6 +49,10 @@ describe("gallery slot thumbs", () => {
     expect(browser).toContain('"cover"');
     expect(browser).toContain('slot="tile"');
     expect(browser).toContain("Attach all");
+    expect(browser).toContain("click to upload");
+    expect(browser).toContain("Add media to");
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    expect(css).toContain("64px * 3 + 4px * 2");
     expect(browser).toContain("onAttach([item])");
     expect(browser).toContain("Feature");
   });
