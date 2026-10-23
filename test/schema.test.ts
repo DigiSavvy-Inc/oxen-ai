@@ -3,6 +3,8 @@ import {
   clampDuration,
   mapMediaUrls,
   parseGenerationListScope,
+  lockedAspectRatio,
+  lockedDuration,
   parseModelControls,
   preferredAspectRatio,
   resolveSafetyTolerance,
@@ -46,6 +48,9 @@ describe("parseModelControls", () => {
     expect(controls.resolution).toEqual(["1K", "2K", "4K"]);
     expect(controls.quality).toContain("xhigh");
     expect(controls.seed).toBe(true);
+    expect(controls.referenceTask).toBeNull();
+    expect(controls.aspectLock).toBeNull();
+    expect(controls.durationLock).toBeNull();
     expect(controls.mentions).toBe(true);
     expect(controls.pricing).toBeNull();
     expect(
@@ -245,6 +250,58 @@ describe("parseModelControls", () => {
       input_images: ["https://scene", "https://room"],
       input_face_videos: ["https://walk"],
       input_videos: ["https://plate"],
+    });
+  });
+
+  it("reads Seedance extend, edit locks, and background or object refs", () => {
+    const controls = parseModelControls({
+      id: "bytedance-seedance-2-5-reference-to-video",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          omni_reference_task_type: {
+            type: "string",
+            enum: ["auto", "edit", "extend"],
+            default: "auto",
+          },
+          aspect_ratio: {
+            type: "string",
+            enum: ["adaptive", "16:9", "9:16"],
+            default: "adaptive",
+            "x-lock": { value: "adaptive", when: { omni_reference_task_type: ["edit", "extend"] } },
+          },
+          duration: {
+            type: ["integer", "string"],
+            minimum: 4,
+            maximum: 30,
+            default: "auto",
+            "x-lock": { value: "auto", when: { omni_reference_task_type: "edit" } },
+          },
+          output_format: { type: "string", enum: ["mp4", "mov"], default: "mp4" },
+          input_face_images: { type: "array", maxItems: 30, items: { type: "string" } },
+          input_images: { type: "array", maxItems: 30, items: { type: "string" } },
+        },
+      },
+    });
+    expect(controls.referenceTask).toEqual(["auto", "edit", "extend"]);
+    expect(controls.aspectLock).toEqual({ value: "adaptive", tasks: ["edit", "extend"] });
+    expect(controls.durationLock).toEqual({ value: "auto", tasks: ["edit"] });
+    expect(lockedAspectRatio(controls.aspectLock, "extend", "16:9", controls.aspectRatios)).toBe(
+      "adaptive",
+    );
+    expect(lockedAspectRatio(controls.aspectLock, "auto", "16:9", controls.aspectRatios)).toBe("16:9");
+    expect(lockedDuration(controls.durationLock, "edit", controls.duration, 8)).toBe("auto");
+    expect(lockedDuration(controls.durationLock, "extend", controls.duration, 8)).toBe(8);
+    expect(
+      mapMediaUrls(
+        controls.slots,
+        { image: ["https://room", "https://hero", "https://vase"], video: [], audio: [] },
+        { image: ["background", "character", "object"] },
+      ),
+    ).toEqual({
+      input_face_images: ["https://hero"],
+      input_images: ["https://room", "https://vase"],
     });
   });
 

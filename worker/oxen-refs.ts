@@ -10,6 +10,7 @@ import {
   verifyMediaSignature,
 } from "./media";
 import { downloadOxenResult } from "./oxen";
+import { referenceRoleUsesFace } from "./schema";
 import { encodeImageForOxen } from "./thumbs";
 
 const MEDIA_PATH_PREFIX = "/api/media/";
@@ -408,7 +409,7 @@ export async function resolveRefsForOxen(
 
 export type OxenRefGroup = {
   urls: string[];
-  roles?: ("character" | "scene")[];
+  roles?: string[];
   face?: boolean;
   /** Provider must GET https. Data URIs are rehosted onto hub and time out. */
   https?: boolean;
@@ -424,7 +425,7 @@ export function collectOxenRefs(groups: OxenRefGroup[]): { urls: string[]; keepH
       if (!url) return;
       urls.push(url);
       const face = group.roles
-        ? Boolean(group.face) && group.roles[index] !== "scene"
+        ? Boolean(group.face) && referenceRoleUsesFace(group.roles[index])
         : Boolean(group.face);
       keepHttps.push(Boolean(group.https) || face);
     });

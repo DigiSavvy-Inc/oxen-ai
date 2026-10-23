@@ -84,8 +84,11 @@ import {
   parseGenerationListScope,
   parseModelControls,
   showGetLastFrame,
+  lockedAspectRatio,
+  lockedDuration,
   pickCompatible,
-  resolveEnqueueAspectRatio,
+  referenceTaskMissingVideoMessage,
+  referenceTaskNeedsVideo,
   resolveSafetyTolerance,
   resolutionPayloadFields,
   unsupportedReferenceMessage,
@@ -1549,8 +1552,8 @@ app.post("/api/generate", async (c) => {
     images?: string[];
     videos?: string[];
     audios?: string[];
-    image_roles?: ("character" | "scene")[];
-    video_roles?: ("character" | "scene")[];
+    image_roles?: string[];
+    video_roles?: string[];
     generate_audio?: boolean;
     draft?: boolean;
     get_last_frame?: boolean;
@@ -1558,6 +1561,7 @@ app.post("/api/generate", async (c) => {
     quality?: string;
     resolution?: string;
     output_format?: string;
+    omni_reference_task_type?: string;
     background?: string;
     moderation?: string;
     safety_tolerance?: number | string;
@@ -1697,6 +1701,16 @@ app.post("/api/generate", async (c) => {
   if (!draftTaskId && needsVideo && videoUrls.length === 0) {
     throw new HTTPException(400, { message: "input_video is required for this mode" });
   }
+  const referenceTask = pickCompatible(body.omni_reference_task_type, controls.referenceTask);
+  const referenceTaskVideoMessage = referenceTaskMissingVideoMessage(referenceTask);
+  if (
+    !draftTaskId &&
+    referenceTaskNeedsVideo(referenceTask) &&
+    videoUrls.length === 0 &&
+    referenceTaskVideoMessage
+  ) {
+    throw new HTTPException(400, { message: referenceTaskVideoMessage });
+  }
   if (controls.imageVideoExclusive && imageUrls.length > 0 && videoUrls.length > 0) {
     throw new HTTPException(400, {
       message: "Keyframes and a continuation clip can’t be used together",
@@ -1754,8 +1768,14 @@ app.post("/api/generate", async (c) => {
     aspect_ratio:
       meta.mediaType === "audio" && !controls.aspectRatios?.length
         ? undefined
-        : resolveEnqueueAspectRatio(body.aspect_ratio, controls.aspectRatios),
-    duration: controls.duration ? clampDuration(body.duration, controls.duration) : undefined,
+        : lockedAspectRatio(
+            controls.aspectLock,
+            referenceTask,
+            body.aspect_ratio,
+            controls.aspectRatios,
+          ),
+    omni_reference_task_type: meta.mediaType === "video" ? referenceTask : undefined,
+    duration: lockedDuration(controls.durationLock, referenceTask, controls.duration, body.duration),
     seed: controls.seed || useFallback ? body.seed : undefined,
     generate_audio:
       controls.generateAudio || useFallback
@@ -1899,6 +1919,7 @@ app.post("/api/generate", async (c) => {
         quality: body.quality,
         resolution: body.resolution,
         output_format: body.output_format,
+        omni_reference_task_type: referenceTask,
         background: body.background,
         safety_tolerance: safetyTolerance,
         sample_rate: typeof sampleRate === "number" ? sampleRate : undefined,

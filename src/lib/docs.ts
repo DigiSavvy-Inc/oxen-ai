@@ -98,7 +98,7 @@ export const DOC_ARTICLES: DocArticle[] = [
       },
       {
         type: "p",
-        text: "Reference modes, including Seedance 2.5, can run with no file attached. On Seedance, Scene sends a normal image or video. Character sends faces and people on the face input.",
+        text: "Reference modes, including Seedance 2.5, can run with no file attached. On Seedance, each image or video can be marked Character, Background, Object, or Style. Character sends faces and people on the face input. Background, Object, and Style are normal references, and the prompt should say what each @Image or @Video does. Seedance 2.5 also has a Task control: Auto lets the prompt decide, Edit video changes a reference clip, and Extend video continues it. Edit and Extend need a reference video, keep that clip's aspect ratio, and work best with MOV. Edit keeps the length on Auto.",
       },
     ],
   },

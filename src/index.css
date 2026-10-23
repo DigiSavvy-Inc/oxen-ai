@@ -3977,7 +3977,12 @@ button.history-expand-preview {
   cursor: pointer;
 }
 
-.attach-role.is-scene {
+select.attach-role {
+  appearance: none;
+  max-width: 112px;
+}
+
+.attach-role.is-plain {
   background: var(--neutral-1);
   color: var(--text-muted);
   font-weight: 500;

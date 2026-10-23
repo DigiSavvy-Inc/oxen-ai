@@ -72,6 +72,10 @@ export type ModelControls = {
   pricing: OxenPricing | null;
   /** Kling-style multi-shot. Sent as multi_prompt, never together with prompt. */
   multiPrompt?: boolean;
+  /** Seedance omni_reference_task_type. Default value is first. */
+  referenceTask?: string[] | null;
+  aspectLock?: { value: string; tasks: string[] } | null;
+  durationLock?: { value: string; tasks: string[] } | null;
 };
 
 export type SharedOxenParams = {
@@ -84,6 +88,7 @@ export type SharedOxenParams = {
   quality?: string;
   resolution?: string;
   output_format?: string;
+  omni_reference_task_type?: string;
   background?: string;
   safety_tolerance?: number;
   sample_rate?: number;
