@@ -1143,6 +1143,7 @@ describe("library history layout", () => {
       galleryAdding: false,
       galleryStatus: null,
       onGalleryAddFiles: () => {},
+      onAddComputerFiles: () => {},
       onGalleryRemove: () => {},
       onCreateGallery: () => {},
       onCreateGalleryClose: () => {},

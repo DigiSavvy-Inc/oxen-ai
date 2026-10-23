@@ -1114,6 +1114,69 @@ export default function App() {
     }
   }
 
+  async function onAddComputerFiles(targetId: string, list: FileList | File[] | null) {
+    const incoming = filesFromList(list);
+    const { accepted, rejected } = partitionMediaFiles(incoming, ["image", "video", "audio"]);
+    if (accepted.length === 0) {
+      if (rejected.length > 0) setGalleryStatus("Galleries take images, video, or audio.");
+      return;
+    }
+    if (galleryAdding || gallerySaving) return;
+    setGalleryAdding(true);
+    setGalleryStatus(null);
+    try {
+      const local = targetId === galleryId;
+      let saveName = local ? galleryName.trim() : "";
+      let base: { kind: "image" | "video" | "audio"; name: string; key: string }[];
+      if (local) {
+        if (!saveName) {
+          setGalleryStatus("Name the gallery before adding files");
+          return;
+        }
+        base = galleryPayload(galleryItems.filter((item) => item.key));
+      } else {
+        const { gallery } = await api.gallery(targetId);
+        saveName = gallery.name;
+        base = galleryPayload(gallery.items);
+      }
+      const room = Math.max(0, GALLERY_ITEM_CAP - base.length);
+      if (room === 0) {
+        setGalleryStatus(`A gallery holds ${GALLERY_ITEM_CAP} items`);
+        return;
+      }
+      const added: { kind: "image" | "video" | "audio"; name: string; key: string }[] = [];
+      for (const item of accepted.slice(0, room)) {
+        if (item.kind === "document") continue;
+        const uploaded = await api.upload(item.file, { folder: "galleries" });
+        added.push({
+          kind: item.kind,
+          name: item.file.name || uploaded.name,
+          key: uploaded.key,
+        });
+      }
+      if (added.length === 0) return;
+      const saved = await api.saveGallery({
+        id: targetId,
+        name: saveName,
+        items: [...base, ...added],
+      });
+      if (galleryId === saved.gallery.id) {
+        setGalleryName(saved.gallery.name);
+        setGalleryItems(saved.gallery.items.map(draftFromGalleryItem));
+      }
+      const listed = await api.galleries().catch(() => null);
+      if (listed) setGallerySummaries(listed.galleries);
+      const notes: string[] = [];
+      if (rejected.length > 0) notes.push("Skipped files that aren’t images, video, or audio.");
+      if (accepted.length > room) notes.push(`A gallery holds ${GALLERY_ITEM_CAP} items`);
+      if (notes.length > 0) setGalleryStatus(notes.join(" "));
+    } catch (err) {
+      setGalleryStatus(err instanceof Error ? err.message : "Couldn’t add that file");
+    } finally {
+      setGalleryAdding(false);
+    }
+  }
+
   async function onGallerySave(nextItems?: GalleryDraftItem[]): Promise<boolean> {
     const name = galleryName.trim();
     const items = nextItems ?? galleryItems;
@@ -1816,6 +1879,7 @@ export default function App() {
         onGalleryRename={(id, name) => void onGalleryRename(id, name)}
         onGalleryDeleteSelected={onGalleryDeleteSelected}
         onGalleryPlace={onGalleryPlace}
+        onAddComputerFiles={(id, files) => void onAddComputerFiles(id, files)}
         onHistoryAddToGallery={addHistoryToGallery}
         onHistoryCreateGallery={createHistoryGallery}
       />

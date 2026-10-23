@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { createPortal } from "react-dom";
 import type { GallerySummary } from "../lib/api";
 import type { GalleryDraftItem } from "./GalleryDrawer";
@@ -11,6 +11,78 @@ export type GalleryPlace = {
   targetId: string | null;
   newName: string;
 };
+
+function isFileDrag(event: DragEvent) {
+  return Array.from(event.dataTransfer.types).includes("Files");
+}
+
+function useFileDrop(onFiles: (files: FileList) => void) {
+  const depth = useRef(0);
+  const [hot, setHot] = useState(false);
+
+  function onDragEnter(event: DragEvent) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    depth.current += 1;
+    setHot(true);
+  }
+
+  function onDragOver(event: DragEvent) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function onDragLeave(event: DragEvent) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    depth.current = Math.max(0, depth.current - 1);
+    if (depth.current === 0) setHot(false);
+  }
+
+  function onDrop(event: DragEvent) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    depth.current = 0;
+    setHot(false);
+    if (event.dataTransfer.files.length > 0) onFiles(event.dataTransfer.files);
+  }
+
+  return { hot, onDragEnter, onDragOver, onDragLeave, onDrop };
+}
+
+function GalleryReceive({
+  name,
+  hot,
+  adding,
+  onFiles,
+}: {
+  name: string;
+  hot: boolean;
+  adding: boolean;
+  onFiles: (files: FileList | null) => void;
+}) {
+  return (
+    <label className={`gallery-drop${hot ? " is-hot" : ""}`}>
+      {adding ? "Adding…" : hot ? "Release to add" : "Drop images, video, or audio, or click to upload"}
+      <input
+        type="file"
+        accept="image/*,video/*,audio/*"
+        multiple
+        aria-label={`Add media to ${name}`}
+        disabled={adding}
+        onChange={(event) => {
+          onFiles(event.target.files);
+          event.target.value = "";
+        }}
+      />
+    </label>
+  );
+}
 
 type Props = {
   summaries: GallerySummary[];
@@ -32,6 +104,8 @@ type Props = {
   onDeleteGallery: (id: string) => void;
   onDeleteSelected: (ids: string[]) => Promise<boolean>;
   onPlaceSelected: (input: GalleryPlace) => Promise<boolean>;
+  adding: boolean;
+  onAddComputerFiles: (galleryId: string, files: FileList | File[] | null) => void;
 };
 
 export function GalleryBrowser(props: Props) {
@@ -43,6 +117,8 @@ export function GalleryBrowser(props: Props) {
   const [newName, setNewName] = useState("");
   const [fitId, setFitId] = useState<string | null>(null);
   const [playing, setPlaying] = useState<Playing | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const activeAddId = props.adding ? pendingId : null;
 
   useEffect(() => {
     setSelected([]);
@@ -50,6 +126,16 @@ export function GalleryBrowser(props: Props) {
     setFitId(null);
     setPlaying(null);
   }, [props.galleryId]);
+
+  function addComputerFiles(id: string, files: FileList | File[] | null) {
+    if (!files || files.length === 0 || props.adding) return;
+    setPendingId(id);
+    props.onAddComputerFiles(id, files);
+  }
+
+  const detailDrop = useFileDrop((files) => {
+    if (props.galleryId) addComputerFiles(props.galleryId, files);
+  });
 
   if (!props.detail) {
     return (
@@ -63,9 +149,11 @@ export function GalleryBrowser(props: Props) {
               <GalleryCard
                 key={gallery.id}
                 gallery={gallery}
+                adding={activeAddId === gallery.id}
                 onOpen={props.onOpen}
                 onRename={props.onRenameGallery}
                 onDelete={props.onDeleteGallery}
+                onAddFiles={(files) => addComputerFiles(gallery.id, files)}
               />
             ))}
           </div>
@@ -118,7 +206,14 @@ export function GalleryBrowser(props: Props) {
   }
 
   return (
-    <div className="gallery-browser" aria-label="Gallery">
+    <div
+      className={`gallery-browser${detailDrop.hot ? " is-file-target" : ""}`}
+      aria-label="Gallery"
+      onDragEnter={detailDrop.onDragEnter}
+      onDragOver={detailDrop.onDragOver}
+      onDragLeave={detailDrop.onDragLeave}
+      onDrop={detailDrop.onDrop}
+    >
       <div className="gallery-manage-head">
         <button type="button" className="ghost-btn" onClick={props.onBack}>
           Galleries
@@ -223,7 +318,7 @@ export function GalleryBrowser(props: Props) {
       {skipped.length > 0 ? <p className="gallery-skipped">Skipped {skipped.join(", ")}</p> : null}
       {props.status ? <p className="gallery-status">{props.status}</p> : null}
       {props.items.length === 0 ? (
-        <div className="history-empty">This gallery is empty.</div>
+        <div className="history-empty">This gallery is empty. Drop files below, or click to upload.</div>
       ) : (
         <div className="gallery-manage-grid">
           {props.items.map((item, index) => (
@@ -306,6 +401,16 @@ export function GalleryBrowser(props: Props) {
           ))}
         </div>
       )}
+      {props.galleryId ? (
+        <div className="gallery-manage-drop">
+          <GalleryReceive
+            name={props.name || "this gallery"}
+            hot={detailDrop.hot}
+            adding={activeAddId === props.galleryId}
+            onFiles={(files) => addComputerFiles(props.galleryId as string, files)}
+          />
+        </div>
+      ) : null}
       {fit ? (
         <FullSizeMedia
           src={fit.src}
@@ -323,24 +428,35 @@ export function GalleryBrowser(props: Props) {
 
 function GalleryCard({
   gallery,
+  adding,
   onOpen,
   onRename,
   onDelete,
+  onAddFiles,
 }: {
   gallery: GallerySummary;
+  adding: boolean;
   onOpen: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  onAddFiles: (files: FileList | File[] | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(gallery.name);
   const [confirm, setConfirm] = useState(false);
   const previews = gallery.previews ?? [];
   const count = gallery.count ?? previews.length;
-  const featured = count > 4;
+  const featured = count > 1 && previews.length > 0;
+  const drop = useFileDrop((files) => onAddFiles(files));
 
   return (
-    <div className="gallery-card">
+    <div
+      className={`gallery-card${drop.hot ? " is-file-target" : ""}`}
+      onDragEnter={drop.onDragEnter}
+      onDragOver={drop.onDragOver}
+      onDragLeave={drop.onDragLeave}
+      onDrop={drop.onDrop}
+    >
       <button type="button" className="gallery-card-open" onClick={() => onOpen(gallery.id)}>
         <span className={`gallery-card-mosaic${featured ? " is-featured" : ""}`}>
           {previews.length === 0 ? (
@@ -367,6 +483,7 @@ function GalleryCard({
           )}
         </span>
       </button>
+      <GalleryReceive name={gallery.name} hot={drop.hot} adding={adding} onFiles={onAddFiles} />
       <div className="gallery-card-meta">
         {editing ? (
           <form
