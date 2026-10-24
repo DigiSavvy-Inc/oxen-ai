@@ -10,6 +10,7 @@ describe("parseStudioSettings", () => {
         duration: "8",
         num_generations: 9,
         generate_audio: true,
+        omni_reference_task_type: "extend",
         extra: "nope",
       }),
     );
@@ -20,6 +21,7 @@ describe("parseStudioSettings", () => {
       duration: "8",
       num_generations: 4,
       generate_audio: true,
+      omni_reference_task_type: "extend",
     });
     expect(settings.historyPageSize).toBe(24);
   });

@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { GallerySummary } from "../lib/api";
+import type { MediaRole } from "../../worker/schema";
 import type { GalleryDraftItem } from "./GalleryDrawer";
 import { FullSizeMedia, type FitSlide } from "./FullSizeMedia";
+import { GalleryRoleSelect } from "./GalleryRoleSelect";
+import { GallerySections } from "./GallerySections";
 import { GalleryThumb } from "./GalleryThumb";
 
 export type GalleryPlace = {
@@ -26,6 +29,7 @@ type Props = {
   onSave: () => void;
   onAttach: (items?: GalleryDraftItem[]) => string[];
   onRemove: (index: number) => void;
+  onRoleChange: (index: number, role: MediaRole) => void;
   onFeature: (index: number) => void;
   onDelete: () => void;
   onRenameGallery: (id: string, name: string) => void;
@@ -225,8 +229,10 @@ export function GalleryBrowser(props: Props) {
       {props.items.length === 0 ? (
         <div className="history-empty">This gallery is empty.</div>
       ) : (
-        <div className="gallery-manage-grid">
-          {props.items.map((item, index) => (
+        <GallerySections
+          items={props.items}
+          gridClassName="gallery-manage-grid"
+          renderItem={(item, index) => (
             <div
               key={item.id}
               className={`gallery-manage-tile${selected.includes(item.id) ? " is-selected" : ""}`}
@@ -263,6 +269,13 @@ export function GalleryBrowser(props: Props) {
                 ×
               </button>
               <div className="gallery-tile-actions">
+                {item.kind === "image" || item.kind === "video" ? (
+                  <GalleryRoleSelect
+                    name={item.name}
+                    role={item.role}
+                    onChange={(role) => props.onRoleChange(index, role)}
+                  />
+                ) : null}
                 {item.kind === "video" && item.url ? (
                   <button
                     type="button"
@@ -303,8 +316,8 @@ export function GalleryBrowser(props: Props) {
                 ) : null}
               </div>
             </div>
-          ))}
-        </div>
+          )}
+        />
       )}
       {fit ? (
         <FullSizeMedia

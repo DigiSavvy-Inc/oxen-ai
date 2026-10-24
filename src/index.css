@@ -3035,6 +3035,33 @@ button.history-expand-preview {
   color: var(--danger);
 }
 
+.gallery-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gallery-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gallery-section-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.gallery-section-note,
+.gallery-drop-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-muted);
+}
+
 .gallery-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -3042,12 +3069,28 @@ button.history-expand-preview {
 }
 
 .gallery-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  cursor: grab;
+}
+
+.gallery-tile-frame {
   position: relative;
   aspect-ratio: 1;
   border-radius: 8px;
   overflow: hidden;
   background: var(--bg-hover);
-  cursor: grab;
+}
+
+.gallery-tile-frame > img,
+.gallery-tile-frame > video,
+.gallery-tile-frame > .gallery-audio {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .gallery-tile.is-dragging {
@@ -3094,6 +3137,19 @@ button.history-expand-preview {
 
 .gallery-drop input {
   display: none;
+}
+
+.gallery-tile select.gallery-role,
+.gallery-manage-tile select.gallery-role {
+  width: 100%;
+  max-width: 100%;
+  border-radius: 6px;
+  padding: 3px 4px;
+  font-size: 9px;
+}
+
+.gallery-manage-tile select.gallery-role {
+  flex: 1 1 100%;
 }
 
 .gallery-drop.is-hot,
@@ -3977,7 +4033,12 @@ button.history-expand-preview {
   cursor: pointer;
 }
 
-.attach-role.is-scene {
+select.attach-role {
+  appearance: none;
+  max-width: 112px;
+}
+
+.attach-role.is-plain {
   background: var(--neutral-1);
   color: var(--text-muted);
   font-weight: 500;

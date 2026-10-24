@@ -45,9 +45,16 @@ import {
   durationFieldValue,
   durationToSend,
   nearestDurationValue,
+  normalizeMediaRole,
   numericControlValue,
+  referenceRoleLabel,
+  referenceRoleUsesFace,
+  referenceTaskHint,
+  referenceTaskLabel,
   snapNumericControl,
+  REFERENCE_ROLES,
   type DurationControl,
+  type MediaRole,
 } from "../../worker/schema";
 import type { GallerySummary } from "../lib/api";
 import { AudioAttachControl, ExpandMediaButton } from "./MediaLightbox";
@@ -59,8 +66,25 @@ type AttachItem = {
   name: string;
   preview: string;
   kind: "image" | "video" | "audio";
-  role?: "character" | "scene";
+  role?: string;
 };
+
+function referenceRoleTitle(role: MediaRole): string {
+  switch (role) {
+    case "character":
+      return "Character. Faces and people go on the face input.";
+    case "background":
+      return "Background. The place or setting, sent as a normal reference.";
+    case "object":
+      return "Object. A prop or product, sent as a normal reference.";
+    case "style":
+      return "Style. Look and color, sent as a normal reference.";
+    default: {
+      const _never: never = role;
+      return _never;
+    }
+  }
+}
 
 function faceFieldForKind(kind: AttachItem["kind"]): "input_face_images" | "input_face_videos" | null {
   switch (kind) {
@@ -191,12 +215,15 @@ type Props = {
   onGalleryNew?: () => void;
   onGalleryLoad?: (id: string) => Promise<void> | void;
   onGalleryAttach?: (items?: GalleryDraftItem[], caret?: number | null) => string[];
+  onGalleryRoleChange?: (index: number, role: MediaRole) => void;
   quality: string;
   onQualityChange: (value: string) => void;
   resolution: string;
   onResolutionChange: (value: string) => void;
   outputFormat: string;
   onOutputFormatChange: (value: string) => void;
+  referenceTask?: string;
+  onReferenceTaskChange?: (value: string) => void;
   sampleRate?: string;
   onSampleRateChange?: (value: string) => void;
   speed?: string;
@@ -210,7 +237,7 @@ type Props = {
   attachments: AttachItem[];
   onAddFiles: (files: FileList | File[] | null) => void;
   onClearAttachment: (kind: "image" | "video" | "audio", index: number) => void;
-  onToggleAttachmentRole: (index: number) => void;
+  onAttachmentRoleChange: (index: number, role: MediaRole) => void;
   onReorderAttachments: (from: number, to: number) => void;
   busy: boolean;
   error: string | null;
@@ -274,10 +301,36 @@ export function Composer(props: Props) {
     props.mode === "image-to-image" ||
     props.mode === "reference-to-video" ||
     props.mode === "video-to-video";
+  const referenceTasks = props.controls?.referenceTask?.filter(
+    (value) => value === "auto" || value === "edit" || value === "extend",
+  );
+  const showReferenceTask = Boolean(
+    referenceTasks &&
+      referenceTasks.length > 0 &&
+      props.onReferenceTaskChange &&
+      referenceTasks.some((value) => value === "edit" || value === "extend"),
+  );
+  const lockedAspect =
+    showReferenceTask &&
+    props.controls?.aspectLock &&
+    props.referenceTask &&
+    props.controls.aspectLock.tasks.includes(props.referenceTask)
+      ? props.controls.aspectLock.value
+      : null;
+  const durationLocked = Boolean(
+    showReferenceTask &&
+      props.controls?.durationLock &&
+      props.referenceTask &&
+      props.controls.durationLock.tasks.includes(props.referenceTask),
+  );
   const aspectOptions = aspectSelectOptions(
     aspectCatalog(props.controls, props.mode),
-    props.aspectRatio,
+    lockedAspect ?? props.aspectRatio,
   );
+  const taskHintBase = showReferenceTask
+    ? referenceTaskHint(props.referenceTask, props.controls?.outputFormat)
+    : null;
+  const taskHint = taskHintBase && durationLocked ? `${taskHintBase} Length stays on Auto.` : taskHintBase;
   const showAspect =
     props.mode === "text-to-audio"
       ? Boolean(props.controls?.aspectRatios && props.controls.aspectRatios.length > 0)
@@ -1047,9 +1100,13 @@ export function Composer(props: Props) {
               const token = tokenForItem(mentionSource, item, index);
               const roleField = faceFieldForKind(item.kind);
               const showRole = Boolean(
-                roleField && props.controls?.slots.some((slot) => slot.field === roleField),
+                roleField &&
+                  props.controls?.slots.some((slot) => slot.field === roleField) &&
+                  props.controls?.slots.some(
+                    (slot) => slot.kind === item.kind && !slot.field.includes("face"),
+                  ),
               );
-              const isScene = item.role === "scene";
+              const referenceRole = normalizeMediaRole(item.role);
               const showSlot =
                 dragIndex != null &&
                 dropInsertBefore === index &&
@@ -1066,7 +1123,7 @@ export function Composer(props: Props) {
                     className={`attach-chip${dragIndex === index ? " is-dragging" : ""}`}
                     draggable
                     onDragStart={(event) => {
-                      if ((event.target as HTMLElement).closest("button")) {
+                      if ((event.target as HTMLElement).closest("button, select")) {
                         event.preventDefault();
                         return;
                       }
@@ -1117,19 +1174,21 @@ export function Composer(props: Props) {
                       </span>
                     </span>
                     {showRole ? (
-                      <button
-                        className={`attach-role${isScene ? " is-scene" : ""}`}
-                        type="button"
-                        aria-pressed={!isScene}
-                        title={
-                          isScene
-                            ? "Scene reference. Seedance sends this as a regular image or video. Click to mark it as a character."
-                            : "Character reference. Seedance sends faces and people on the face input so content filters do not block them. Click to mark it as a scene."
+                      <select
+                        className={`attach-role${referenceRoleUsesFace(referenceRole) ? "" : " is-plain"}`}
+                        aria-label={`Reference role for ${token}`}
+                        title={referenceRoleTitle(referenceRole)}
+                        value={referenceRole}
+                        onChange={(event) =>
+                          props.onAttachmentRoleChange(index, normalizeMediaRole(event.target.value))
                         }
-                        onClick={() => props.onToggleAttachmentRole(index)}
                       >
-                        {isScene ? "Scene" : "Character"}
-                      </button>
+                        {REFERENCE_ROLES.map((value) => (
+                          <option key={value} value={value}>
+                            {referenceRoleLabel(value)}
+                          </option>
+                        ))}
+                      </select>
                     ) : null}
                     <button
                       className="ghost-btn"
@@ -1184,11 +1243,36 @@ export function Composer(props: Props) {
 
           {props.mode !== "chat" ? (
           <>
+          {showReferenceTask && referenceTasks ? (
+            <ToolbarField label="Task">
+              <select
+                className="select"
+                aria-label="Video task"
+                value={
+                  referenceTasks.find((value) => value === props.referenceTask) ?? referenceTasks[0]
+                }
+                onChange={(e) => props.onReferenceTaskChange?.(e.target.value)}
+              >
+                {referenceTasks.map((value) => (
+                  <option key={value} value={value}>
+                    {referenceTaskLabel(value)}
+                  </option>
+                ))}
+              </select>
+            </ToolbarField>
+          ) : null}
+
           {showAspect ? (
             <ToolbarField label="Aspect">
               <select
                 className="select"
-                value={props.aspectRatio}
+                value={lockedAspect ?? props.aspectRatio}
+                disabled={Boolean(lockedAspect)}
+                title={
+                  lockedAspect
+                    ? "Edit and extend keep the reference video's aspect ratio."
+                    : undefined
+                }
                 onChange={(e) => props.onAspectRatioChange(e.target.value)}
               >
                 {aspectOptions.map((ratio) => (
@@ -1200,7 +1284,11 @@ export function Composer(props: Props) {
             </ToolbarField>
           ) : null}
 
-          {durationControl?.kind === "enum" ? (
+          {durationLocked ? (
+            <ToolbarField label="Duration">
+              <input className="field" aria-label="Duration" value="Auto" disabled readOnly style={{ width: 72 }} />
+            </ToolbarField>
+          ) : durationControl?.kind === "enum" ? (
               <ToolbarField label="Duration">
                 <select
                   className="select"
@@ -1509,9 +1597,10 @@ export function Composer(props: Props) {
         {slotRequired(props.controls, "image", props.mode) ? (
           <p className="composer-hint">This model needs at least one reference image.</p>
         ) : null}
-        {slotRequired(props.controls, "video", props.mode) ? (
+        {slotRequired(props.controls, "video", props.mode) && !taskHint ? (
           <p className="composer-hint">This model needs a reference video.</p>
         ) : null}
+        {taskHint ? <p className="composer-hint">{taskHint}</p> : null}
         {props.mode === "chat" && props.models.length === 0 ? (
           <p className="composer-hint">No chat models in the catalog yet.</p>
         ) : null}
@@ -1569,6 +1658,7 @@ export function Composer(props: Props) {
           skipped={gallerySkipped}
           onAddFiles={(files) => props.onGalleryAddFiles?.(files)}
           onRemove={(index) => props.onGalleryRemove?.(index)}
+          onRoleChange={(index, role) => props.onGalleryRoleChange?.(index, role)}
           onReorder={(from, to) => props.onGalleryReorder?.(from, to)}
           onSave={() => void props.onGallerySave?.()}
           onNew={() => {

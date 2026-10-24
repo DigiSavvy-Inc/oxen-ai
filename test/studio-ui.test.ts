@@ -367,7 +367,7 @@ describe("mentions and cost", () => {
     const composer = readFileSync(new URL("../src/components/Composer.tsx", import.meta.url), "utf8");
     expect(app).toContain("image_roles");
     expect(app).toContain("video_roles");
-    expect(app).toContain("onToggleAttachmentRole");
+    expect(app).toContain("onAttachmentRoleChange");
     expect(composer).toContain("attach-role");
     expect(composer).toContain("mentionOrdered");
     expect(composer).toContain("input_face_images");
@@ -435,7 +435,7 @@ describe("mentions and cost", () => {
         ],
         onAddFiles: () => undefined,
         onClearAttachment: () => undefined,
-        onToggleAttachmentRole: () => undefined,
+        onAttachmentRoleChange: () => undefined,
         onReorderAttachments: () => undefined,
         busy: false,
         error: null,
@@ -455,7 +455,10 @@ describe("mentions and cost", () => {
     expect(html.slice(audioName - 80, audioName)).toContain("@Audio1");
     expect(html.slice(audioName, audioName + 180)).not.toContain("attach-role");
     expect(html.match(/class="attach-role"/g)?.length).toBe(2);
-    expect(html.match(/class="attach-role is-scene"/g)?.length).toBe(1);
+    expect(html.match(/class="attach-role is-plain"/g)?.length).toBe(1);
+    expect(html).toContain("Background");
+    expect(html).toContain("Object");
+    expect(html).toContain("Style");
 
     const plain = renderToStaticMarkup(
       createElement(Composer, {
@@ -498,7 +501,7 @@ describe("mentions and cost", () => {
         ],
         onAddFiles: () => undefined,
         onClearAttachment: () => undefined,
-        onToggleAttachmentRole: () => undefined,
+        onAttachmentRoleChange: () => undefined,
         onReorderAttachments: () => undefined,
         busy: false,
         error: null,
@@ -1282,7 +1285,7 @@ describe("composer params across jobs and models", () => {
     expect(app).toContain("hydratedParamsUserId");
     expect(app).toContain("paramsTouched");
     expect(composer).toContain("aspectSelectOptions");
-    expect(composer).toContain("value={props.aspectRatio}");
+    expect(composer).toContain("value={lockedAspect ?? props.aspectRatio}");
     expect(app).toContain("preferredAspectRatio");
     expect(app).toContain('aspect_ratio !== "auto"');
   });
@@ -1439,7 +1442,7 @@ describe("get last frame control", () => {
     attachments: [],
     onAddFiles: () => undefined,
     onClearAttachment: () => undefined,
-    onToggleAttachmentRole: () => undefined,
+    onAttachmentRoleChange: () => undefined,
     onReorderAttachments: () => undefined,
     busy: false,
     error: null,
@@ -1689,7 +1692,7 @@ describe("saved prompt controls", () => {
     attachments: [],
     onAddFiles: () => undefined,
     onClearAttachment: () => undefined,
-    onToggleAttachmentRole: () => undefined,
+    onAttachmentRoleChange: () => undefined,
     onReorderAttachments: () => undefined,
     busy: false,
     error: null,
@@ -1766,7 +1769,7 @@ describe("Flux 3 Video composer", () => {
         attachments: [],
         onAddFiles: () => undefined,
         onClearAttachment: () => undefined,
-        onToggleAttachmentRole: () => undefined,
+        onAttachmentRoleChange: () => undefined,
         onReorderAttachments: () => undefined,
         busy: false,
         error: null,

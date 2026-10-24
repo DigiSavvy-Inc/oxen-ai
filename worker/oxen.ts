@@ -93,6 +93,7 @@ export type EnqueueBody = {
   size?: string;
   image_size?: string;
   output_format?: string;
+  omni_reference_task_type?: string;
   background?: string;
   moderation?: string;
   draft_task_id?: string;
@@ -435,6 +436,7 @@ export function buildEnqueuePayload(
         assignIfPresent(payload, "duration", body.duration);
         if (body.generate_audio != null) payload.generate_audio = body.generate_audio;
         if (body.draft != null) payload.draft = body.draft;
+        assignIfPresent(payload, "omni_reference_task_type", body.omni_reference_task_type);
       }
       break;
     case "audio":
