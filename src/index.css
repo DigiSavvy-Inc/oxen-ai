@@ -4193,7 +4193,7 @@ select.attach-role {
 
 .mention-hover {
   position: fixed;
-  z-index: 40;
+  z-index: 46;
   width: max-content;
   max-width: min(200px, calc(100vw - 16px));
   padding: 6px;
@@ -4323,6 +4323,12 @@ select.attach-role {
 
 .app-shell.library-open .help-fab {
   left: calc(min(100vw, calc(var(--app-gutter) + var(--panel-width))) + 12px);
+}
+
+@media (max-width: 860px) {
+  .help-fab {
+    bottom: calc(var(--help-fab-lift, 16px) + env(safe-area-inset-bottom));
+  }
 }
 
 .help-backdrop {
