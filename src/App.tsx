@@ -27,10 +27,12 @@ import {
   type OxenModel,
   type GalleryItem,
   type GallerySummary,
+  type ComposerPreset,
   type SavedPrompt,
   type StudioProfile,
   type StudioSettings,
 } from "./lib/api";
+import { presetFromControls } from "./lib/composer-prefs";
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations, siblingAfterRemoval } from "./lib/batches";
 import { brandMarkClass, useInstanceBranding } from "./lib/branding";
 import { notifyGenerationLocal } from "./lib/pwa";
@@ -56,7 +58,13 @@ import {
   type HistoryGalleryNotice,
 } from "./lib/gallery-history";
 import { insertAttachMentions, moveItem } from "./lib/mentions";
-import { generationCountForModelChange, pickModel } from "./lib/model-menu";
+import {
+  generationCountForModelChange,
+  orderFavorites,
+  pickModel,
+  reorderIds,
+  toggleBatchModel,
+} from "./lib/model-menu";
 import { captureVideoLastFrame } from "./lib/last-frame";
 import { preferredAspectRatio, showGetLastFrame, takeStagedOfKind } from "./lib/params";
 import {
@@ -130,6 +138,7 @@ export default function App() {
   const [duration, setDuration] = useState("5");
   const [seed, setSeed] = useState("");
   const [numGenerations, setNumGenerations] = useState(1);
+  const [batchModels, setBatchModels] = useState<string[]>([]);
   const [generateAudio, setGenerateAudio] = useState(false);
   const [draft, setDraft] = useState(false);
   const [safetyTolerance, setSafetyTolerance] = useState("");
@@ -420,12 +429,17 @@ export default function App() {
         if (data.lastParams.pitch != null) setPitch(String(data.lastParams.pitch));
         if (data.lastParams.background) setBackground(data.lastParams.background);
         if (typeof data.lastParams.seed === "number") setSeed(String(data.lastParams.seed));
+        const preset = data.composerPrefs.presets.find(
+          (item) => item.id === data.composerPrefs.activePresetId,
+        );
+        if (preset) applyPreset(preset);
       })
       .catch(() => {
         setSettings({
           defaultModelByMode: {},
           lastParams: {},
           historyPageSize: DEFAULT_HISTORY_PAGE_SIZE,
+          composerPrefs: { favoriteOrder: [], presets: [], activePresetId: null },
         });
       });
     void refreshFavorites();
@@ -646,7 +660,11 @@ export default function App() {
             prev,
             Boolean(mode),
           );
-          setNumGenerations((count) => generationCountForModelChange(prev, next, count));
+          const preset = settings?.composerPrefs.presets.find(
+            (item) => item.id === settings.composerPrefs.activePresetId,
+          );
+          if (prev !== next && preset) applyPreset(preset);
+          else setNumGenerations((count) => generationCountForModelChange(prev, next, count, preset?.numGenerations));
           return next;
         });
       } catch (err) {
@@ -1016,7 +1034,9 @@ export default function App() {
     setSelectedId(null);
     setPeekId(null);
     setError(null);
-    setNumGenerations(1);
+    const preset = activePresetFrom(settings);
+    if (preset) setNumGenerations(preset.numGenerations);
+    else setNumGenerations(1);
     setChatTurns([]);
     setDocuments([]);
     setShots([]);
@@ -1531,15 +1551,69 @@ export default function App() {
     }
   }
 
+  function activePresetFrom(source: StudioSettings | null): ComposerPreset | null {
+    if (!source) return null;
+    return (
+      source.composerPrefs.presets.find((item) => item.id === source.composerPrefs.activePresetId) ??
+      null
+    );
+  }
+
+  function applyPreset(preset: ComposerPreset) {
+    setNumGenerations(preset.numGenerations);
+    if (preset.aspectRatio) setAspectRatio(preset.aspectRatio);
+    if (preset.quality) setQuality(preset.quality);
+    if (preset.resolution) setResolution(preset.resolution);
+    if (preset.duration) setDuration(preset.duration);
+    if (typeof preset.generateAudio === "boolean") setGenerateAudio(preset.generateAudio);
+    if (preset.outputFormat) setOutputFormat(preset.outputFormat);
+  }
+
+  const composerPrefs = settings?.composerPrefs ?? {
+    favoriteOrder: [] as string[],
+    presets: [] as ComposerPreset[],
+    activePresetId: null as string | null,
+  };
+  const orderedFavorites = orderFavorites(favorites, composerPrefs.favoriteOrder);
+
+  async function saveComposerPrefs(nextPrefs: StudioSettings["composerPrefs"]) {
+    const saved = await api.saveStudioSettings({ composerPrefs: nextPrefs });
+    setSettings(saved);
+    return saved;
+  }
+
   function handleModelChange(next: string) {
-    setNumGenerations((count) => generationCountForModelChange(model, next, count));
+    const preset = activePresetFrom(settings);
+    if (model !== next && preset) applyPreset(preset);
+    else setNumGenerations((count) => generationCountForModelChange(model, next, count, preset?.numGenerations));
     setGetLastFrame(false);
     setModel(next);
+    setBatchModels((prev) => [next, ...prev.filter((id) => id !== next)].slice(0, 4));
     const selected = models.find((item) => item.id === next);
     if (!selected) return;
     if (mode && modelSupportsMode(selected, mode)) return;
     const inferred = firstSupportedMode(selected, mode ?? "text-to-image");
     if (inferred) setMode(inferred);
+  }
+
+  function modelsForRun(): string[] {
+    if (!model) return batchModels;
+    const base = batchModels.includes(model) ? batchModels : [model, ...batchModels];
+    const next = base.filter((id) => {
+      if (id === model) return true;
+      if (models.length === 0) return true;
+      const item = models.find((entry) => entry.id === id);
+      if (!item) return false;
+      if (!mode) return true;
+      return modelSupportsMode(item, mode);
+    });
+    return [model, ...next.filter((id) => id !== model)].slice(0, 4);
+  }
+
+  function onToggleBatchModel(id: string) {
+    const result = toggleBatchModel(modelsForRun(), id, model);
+    setBatchModels(result.batch);
+    if (result.primary !== model) handleModelChange(result.primary);
   }
 
   async function onDownloadAll() {
@@ -1760,11 +1834,26 @@ export default function App() {
       }
       if (audios.length) payload.audios = audios;
 
-      const { generations: created } = await api.generate(payload);
+      const runIds = modelsForRun();
+      const createdAll: Generation[] = [];
+      const failures: string[] = [];
+      for (const target of runIds) {
+        try {
+          const { generations: created } = await api.generate({ ...payload, model: target });
+          createdAll.push(...created);
+        } catch (err) {
+          const name = models.find((item) => item.id === target)?.display_name || target;
+          failures.push(`${name}: ${err instanceof Error ? err.message : "Generation failed"}`);
+        }
+      }
+      if (createdAll.length === 0) {
+        throw new Error(failures[0] ?? "Generation failed");
+      }
       setKeepCanvasClear(false);
       setPeekId(null);
-      setGenerations((prev) => mergeGenerations(prev, created));
-      setSelectedId(created[0]?.id ?? null);
+      setGenerations((prev) => mergeGenerations(prev, createdAll));
+      setSelectedId(createdAll[0]?.id ?? null);
+      if (failures.length > 0) setError(failures.join(" "));
       void refreshCredits();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Generation failed");
@@ -1976,9 +2065,59 @@ export default function App() {
             mode={mode}
             onModeChange={handleModeChange}
             models={models}
-            preferred={favorites}
+            preferred={orderedFavorites}
             model={model}
             onModelChange={handleModelChange}
+            batchModels={modelsForRun()}
+            onToggleBatchModel={onToggleBatchModel}
+            onReorderPreferred={(fromId, toId) => {
+              const ids = reorderIds(
+                orderedFavorites.map((item) => item.id),
+                fromId,
+                toId,
+              );
+              void saveComposerPrefs({ ...composerPrefs, favoriteOrder: ids }).catch((err) =>
+                setError(err instanceof Error ? err.message : "Failed to save favorite order"),
+              );
+            }}
+            presets={composerPrefs.presets}
+            activePresetId={composerPrefs.activePresetId}
+            onPresetChange={(id) => {
+              const preset = composerPrefs.presets.find((item) => item.id === id);
+              if (preset) applyPreset(preset);
+              void saveComposerPrefs({ ...composerPrefs, activePresetId: id }).catch((err) =>
+                setError(err instanceof Error ? err.message : "Failed to save preset"),
+              );
+            }}
+            onSavePreset={(name) => {
+              const trimmed = name.trim();
+              if (!trimmed) return;
+              const existing = composerPrefs.presets.find(
+                (item) => item.name.toLowerCase() === trimmed.toLowerCase(),
+              );
+              const preset = presetFromControls({
+                id: existing?.id ?? crypto.randomUUID(),
+                name: trimmed,
+                numGenerations,
+                aspectRatio,
+                quality,
+                resolution,
+                duration,
+                generateAudio,
+                outputFormat,
+              });
+              const presets = existing
+                ? composerPrefs.presets.map((item) => (item.id === existing.id ? preset : item))
+                : [...composerPrefs.presets, preset].slice(-12);
+              if (preset) applyPreset(preset);
+              void saveComposerPrefs({
+                ...composerPrefs,
+                presets,
+                activePresetId: preset.id,
+              }).catch((err) =>
+                setError(err instanceof Error ? err.message : "Failed to save preset"),
+              );
+            }}
             modelQuery={modelQuery}
             onModelQueryChange={setModelQuery}
             isFavorite={favoriteIds.has(model)}

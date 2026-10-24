@@ -75,11 +75,15 @@ export const DOC_ARTICLES: DocArticle[] = [
     blocks: [
       {
         type: "p",
-        text: "The model menu searches the live Oxen catalog. Star a model to keep it on your Oxen account. Starred models are listed first.",
+        text: "The model menu searches the live Oxen catalog. Star a model to keep it on your Oxen account. Drag starred models in the menu or in Settings → Models to set their order.",
       },
       {
         type: "p",
-        text: "Settings → Models can set a preferred model for each mode. Those defaults start empty and stay empty until you choose them. Changing the model resets the count to 1×.",
+        text: "Check more than one model to run the same prompt and attachments on each of them, up to four. Count applies to every model in that run.",
+      },
+      {
+        type: "p",
+        text: "Save a preset from the toolbar to keep count, aspect, quality, resolution, and duration when you switch models. Settings → Models can rename or delete presets. Without a preset, changing the model resets the count to 1×. A run across several models shows Price unavailable unless every model has a price.",
       },
     ],
   },

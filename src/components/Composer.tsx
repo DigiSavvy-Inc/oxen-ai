@@ -12,7 +12,9 @@ import { createPortal } from "react-dom";
 import {
   ALL_MODES,
   MODE_LABELS,
+  combineGenerationCosts,
   estimateGenerationCost,
+  type ComposerPreset,
   modeHasReferenceGallery,
   modeIsVideo,
   modelSupportsMode,
@@ -37,6 +39,7 @@ import {
   tokenForItem,
   type PromptMention,
 } from "../lib/mentions";
+import { suggestedPresetName } from "../lib/composer-prefs";
 import { shortenFileName } from "../lib/files";
 import { GALLERY_ITEM_DRAG_TYPE, galleryItemsForDrop, isGalleryItemDrag } from "../lib/gallery-attach";
 import { acceptedMediaKinds, fileAcceptValue, mediaKindPhrase, attachKindCap } from "../lib/library-refs";
@@ -168,6 +171,13 @@ type Props = {
   preferred: OxenModel[];
   model: string;
   onModelChange: (model: string) => void;
+  batchModels?: string[];
+  onToggleBatchModel?: (id: string) => void;
+  onReorderPreferred?: (fromId: string, toId: string) => void;
+  presets?: ComposerPreset[];
+  activePresetId?: string | null;
+  onPresetChange?: (id: string | null) => void;
+  onSavePreset?: (name: string) => void;
   modelQuery: string;
   onModelQueryChange: (value: string) => void;
   isFavorite: boolean;
@@ -275,6 +285,7 @@ export function Composer(props: Props) {
     null,
   );
   const [savedMark, setSavedMark] = useState<string | null>(null);
+  const [presetDraft, setPresetDraft] = useState<string | null>(null);
   const [galleryForMode, setGalleryForMode] = useState<GenerationMode | null>(null);
   const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
   const savedMenuRef = useRef<HTMLDivElement>(null);
@@ -338,14 +349,20 @@ export function Composer(props: Props) {
   const durationControl =
     props.mode && modeIsVideo(props.mode) ? (props.controls?.duration ?? null) : null;
   const billableDuration = durationControl ? durationToSend(props.duration, durationControl) : undefined;
-  const cost = estimateGenerationCost({
-    pricing: props.controls?.pricing ?? selectedModel?.pricing,
-    numGenerations: props.numGenerations,
-    duration: billableDuration,
-    generateAudio: props.generateAudio,
-    resolution: props.resolution,
-    quality: props.quality,
-  });
+  const batchIds = props.batchModels?.length ? props.batchModels : props.model ? [props.model] : [];
+  const cost = combineGenerationCosts(
+    batchIds.map((id) => {
+      const item = props.models.find((model) => model.id === id);
+      return estimateGenerationCost({
+        pricing: id === props.model ? (props.controls?.pricing ?? item?.pricing) : item?.pricing,
+        numGenerations: props.numGenerations,
+        duration: billableDuration,
+        generateAudio: props.generateAudio,
+        resolution: props.resolution,
+        quality: props.quality,
+      });
+    }),
+  );
 
   function controlPrice(kind: "resolution" | "quality", value: string) {
     switch (kind) {
@@ -1226,6 +1243,9 @@ export function Composer(props: Props) {
             query={props.modelQuery}
             onQueryChange={props.onModelQueryChange}
             onChange={props.onModelChange}
+            batchModels={batchIds}
+            onToggleBatch={props.onToggleBatchModel}
+            onReorderPreferred={props.onReorderPreferred}
           />
           <ToolbarField label="Favorite">
             <button
@@ -1477,6 +1497,66 @@ export function Composer(props: Props) {
             />
           )}
 
+          {props.onPresetChange ? (
+            <ToolbarField label="Preset">
+              <select
+                className="select"
+                aria-label="Preset"
+                value={props.activePresetId ?? ""}
+                onChange={(event) => props.onPresetChange?.(event.target.value || null)}
+              >
+                <option value="">None</option>
+                {(props.presets ?? []).map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </option>
+                ))}
+              </select>
+            </ToolbarField>
+          ) : null}
+          {props.onSavePreset ? (
+            presetDraft == null ? (
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() =>
+                  setPresetDraft(
+                    suggestedPresetName({
+                      numGenerations: props.numGenerations,
+                      aspectRatio: props.aspectRatio,
+                      quality: props.quality,
+                      resolution: props.resolution,
+                    }),
+                  )
+                }
+              >
+                Save preset
+              </button>
+            ) : (
+              <form
+                className="preset-save"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const name = presetDraft.trim();
+                  if (!name) return;
+                  props.onSavePreset?.(name);
+                  setPresetDraft(null);
+                }}
+              >
+                <input
+                  className="field"
+                  aria-label="Preset name"
+                  value={presetDraft}
+                  onChange={(event) => setPresetDraft(event.target.value)}
+                  maxLength={40}
+                />
+                <button type="submit" className="ghost-btn">
+                  Save
+                </button>
+              </form>
+            )
+          ) : null}
+
           <ToolbarField label="Count">
             <select
               className="select"
@@ -1583,7 +1663,7 @@ export function Composer(props: Props) {
                 ? "Send, Command Enter"
                 : props.busy
                   ? "Queuing generation"
-                  : cost.amount != null
+                  : cost.amount != null || batchIds.length > 1
                     ? `Generate, estimated ${cost.label}, Command Enter`
                     : "Generate, Command Enter"
             }
@@ -1592,8 +1672,12 @@ export function Composer(props: Props) {
               <Loader size="sm" label={props.mode === "chat" ? "Sending…" : "Queuing…"} />
             ) : (
               <>
-                {props.mode === "chat" ? "Send" : "Generate"}
-                {props.mode !== "chat" && cost.amount != null ? (
+                {props.mode === "chat"
+                  ? "Send"
+                  : batchIds.length > 1
+                    ? `Generate ${batchIds.length}`
+                    : "Generate"}
+                {props.mode !== "chat" && (cost.amount != null || batchIds.length > 1) ? (
                   <span className="primary-btn-cost">{cost.label}</span>
                 ) : null}
                 <span className="primary-btn-shortcut" aria-hidden>
@@ -1604,6 +1688,11 @@ export function Composer(props: Props) {
             )}
           </button>
         </div>
+        {props.mode !== "chat" && batchIds.length > 1 ? (
+          <p className="composer-hint">
+            This prompt and its attachments run on each checked model. Count applies to each one.
+          </p>
+        ) : null}
         {slotRequired(props.controls, "image", props.mode) ? (
           <p className="composer-hint">This model needs at least one reference image.</p>
         ) : null}

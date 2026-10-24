@@ -146,7 +146,7 @@ import { flux3VideoModel } from "./flux-video";
 import { seedAudioModel } from "./seed-audio";
 import type { Env, GenerationMode, SessionUser, UserRow } from "./types";
 import { libraryCountSql, libraryListSql, parseLibraryPage, userTagsSql } from "./library-page";
-import { getStudioSettings, saveStudioSettings } from "./user-settings";
+import { getStudioSettings, parseComposerPrefs, saveStudioSettings } from "./user-settings";
 import { reserveUploadBytes } from "./upload-quota";
 import {
   acceptLogoBytes,
@@ -1203,11 +1203,19 @@ app.put("/api/settings/studio", async (c) => {
     defaultModelByMode?: Partial<Record<GenerationMode, string>>;
     lastParams?: Record<string, unknown>;
     historyPageSize?: number;
+    composerPrefs?: {
+      favoriteOrder?: string[];
+      presets?: unknown[];
+      activePresetId?: string | null;
+    };
   }>();
   const settings = await saveStudioSettings(c.env.DB, user.id, {
     defaultModelByMode: body.defaultModelByMode,
     lastParams: body.lastParams,
     historyPageSize: body.historyPageSize,
+    composerPrefs: body.composerPrefs
+      ? parseComposerPrefs(JSON.stringify(body.composerPrefs))
+      : undefined,
   });
   return c.json(settings);
 });
