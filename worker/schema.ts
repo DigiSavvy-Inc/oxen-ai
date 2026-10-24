@@ -99,6 +99,8 @@ export type ModelControls = {
   aspectLock: ControlLock | null;
   /** Schema `x-lock` on duration, keyed by reference task. */
   durationLock: ControlLock | null;
+  /** Resolution `x-lock` while draft is on. Seedance locks this to 480p. */
+  resolutionDraftLock: string | null;
 };
 
 export type ControlLock = { value: string; tasks: string[] };
@@ -239,10 +241,10 @@ function enrichImageSlots(model: OxenModel, schema: JsonSchema, slots: MediaSlot
   }
   if (inferredMax && inferredMax > 1) {
     for (const slot of imageSlots) {
-      if (slot.maxItems < inferredMax) {
-        slot.maxItems = inferredMax;
-        slot.asArray = true;
-      }
+      // A single URI (Seedance start frame) stays one string. Prose that also
+      // mentions an end frame must not turn that field into an array.
+      if (!slot.asArray) continue;
+      if (slot.maxItems < inferredMax) slot.maxItems = inferredMax;
     }
   }
   return next;
@@ -415,6 +417,8 @@ function durationFromSchema(schema: JsonSchema): DurationControl | null {
   const listed = enumStrings(schema);
   const numericListed = listed.filter(isNumericDurationToken);
   const otherListed = listed.filter((value) => !isNumericDurationToken(value));
+  const autoValue = autoDurationValue(schema);
+  if (autoValue && !otherListed.includes(autoValue)) otherListed.unshift(autoValue);
   const bounds = collectNumericBounds(schema);
   const fallback = schemaDefault(schema);
 
@@ -463,6 +467,14 @@ function durationFromSchema(schema: JsonSchema): DurationControl | null {
     return { kind: "enum", values: otherListed, defaultValue };
   }
 
+  return null;
+}
+
+/** Seedance duration is an integer range whose default is the string `auto`. */
+function autoDurationValue(schema: JsonSchema): string | null {
+  const raw = (schema as JsonSchema & { "x-auto-value"?: unknown })["x-auto-value"];
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  if (schema.default === "auto") return "auto";
   return null;
 }
 
@@ -929,7 +941,39 @@ export function parseModelControls(model: OxenModel): ModelControls {
     referenceTask: referenceTask.length > 0 ? referenceTask : null,
     aspectLock,
     durationLock,
+    resolutionDraftLock: draftLockedValue(property(root, "resolution")),
   };
+}
+
+/** Parse controls, and fall back to an empty control set if the schema throws. */
+export function modelControlsOrEmpty(model: OxenModel): ModelControls {
+  try {
+    return parseModelControls(model);
+  } catch (err) {
+    console.error("model schema parse error", model.id, err);
+    return parseModelControls({ id: model.id, display_name: model.display_name });
+  }
+}
+
+function draftLockedValue(schema: JsonSchema | undefined): string | null {
+  if (!schema) return null;
+  const raw = (schema as JsonSchema & { "x-lock"?: unknown })["x-lock"];
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as { value?: unknown; when?: { draft?: unknown } };
+  if (record.when?.draft !== true) return null;
+  if (typeof record.value !== "string" || !record.value.trim()) return null;
+  return record.value.trim();
+}
+
+/** Draft mode uses the schema lock (Seedance: 480p) instead of the selected resolution. */
+export function lockedResolution(
+  draft: boolean | undefined,
+  lock: string | null | undefined,
+  value: string | undefined,
+): string | undefined {
+  if (draft && lock) return lock;
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 function taskLock(schema: JsonSchema | undefined): ControlLock | null {
@@ -1187,7 +1231,13 @@ function assignMapped(
 ) {
   const clipped = values.slice(0, slot.maxItems);
   if (clipped.length === 0) return;
-  mapped[slot.field] = slot.asArray || clipped.length > 1 ? clipped : clipped[0];
+  const first = clipped[0];
+  if (!first) return;
+  if (!slot.asArray) {
+    mapped[slot.field] = first;
+    return;
+  }
+  mapped[slot.field] = clipped;
 }
 
 export function mapMediaUrls(

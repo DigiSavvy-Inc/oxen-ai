@@ -80,9 +80,10 @@ import {
   clampDuration,
   clampNumericControl,
   imageSlotRequired,
+  lockedResolution,
   mapMediaUrls,
+  modelControlsOrEmpty,
   parseGenerationListScope,
-  parseModelControls,
   showGetLastFrame,
   lockedAspectRatio,
   lockedDuration,
@@ -1388,14 +1389,14 @@ app.get("/api/models/:id", async (c) => {
   const modelId = c.req.param("id");
   try {
     const model = await getModel(apiKey, modelId);
-    return c.json({ model, controls: parseModelControls(model) });
+    return c.json({ model, controls: modelControlsOrEmpty(model) });
   } catch (err) {
     // Generate already uses the bundled schema when live detail fails. The composer
     // needs the same controls, or a schema outage blanks every option.
     console.error("model schema error", err);
     const fallback = fallbackModelsFor(null).find((item) => item.id === modelId);
     if (fallback?.request_schema) {
-      return c.json({ model: fallback, controls: parseModelControls(fallback) });
+      return c.json({ model: fallback, controls: modelControlsOrEmpty(fallback) });
     }
     throw err;
   }
@@ -1586,17 +1587,17 @@ app.post("/api/generate", async (c) => {
 
   const meta = MODE_META[mode];
   const modelId = body.model.trim();
-  let controls = parseModelControls({ id: modelId });
+  let controls = modelControlsOrEmpty({ id: modelId });
   let displayName: string | null = null;
   try {
     const detail = await getModel(apiKey, modelId);
-    controls = parseModelControls(detail);
+    controls = modelControlsOrEmpty(detail);
     displayName = detail.display_name ?? null;
   } catch (err) {
     console.error("model schema error", err);
     const fallback = fallbackModelsFor(null).find((item) => item.id === modelId);
     if (fallback?.request_schema) {
-      controls = parseModelControls(fallback);
+      controls = modelControlsOrEmpty(fallback);
       displayName = fallback.display_name ?? null;
     }
   }
@@ -1787,8 +1788,12 @@ app.post("/api/generate", async (c) => {
     quality: pickCompatible(body.quality, controls.quality) ?? (useFallback ? body.quality : undefined),
     ...resolutionPayloadFields(
       controls.resolutionField,
-      pickCompatible(body.resolution, controls.resolution) ??
-        (useFallback ? body.resolution : undefined),
+      lockedResolution(
+        !draftTaskId && body.draft === true,
+        controls.resolutionDraftLock,
+        pickCompatible(body.resolution, controls.resolution) ??
+          (useFallback ? body.resolution : undefined),
+      ),
     ),
     output_format:
       pickCompatible(body.output_format, controls.outputFormat) ??

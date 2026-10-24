@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   clampDuration,
+  lockedResolution,
   mapMediaUrls,
   parseGenerationListScope,
   lockedAspectRatio,
@@ -109,7 +110,7 @@ describe("parseModelControls", () => {
     expect(controls.mentions).toBe(true);
   });
 
-  it("raises a singular image slot when the schema mentions multiple @Image refs", () => {
+  it("keeps a singular image field as one URI", () => {
     const controls = parseModelControls({
       id: "multi-still-model",
       request_schema: {
@@ -127,8 +128,8 @@ describe("parseModelControls", () => {
       field: "input_image",
       kind: "image",
       required: false,
-      maxItems: 9,
-      asArray: true,
+      maxItems: 1,
+      asArray: false,
     });
   });
 
@@ -291,8 +292,14 @@ describe("parseModelControls", () => {
       "adaptive",
     );
     expect(lockedAspectRatio(controls.aspectLock, "auto", "16:9", controls.aspectRatios)).toBe("16:9");
+    expect(controls.duration?.kind).toBe("enum");
+    if (controls.duration?.kind === "enum") {
+      expect(controls.duration.values[0]).toBe("auto");
+      expect(controls.duration.defaultValue).toBe("auto");
+      expect(controls.duration.values).toContain("8");
+    }
     expect(lockedDuration(controls.durationLock, "edit", controls.duration, 8)).toBe("auto");
-    expect(lockedDuration(controls.durationLock, "extend", controls.duration, 8)).toBe(8);
+    expect(lockedDuration(controls.durationLock, "extend", controls.duration, 8)).toBe("8");
     expect(
       mapMediaUrls(
         controls.slots,
@@ -303,6 +310,51 @@ describe("parseModelControls", () => {
       input_face_images: ["https://hero"],
       input_images: ["https://room", "https://vase"],
     });
+  });
+
+  it("keeps Seedance image-to-video start frame a string and locks draft resolution", () => {
+    const controls = parseModelControls({
+      id: "bytedance-seedance-2-5-image-to-video",
+      description:
+        "Optional end-frame control. The output keeps the aspect ratio of the first-frame image.",
+      request_schema: {
+        type: "object",
+        required: ["prompt", "input_image"],
+        properties: {
+          prompt: { type: "string" },
+          input_image: { type: "string", format: "uri", title: "Start Frame" },
+          duration: {
+            type: ["integer", "string"],
+            minimum: 4,
+            maximum: 30,
+            default: "auto",
+            "x-auto-value": "auto",
+          },
+          resolution: {
+            type: "string",
+            enum: ["480p", "720p", "1080p", "4k"],
+            default: "720p",
+            "x-lock": { value: "480p", when: { draft: true } },
+          },
+          draft: { type: "boolean", default: false },
+        },
+      },
+    });
+    expect(controls.slots).toEqual([
+      { field: "input_image", kind: "image", required: true, maxItems: 1, asArray: false },
+    ]);
+    expect(
+      mapMediaUrls(controls.slots, {
+        image: ["https://cdn.example/start.png"],
+        video: [],
+        audio: [],
+      }),
+    ).toEqual({ input_image: "https://cdn.example/start.png" });
+    expect(controls.duration?.kind).toBe("enum");
+    if (controls.duration?.kind === "enum") expect(controls.duration.defaultValue).toBe("auto");
+    expect(controls.resolutionDraftLock).toBe("480p");
+    expect(lockedResolution(true, controls.resolutionDraftLock, "720p")).toBe("480p");
+    expect(lockedResolution(false, controls.resolutionDraftLock, "720p")).toBe("720p");
   });
 
   it("sets mentions from @Image/@Video/@Audio in the prompt description", () => {

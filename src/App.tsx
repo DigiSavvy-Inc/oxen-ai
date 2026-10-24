@@ -64,6 +64,7 @@ import {
   durationFieldValue,
   durationToSend,
   lockedDuration,
+  lockedResolution,
   nearestDurationValue,
   normalizeMediaRole,
   referenceRoleUsesFace,
@@ -173,6 +174,7 @@ export default function App() {
   const referenceTaskRef = useRef("");
   const controlsReady = useRef(false);
   const paramsTouched = useRef(false);
+  const durationPinned = useRef(false);
   const promptField = useRef<PromptField | null>(null);
   const attachDraft = useRef<{ text: string; caret: number } | null>(null);
   const lastFrameAttempted = useRef(new Set<string>());
@@ -373,6 +375,7 @@ export default function App() {
     if (!user) {
       hydratedParamsUserId.current = null;
       paramsTouched.current = false;
+      durationPinned.current = false;
       return;
     }
     void refreshActive().catch((err) =>
@@ -387,7 +390,10 @@ export default function App() {
         if (data.lastParams.aspect_ratio && data.lastParams.aspect_ratio !== "auto") {
           setAspectRatio(data.lastParams.aspect_ratio);
         }
-        if (data.lastParams.duration != null) setDuration(String(data.lastParams.duration));
+        if (data.lastParams.duration != null) {
+          durationPinned.current = true;
+          setDuration(String(data.lastParams.duration));
+        }
         if (!controlsReady.current && typeof data.lastParams.generate_audio === "boolean") {
           setGenerateAudio(data.lastParams.generate_audio);
         }
@@ -678,7 +684,17 @@ export default function App() {
         }
         const durationControl = data.controls.duration;
         if (durationControl) {
-          setDuration((prev) => nearestDurationValue(prev, durationControl));
+          setDuration((prev) => {
+            if (
+              !durationPinned.current &&
+              durationControl.kind === "enum" &&
+              durationControl.defaultValue &&
+              durationControl.values.includes(durationControl.defaultValue)
+            ) {
+              return durationControl.defaultValue;
+            }
+            return nearestDurationValue(prev, durationControl);
+          });
         }
         if (data.controls.quality) {
           setQuality((prev) =>
@@ -1707,7 +1723,12 @@ export default function App() {
       if (controls?.draft) payload.draft = draft;
       if (lastFrameVisible && getLastFrame) payload.get_last_frame = true;
       if (quality) payload.quality = quality;
-      if (resolution) payload.resolution = resolution;
+      const sentResolution = lockedResolution(
+        draft,
+        controls?.resolutionDraftLock,
+        resolution || undefined,
+      );
+      if (sentResolution) payload.resolution = sentResolution;
       if (outputFormat) payload.output_format = outputFormat;
       if (controls?.sampleRate && sampleRate) payload.sample_rate = Number(sampleRate);
       if (controls?.speed && speed) payload.speed = Number(speed);
@@ -1960,7 +1981,10 @@ export default function App() {
             aspectRatio={aspectRatio}
             onAspectRatioChange={rememberParam(setAspectRatio)}
             duration={duration}
-            onDurationChange={rememberParam(setDuration)}
+            onDurationChange={rememberParam((value) => {
+              durationPinned.current = true;
+              setDuration(value);
+            })}
             seed={seed}
             onSeedChange={setSeed}
             numGenerations={numGenerations}

@@ -76,6 +76,8 @@ export type ModelControls = {
   referenceTask?: string[] | null;
   aspectLock?: { value: string; tasks: string[] } | null;
   durationLock?: { value: string; tasks: string[] } | null;
+  /** Resolution sent while draft is on. Seedance locks this to 480p. */
+  resolutionDraftLock?: string | null;
 };
 
 export type SharedOxenParams = {

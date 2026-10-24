@@ -1450,3 +1450,99 @@ describe("Seedance extend enqueue", () => {
     expect(edited.queued?.aspect_ratio).toBe("adaptive");
   });
 });
+
+describe("Seedance image-to-video enqueue", () => {
+  it("sends the start frame as a URI string and locks a draft to 480p", async () => {
+    const { ciphertext, iv } = await encryptSecret("sk-user", TEST_SECRET);
+    const user: UserRow = { ...TEST_USER, oxen_key_ciphertext: ciphertext, oxen_key_iv: iv };
+    const modelId = "bytedance-seedance-2-5-image-to-video";
+    let queued: Record<string, unknown> | null = null;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `https://hub.oxen.ai/api/ai/models/${modelId}`) {
+        return jsonResponse({
+          id: modelId,
+          display_name: "Seedance 2.5 - Image to Video",
+          description: "Optional end-frame control for the first-frame image.",
+          endpoint: "/videos/generate",
+          capabilities: { input: ["text", "image"], output: ["video"] },
+          request_schema: {
+            type: "object",
+            required: ["prompt", "input_image"],
+            properties: {
+              prompt: { type: "string" },
+              input_image: { type: "string", format: "uri" },
+              duration: {
+                type: ["integer", "string"],
+                minimum: 4,
+                maximum: 30,
+                default: "auto",
+                "x-auto-value": "auto",
+              },
+              resolution: {
+                type: "string",
+                enum: ["480p", "720p", "1080p", "4k"],
+                default: "720p",
+                "x-lock": { value: "480p", when: { draft: true } },
+              },
+              draft: { type: "boolean", default: false },
+            },
+          },
+        });
+      }
+      if (url === "https://hub.oxen.ai/api/ai/queue" && init?.method === "POST") {
+        queued = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return jsonResponse({ generations: [{ generation_id: "gen-i2v", status: "queued" }] });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const res = await app.request(
+      "https://studio.digisavvy.dev/api/generate",
+      {
+        method: "POST",
+        headers: {
+          Cookie: `${SESSION_COOKIE}=${TEST_SESSION_ID}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: "reference-to-video",
+          model: modelId,
+          prompt: "the ox walks",
+          num_generations: 1,
+          duration: "auto",
+          resolution: "1080p",
+          draft: true,
+          images: ["https://cdn.example.com/media/start.png"],
+        }),
+      },
+      createEnv({
+        DB: {
+          prepare() {
+            return {
+              bind(...args: unknown[]) {
+                return {
+                  async first() {
+                    if (args[0] === TEST_SESSION_ID) return user;
+                    return null;
+                  },
+                  async all() {
+                    return { results: [] };
+                  },
+                  async run() {
+                    return { success: true };
+                  },
+                };
+              },
+            };
+          },
+        } as unknown as D1Database,
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(queued?.input_image).toBe("https://cdn.example.com/media/start.png");
+    expect(queued?.duration).toBe("auto");
+    expect(queued?.resolution).toBe("480p");
+    expect(queued?.draft).toBe(true);
+  });
+});
