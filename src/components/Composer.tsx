@@ -1,3 +1,4 @@
+import { groupAttachments, groupCountLabel } from "../lib/attachment-groups";
 import {
   useEffect,
   useLayoutEffect,
@@ -290,7 +291,12 @@ export function Composer(props: Props) {
   const acceptedKinds = acceptedMediaKinds(props.controls, props.mode, selectedModel);
   const fileAccept = fileAcceptValue(acceptedKinds);
   const dropPhrase = mediaKindPhrase(acceptedKinds);
-  const audioCount = props.attachments.filter((item) => item.kind === "audio").length;
+  const attachmentGroups = groupAttachments(props.attachments, {
+    image: imageMax,
+    video: videoMax,
+    audio: audioMax,
+  });
+  const dragKind = dragIndex != null ? props.attachments[dragIndex]?.kind : undefined;
   const galleryAvailable = modeHasReferenceGallery(props.mode);
   const galleryOpen = galleryAvailable && galleryForMode === props.mode;
   const showDropzone =
@@ -1087,132 +1093,144 @@ export function Composer(props: Props) {
               if (isFileDrag(event) || isGalleryItemDrag(event.dataTransfer.types)) return;
               event.preventDefault();
               const from = Number(event.dataTransfer.getData("text/plain"));
-              const insertBefore = dropInsertBefore ?? props.attachments.length;
+              const insertBefore = dropInsertBefore;
               setDragIndex(null);
               setDropInsertBefore(null);
-              if (!Number.isInteger(from)) return;
+              if (!Number.isInteger(from) || insertBefore == null) return;
               props.onReorderAttachments(from, indexAfterInsertBefore(from, insertBefore));
             }}
           >
-            {props.attachments.map((item, index) => {
-              const ofKind = props.attachments.filter((entry) => entry.kind === item.kind);
-              const kindIndex = ofKind.indexOf(item);
-              const token = tokenForItem(mentionSource, item, index);
-              const roleField = faceFieldForKind(item.kind);
-              const showRole = Boolean(
-                roleField &&
-                  props.controls?.slots.some((slot) => slot.field === roleField) &&
-                  props.controls?.slots.some(
-                    (slot) => slot.kind === item.kind && !slot.field.includes("face"),
-                  ),
-              );
-              const referenceRole = normalizeMediaRole(item.role);
-              const showSlot =
-                dragIndex != null &&
-                dropInsertBefore === index &&
-                dropInsertBefore !== dragIndex &&
-                dropInsertBefore !== dragIndex + 1;
-              return (
-                <div key={`${item.kind}-${item.name}-${index}`} className="attach-slot">
-                  {showSlot ? (
-                    <div className="attach-drop-slot" aria-hidden>
-                      Drop
-                    </div>
-                  ) : null}
-                  <div
-                    className={`attach-chip${dragIndex === index ? " is-dragging" : ""}`}
-                    draggable
-                    onDragStart={(event) => {
-                      if ((event.target as HTMLElement).closest("button, select")) {
-                        event.preventDefault();
-                        return;
-                      }
-                      event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData("text/plain", String(index));
-                      setDragIndex(index);
-                    }}
-                    onDragOver={(event) => {
-                      if (isFileDrag(event) || isGalleryItemDrag(event.dataTransfer.types)) return;
-                      event.preventDefault();
-                      event.stopPropagation();
-                      event.dataTransfer.dropEffect = "move";
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      const insertBefore = event.clientX < rect.left + rect.width / 2 ? index : index + 1;
-                      if (dropInsertBefore !== insertBefore) setDropInsertBefore(insertBefore);
-                    }}
-                    onDragEnd={() => {
-                      setDragIndex(null);
-                      setDropInsertBefore(null);
-                    }}
-                  >
-                    <span className="attach-grip" aria-hidden>
-                      ⋮⋮
-                    </span>
-                    <div className="attach-thumb">
-                      {item.kind === "image" ? (
-                        <img src={item.preview} alt="" draggable={false} />
-                      ) : item.kind === "video" ? (
-                        <video src={item.preview} muted draggable={false} />
-                      ) : (
-                        <AudioAttachControl src={item.preview} name={item.name} token={token} />
-                      )}
-                      {item.kind !== "audio" && item.preview ? (
-                        <ExpandMediaButton
-                          label={`Preview ${token}`}
-                          preview={item.preview}
-                          kind={item.kind === "video" ? "video" : "image"}
-                        />
-                      ) : null}
-                    </div>
-                    <span className="attach-chip-copy">
-                      {props.controls?.mentions ? (
-                        <span className="attach-chip-token">{token}</span>
-                      ) : null}
-                      <span className="attach-chip-name">{shortenFileName(item.name)}</span>
-                      <span className="attach-name-tip" role="tooltip">
-                        {item.name}
-                      </span>
-                    </span>
-                    {showRole ? (
-                      <select
-                        className={`attach-role${referenceRoleUsesFace(referenceRole) ? "" : " is-plain"}`}
-                        aria-label={`Reference role for ${token}`}
-                        title={referenceRoleTitle(referenceRole)}
-                        value={referenceRole}
-                        onChange={(event) =>
-                          props.onAttachmentRoleChange(index, normalizeMediaRole(event.target.value))
-                        }
-                      >
-                        {REFERENCE_ROLES.map((value) => (
-                          <option key={value} value={value}>
-                            {referenceRoleLabel(value)}
-                          </option>
-                        ))}
-                      </select>
-                    ) : null}
-                    <button
-                      className="ghost-btn"
-                      type="button"
-                      onClick={() => props.onClearAttachment(item.kind, kindIndex)}
-                    >
-                      Remove
-                    </button>
-                  </div>
+            {attachmentGroups.map((group) => (
+              <section
+                key={group.kind}
+                className={`attach-group${group.supported ? "" : " is-unsupported"}`}
+                aria-label={`${group.label} references`}
+              >
+                <header className="attach-group-head">
+                  <span className="attach-group-title">{group.label}</span>
+                  <span className="attach-count">{groupCountLabel(group)}</span>
+                </header>
+                <div className="attach-group-items">
+                {group.items.map(({ item, index }) => {
+                  const ofKind = props.attachments.filter((entry) => entry.kind === item.kind);
+                  const kindIndex = ofKind.indexOf(item);
+          const token = tokenForItem(mentionSource, item, index);
+          const roleField = faceFieldForKind(item.kind);
+          const showRole = Boolean(
+            roleField &&
+              props.controls?.slots.some((slot) => slot.field === roleField) &&
+              props.controls?.slots.some(
+                (slot) => slot.kind === item.kind && !slot.field.includes("face"),
+              ),
+          );
+          const referenceRole = normalizeMediaRole(item.role);
+          const showSlot =
+            dragIndex != null &&
+            dragKind === item.kind &&
+            dropInsertBefore === index &&
+            dropInsertBefore !== dragIndex &&
+            dropInsertBefore !== dragIndex + 1;
+          return (
+            <div key={`${item.kind}-${item.name}-${index}`} className="attach-slot">
+              {showSlot ? (
+                <div className="attach-drop-slot" aria-hidden>
+                  Drop
                 </div>
-              );
-            })}
-            {dragIndex != null &&
-            dropInsertBefore === props.attachments.length &&
-            dragIndex !== props.attachments.length - 1 ? (
-              <div className="attach-drop-slot" aria-hidden>
-                Drop
+              ) : null}
+              <div
+                className={`attach-chip${dragIndex === index ? " is-dragging" : ""}`}
+                draggable
+                onDragStart={(event) => {
+                  if ((event.target as HTMLElement).closest("button, select")) {
+                    event.preventDefault();
+                    return;
+                  }
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", String(index));
+                  setDragIndex(index);
+                }}
+                onDragOver={(event) => {
+                  if (isFileDrag(event) || isGalleryItemDrag(event.dataTransfer.types)) return;
+                  if (dragKind !== item.kind) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.dataTransfer.dropEffect = "move";
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  const insertBefore = event.clientX < rect.left + rect.width / 2 ? index : index + 1;
+                  if (dropInsertBefore !== insertBefore) setDropInsertBefore(insertBefore);
+                }}
+                onDragEnd={() => {
+                  setDragIndex(null);
+                  setDropInsertBefore(null);
+                }}
+              >
+                <span className="attach-grip" aria-hidden>
+                  ⋮⋮
+                </span>
+                <div className="attach-thumb">
+                  {item.kind === "image" ? (
+                    <img src={item.preview} alt="" draggable={false} />
+                  ) : item.kind === "video" ? (
+                    <video src={item.preview} muted draggable={false} />
+                  ) : (
+                    <AudioAttachControl src={item.preview} name={item.name} token={token} />
+                  )}
+                  {item.kind !== "audio" && item.preview ? (
+                    <ExpandMediaButton
+                      label={`Preview ${token}`}
+                      preview={item.preview}
+                      kind={item.kind === "video" ? "video" : "image"}
+                    />
+                  ) : null}
+                </div>
+                <span className="attach-chip-copy">
+                  {props.controls?.mentions ? (
+                    <span className="attach-chip-token">{token}</span>
+                  ) : null}
+                  <span className="attach-chip-name">{shortenFileName(item.name)}</span>
+                  <span className="attach-name-tip" role="tooltip">
+                    {item.name}
+                  </span>
+                </span>
+                {showRole ? (
+                  <select
+                    className={`attach-role${referenceRoleUsesFace(referenceRole) ? "" : " is-plain"}`}
+                    aria-label={`Reference role for ${token}`}
+                    title={referenceRoleTitle(referenceRole)}
+                    value={referenceRole}
+                    onChange={(event) =>
+                      props.onAttachmentRoleChange(index, normalizeMediaRole(event.target.value))
+                    }
+                  >
+                    {REFERENCE_ROLES.map((value) => (
+                      <option key={value} value={value}>
+                        {referenceRoleLabel(value)}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  onClick={() => props.onClearAttachment(item.kind, kindIndex)}
+                >
+                  Remove
+                </button>
               </div>
-            ) : null}
-            {audioMax > 1 ? (
-              <span className="attach-count">
-                Audio {audioCount}/{audioMax}
-              </span>
-            ) : null}
+            </div>
+          );
+                })}
+                {dragIndex != null &&
+                dragKind === group.kind &&
+                dropInsertBefore === group.endInsertBefore &&
+                dragIndex !== group.endInsertBefore - 1 ? (
+                  <div className="attach-drop-slot" aria-hidden>
+                    Drop
+                  </div>
+                ) : null}
+                </div>
+              </section>
+            ))}
           </div>
         ) : null}
 
