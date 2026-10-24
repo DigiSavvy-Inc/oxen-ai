@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { OxenModel } from "../lib/api";
-import { filterModels, groupPreferredModels, modelLabel } from "../lib/model-menu";
+import { filterModels, groupPreferredModels, MAX_BATCH_MODELS, modelLabel } from "../lib/model-menu";
 
 type Props = {
   models: OxenModel[];
@@ -10,12 +10,16 @@ type Props = {
   query: string;
   onQueryChange: (value: string) => void;
   onChange: (value: string) => void;
+  batchModels?: string[];
+  onToggleBatch?: (id: string) => void;
+  onReorderPreferred?: (fromId: string, toId: string) => void;
 };
 
 export function ModelMenu(props: Props) {
   const { models, preferred, value, query, onQueryChange, onChange } = props;
   const [open, setOpen] = useState(false);
   const [hot, setHot] = useState(0);
+  const [dragOver, setDragOver] = useState<string | null>(null);
   const [box, setBox] = useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -137,7 +141,14 @@ export function ModelMenu(props: Props) {
     }
   }
 
-  const triggerLabel = selected ? modelLabel(selected) : value || "Select a model";
+  const batch = props.batchModels?.length ? props.batchModels : value ? [value] : [];
+  const extraCount = Math.max(0, batch.length - (value && batch.includes(value) ? 1 : 0));
+  const triggerLabel = selected
+    ? extraCount > 0
+      ? `${modelLabel(selected)} +${extraCount}`
+      : modelLabel(selected)
+    : value || "Select a model";
+  const canReorder = Boolean(props.onReorderPreferred) && !query.trim();
   const headingRest = grouped.preferred.length > 0 ? "All" : "Models";
   const emptyLabel = query.trim()
     ? `No models match “${query.trim()}”`
@@ -202,7 +213,12 @@ export function ModelMenu(props: Props) {
             aria-label="Models"
           >
             {grouped.preferred.length > 0 ? (
-              <div className="model-menu-heading">Preferred</div>
+              <div className="model-menu-heading">
+                Preferred{canReorder ? " · drag to reorder" : ""}
+              </div>
+            ) : null}
+            {props.onToggleBatch ? (
+              <div className="model-menu-note">Check a model to run this prompt on it too. Up to {MAX_BATCH_MODELS}.</div>
             ) : null}
             {grouped.preferred.map((model, index) => (
               <ModelOption
@@ -210,9 +226,23 @@ export function ModelMenu(props: Props) {
                 model={model}
                 index={index}
                 selected={model.id === value}
+                included={batch.includes(model.id)}
+                batchFull={batch.length >= MAX_BATCH_MODELS}
                 hot={index === activeHot}
+                draggable={canReorder}
+                dropTarget={dragOver === model.id}
                 onHot={() => setHot(index)}
                 onChoose={() => choose(model.id)}
+                onToggleBatch={
+                  props.onToggleBatch ? () => props.onToggleBatch?.(model.id) : undefined
+                }
+                onDragStart={() => undefined}
+                onDragOver={() => setDragOver(model.id)}
+                onDrop={(fromId) => {
+                  setDragOver(null);
+                  if (fromId) props.onReorderPreferred?.(fromId, model.id);
+                }}
+                onDragEnd={() => setDragOver(null)}
               />
             ))}
             {grouped.rest.length > 0 ? (
@@ -226,9 +256,14 @@ export function ModelMenu(props: Props) {
                   model={model}
                   index={optionIndex}
                   selected={model.id === value}
+                  included={batch.includes(model.id)}
+                  batchFull={batch.length >= MAX_BATCH_MODELS}
                   hot={optionIndex === activeHot}
                   onHot={() => setHot(optionIndex)}
                   onChoose={() => choose(model.id)}
+                  onToggleBatch={
+                    props.onToggleBatch ? () => props.onToggleBatch?.(model.id) : undefined
+                  }
                 />
               );
             })}
@@ -240,9 +275,14 @@ export function ModelMenu(props: Props) {
                   model={model}
                   index={optionIndex}
                   selected={model.id === value}
+                  included={batch.includes(model.id)}
+                  batchFull={batch.length >= MAX_BATCH_MODELS}
                   hot={optionIndex === activeHot}
                   onHot={() => setHot(optionIndex)}
                   onChoose={() => choose(model.id)}
+                  onToggleBatch={
+                    props.onToggleBatch ? () => props.onToggleBatch?.(model.id) : undefined
+                  }
                 />
               );
             })}
@@ -260,32 +300,90 @@ function ModelOption({
   model,
   index,
   selected,
+  included,
+  batchFull,
   hot,
+  draggable,
+  dropTarget,
   onHot,
   onChoose,
+  onToggleBatch,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   model: OxenModel;
   index: number;
   selected: boolean;
+  included?: boolean;
+  batchFull?: boolean;
   hot: boolean;
+  draggable?: boolean;
+  dropTarget?: boolean;
   onHot: () => void;
   onChoose: () => void;
+  onToggleBatch?: () => void;
+  onDragStart?: () => void;
+  onDragOver?: () => void;
+  onDrop?: (fromId: string) => void;
+  onDragEnd?: () => void;
 }) {
+  const label = modelLabel(model);
   return (
-    <button
-      id={`model-option-${index}`}
-      type="button"
-      role="option"
-      aria-selected={selected}
-      data-hot={hot ? "true" : undefined}
-      className={`model-menu-option${hot ? " is-hot" : ""}${selected ? " is-selected" : ""}`}
-      onPointerEnter={onHot}
-      onMouseDown={(event) => {
+    <div
+      className={`model-menu-row${dropTarget ? " is-drop" : ""}`}
+      onDragOver={(event) => {
+        if (!draggable) return;
         event.preventDefault();
-        onChoose();
+        onDragOver?.();
+      }}
+      onDrop={(event) => {
+        if (!draggable) return;
+        event.preventDefault();
+        onDrop?.(event.dataTransfer.getData("text/plain"));
       }}
     >
-      {modelLabel(model)}
-    </button>
+      {draggable ? (
+        <button
+          type="button"
+          className="model-menu-grip"
+          aria-label={`Drag to reorder ${label}`}
+          draggable
+          onDragStart={(event) => {
+            event.dataTransfer.setData("text/plain", model.id);
+            event.dataTransfer.effectAllowed = "move";
+          }}
+          onDragEnd={() => onDragEnd?.()}
+        >
+          ⋮⋮
+        </button>
+      ) : null}
+      <button
+        id={`model-option-${index}`}
+        type="button"
+        role="option"
+        aria-selected={selected}
+        data-hot={hot ? "true" : undefined}
+        className={`model-menu-option${hot ? " is-hot" : ""}${selected ? " is-selected" : ""}`}
+        onPointerEnter={onHot}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          onChoose();
+        }}
+      >
+        {label}
+      </button>
+      {onToggleBatch ? (
+        <input
+          type="checkbox"
+          className="model-menu-check"
+          checked={Boolean(included)}
+          disabled={Boolean(batchFull) && !included}
+          aria-label={`Include ${label} in this run`}
+          onMouseDown={(event) => event.stopPropagation()}
+          onChange={() => onToggleBatch()}
+        />
+      ) : null}
+    </div>
   );
 }

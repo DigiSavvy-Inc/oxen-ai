@@ -1,8 +1,26 @@
 import { firstSupportedMode, modelSupportsMode } from "../../worker/model-modes";
-import { estimateGenerationCost, type OxenPricing } from "../../worker/pricing";
+import { combineGenerationCosts, estimateGenerationCost, type OxenPricing } from "../../worker/pricing";
 
 export { firstSupportedMode, modelSupportsMode };
-export { estimateGenerationCost, type OxenPricing };
+export { combineGenerationCosts, estimateGenerationCost, type OxenPricing };
+
+export type ComposerPreset = {
+  id: string;
+  name: string;
+  numGenerations: number;
+  aspectRatio?: string;
+  quality?: string;
+  resolution?: string;
+  duration?: string;
+  generateAudio?: boolean;
+  outputFormat?: string;
+};
+
+export type ComposerPrefs = {
+  favoriteOrder: string[];
+  presets: ComposerPreset[];
+  activePresetId: string | null;
+};
 
 export type GenerationMode =
   | "text-to-image"
@@ -101,6 +119,7 @@ export type StudioSettings = {
   defaultModelByMode: Partial<Record<GenerationMode, string>>;
   lastParams: SharedOxenParams;
   historyPageSize: number;
+  composerPrefs: ComposerPrefs;
 };
 
 /** Instance-wide name and logo. `savedName` is null when the default is in use. */
