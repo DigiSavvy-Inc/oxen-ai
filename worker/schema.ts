@@ -239,6 +239,9 @@ function enrichImageSlots(model: OxenModel, schema: JsonSchema, slots: MediaSlot
   }
   if (inferredMax && inferredMax > 1) {
     for (const slot of imageSlots) {
+      // A first-frame field ("not a reference") must stay a single image so a
+      // reference list is not poured into it.
+      if (!slotIsCitable(property(schema, slot.field))) continue;
       if (slot.maxItems < inferredMax) {
         slot.maxItems = inferredMax;
         slot.asArray = true;
@@ -1158,6 +1161,8 @@ function preferredSlot(slots: MediaSlot[], kind: MediaKind): MediaSlot | undefin
   return [...matches].sort((a, b) => {
     const faceDelta = Number(b.field.includes("face")) - Number(a.field.includes("face"));
     if (faceDelta !== 0) return faceDelta;
+    const arrayDelta = Number(b.asArray) - Number(a.asArray);
+    if (arrayDelta !== 0) return arrayDelta;
     return b.maxItems - a.maxItems;
   })[0];
 }

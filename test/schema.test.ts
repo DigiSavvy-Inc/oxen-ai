@@ -660,6 +660,54 @@ describe("safety_tolerance", () => {
   });
 });
 
+describe("WAN 3.0 Prime controls", () => {
+  const model: OxenModel = {
+    id: "wan-v3-0-video-prime",
+    display_name: "WAN 3.0 Prime",
+    description: "Up to 10 images, 5 video clips, and 5 audio clips. First frame cannot be combined with references.",
+    endpoint: "/videos/generate",
+    capabilities: { input: ["text", "image", "video", "audio"], output: ["video"] },
+    request_schema: {
+      type: "object",
+      required: ["prompt"],
+      properties: {
+        prompt: {
+          type: "string",
+          description: "Refer to assets as @Image 1, @Video 1, and @Audio 1.",
+        },
+        input_images: {
+          type: "array",
+          maxItems: 10,
+          items: { type: "string" },
+          description: "Reference images. Up to 10 images.",
+        },
+        input_image: { type: "string", description: "First frame. Not a reference." },
+        input_videos: { type: "array", maxItems: 5, items: { type: "string" } },
+        input_audios: { type: "array", maxItems: 5, items: { type: "string" } },
+        resolution: { type: "string", enum: ["480P", "720P", "1080P"], default: "1080P" },
+        duration: { type: "integer", minimum: 2, maximum: 30, default: 5 },
+      },
+    },
+  };
+
+  it("sends references to the array fields and leaves the first frame alone", () => {
+    const controls = parseModelControls(model);
+    const firstFrame = controls.slots.find((slot) => slot.field === "input_image");
+    expect(firstFrame).toMatchObject({ maxItems: 1, asArray: false });
+    expect(
+      mapMediaUrls(controls.slots, {
+        image: ["https://cdn.example/a.png", "https://cdn.example/b.png"],
+        video: ["https://cdn.example/clip.mp4"],
+        audio: ["https://cdn.example/voice.mp3"],
+      }),
+    ).toEqual({
+      input_images: ["https://cdn.example/a.png", "https://cdn.example/b.png"],
+      input_videos: ["https://cdn.example/clip.mp4"],
+      input_audios: ["https://cdn.example/voice.mp3"],
+    });
+  });
+});
+
 describe("FLUX 3 Video controls", () => {
   const controls = parseModelControls(flux3VideoModel);
 
