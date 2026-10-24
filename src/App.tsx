@@ -344,6 +344,12 @@ export default function App() {
     setSettings(next);
   }
 
+  useEffect(() => {
+    if (!user?.oxenKeyUnreadable) return;
+    setShowSettings(true);
+    setError("Your saved Oxen API key can't be read. Re-enter it in Settings.");
+  }, [user?.oxenKeyUnreadable]);
+
   const refreshCredits = useCallback(async () => {
     if (!user?.hasOxenKey) {
       setCredits(null);

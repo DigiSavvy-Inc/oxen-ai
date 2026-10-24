@@ -52,3 +52,23 @@ describe("Oxen key storage", () => {
     expect(writes).toHaveLength(0);
   });
 });
+
+describe("/api/auth/me with an unreadable Oxen key", () => {
+  it("reports no key and flags it for re-entry", async () => {
+    const { app } = await import("../worker/index");
+    const { createEnv, createMockDb, TEST_SESSION_ID } = await import("./helpers");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { iv } = await encryptSecret("oxen_test", TEST_SECRET);
+    const user = { ...TEST_USER, oxen_key_ciphertext: "A".repeat(218) + "!", oxen_key_iv: iv };
+    const env = createEnv({ DB: createMockDb(user, TEST_SESSION_ID) });
+    const res = await app.request(
+      "http://localhost/api/auth/me",
+      { headers: { Cookie: `oxen_session=${TEST_SESSION_ID}` } },
+      env,
+    );
+    const body = (await res.json()) as { user: { hasOxenKey: boolean; oxenKeyUnreadable?: boolean } };
+    expect(res.status).toBe(200);
+    expect(body.user.hasOxenKey).toBe(false);
+    expect(body.user.oxenKeyUnreadable).toBe(true);
+  });
+});

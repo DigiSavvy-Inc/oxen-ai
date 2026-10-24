@@ -923,8 +923,15 @@ app.get("/api/health", (c) => c.json({ ok: true, service: "oxen-studio" }));
 
 app.get("/api/auth/me", async (c) => {
   try {
-    await requireUser(c);
-    return c.json({ user: c.get("sessionUser") });
+    const user = await requireUser(c);
+    const sessionUser = c.get("sessionUser");
+    if (sessionUser.hasOxenKey) {
+      const { unreadable } = await readOxenKey(user, c.env.ENCRYPTION_KEY);
+      if (unreadable) {
+        return c.json({ user: { ...sessionUser, hasOxenKey: false, oxenKeyUnreadable: true } });
+      }
+    }
+    return c.json({ user: sessionUser });
   } catch {
     return c.json({ user: null });
   }
