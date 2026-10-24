@@ -147,10 +147,19 @@ function isVideoCapable(
 }
 
 export function filterModelsForMode<T extends ModeFilterModel>(
-  models: T[],
+  models: readonly T[],
   mode: GenerationMode,
 ): T[] {
   return models.filter((model) => modelSupportsMode(model, mode));
+}
+
+/** Filter a loaded catalog for the composer. Mode changes do not need another fetch. */
+export function modelsForComposer<T extends ModeFilterModel>(
+  catalog: readonly T[],
+  mode: GenerationMode | null,
+): T[] {
+  if (!mode) return catalog.filter((model) => isMediaGenerationModel(model));
+  return filterModelsForMode(catalog, mode);
 }
 
 export function modelSupportsMode(model: ModeFilterModel, mode: GenerationMode): boolean {
