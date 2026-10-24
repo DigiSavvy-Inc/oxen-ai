@@ -437,13 +437,26 @@ export async function userHasAccess(
   };
 }
 
+export class OxenKeySealError extends Error {}
+
 export async function saveOxenKey(
   db: D1Database,
   userId: string,
   apiKey: string,
   encryptionKey: string,
 ): Promise<void> {
-  const { ciphertext, iv } = await encryptSecret(apiKey, encryptionKey);
+  const trimmed = apiKey.trim();
+  if (!trimmed) throw new OxenKeySealError("Oxen API key is empty");
+  const { ciphertext, iv } = await encryptSecret(trimmed, encryptionKey);
+  let roundTrip: string | null = null;
+  try {
+    roundTrip = await decryptSecret(ciphertext, iv, encryptionKey);
+  } catch {
+    roundTrip = null;
+  }
+  if (roundTrip !== trimmed) {
+    throw new OxenKeySealError("Could not securely store the Oxen API key. Please try again.");
+  }
   const now = Math.floor(Date.now() / 1000);
   await db
     .prepare(
@@ -467,8 +480,26 @@ export async function getOxenKey(
   user: UserRow,
   encryptionKey: string,
 ): Promise<string | null> {
-  if (!user.oxen_key_ciphertext || !user.oxen_key_iv) return null;
-  return decryptSecret(user.oxen_key_ciphertext, user.oxen_key_iv, encryptionKey);
+  return (await readOxenKey(user, encryptionKey)).key;
+}
+
+export type OxenKeyState = { key: string | null; unreadable: boolean };
+
+/** Reads the saved Oxen key. A stored value that can't be decoded or decrypted is treated as missing. */
+export async function readOxenKey(user: UserRow, encryptionKey: string): Promise<OxenKeyState> {
+  if (!user.oxen_key_ciphertext || !user.oxen_key_iv) return { key: null, unreadable: false };
+  try {
+    const key = await decryptSecret(user.oxen_key_ciphertext, user.oxen_key_iv, encryptionKey);
+    return key ? { key, unreadable: false } : { key: null, unreadable: true };
+  } catch (err) {
+    console.warn("oxen_key_unreadable", {
+      userId: user.id,
+      ciphertextLength: user.oxen_key_ciphertext.length,
+      ivLength: user.oxen_key_iv.length,
+      error: err instanceof Error ? err.name : "unknown",
+    });
+    return { key: null, unreadable: true };
+  }
 }
 
 export async function exchangeGithubCode(
