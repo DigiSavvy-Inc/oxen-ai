@@ -1,0 +1,9 @@
+{
+  "source": "migrations/0020_scrub_invalid_oxen_keys.sql @ 1ff1130f",
+  "query_where": "oxen_key_ciphertext IS NOT NULL\n  AND (\n    LENGTH(oxen_key_ciphertext) % 4 != 0\n    OR oxen_key_ciphertext GLOB '*[^A-Za-z0-9+/=]*'\n    OR oxen_key_iv IS NULL\n    OR LENGTH(oxen_key_iv) % 4 != 0\n    OR oxen_key_iv GLOB '*[^A-Za-z0-9+/=]*'\n  )",
+  "count": 0,
+  "rows": [],
+  "rows_written": 0,
+  "changed_db": false,
+  "run_at": "2026-10-23T20:00:30-07:00"
+}
