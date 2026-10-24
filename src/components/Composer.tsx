@@ -165,6 +165,7 @@ type Props = {
   mode: GenerationMode | null;
   onModeChange: (mode: GenerationMode) => void;
   models: OxenModel[];
+  modelsLoading?: boolean;
   preferred: OxenModel[];
   model: string;
   onModelChange: (model: string) => void;
@@ -1221,6 +1222,7 @@ export function Composer(props: Props) {
         <div className="composer-toolbar">
           <ModelMenu
             models={props.models}
+            loading={props.modelsLoading}
             preferred={props.preferred}
             value={props.model}
             query={props.modelQuery}

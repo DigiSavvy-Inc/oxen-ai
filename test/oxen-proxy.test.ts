@@ -13,6 +13,7 @@ import {
   extractDraftMeta,
   extractResultUrl,
   filterModelsForMode,
+  modelsForComposer,
   presentGenerationError,
   firstSupportedMode,
   isMediaGenerationModel,
@@ -226,6 +227,18 @@ describe("extractResultUrl", () => {
 });
 
 describe("filterModelsForMode", () => {
+  it("filters a stored catalog when the mode changes", () => {
+    expect(ids(modelsForComposer(catalog, "text-to-video"))).toEqual(
+      ids(filterModelsForMode(catalog, "text-to-video")),
+    );
+    expect(ids(modelsForComposer(catalog, "image-to-image")).sort()).toEqual(
+      ids(filterModelsForMode(catalog, "image-to-image")).sort(),
+    );
+    expect(modelsForComposer(catalog, null).length).toBeGreaterThan(
+      modelsForComposer(catalog, "text-to-video").length,
+    );
+  });
+
   it("matches text-to-image when endpoint strings vary", () => {
     expect(ids(filterModelsForMode(catalog, "text-to-image")).sort()).toEqual([
       "flux-bare",

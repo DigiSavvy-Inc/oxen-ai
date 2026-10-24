@@ -72,6 +72,7 @@ import {
   type MediaRole,
 } from "../worker/schema";
 import { DEFAULT_HISTORY_PAGE_SIZE } from "../worker/history-page-size";
+import { modelsForComposer } from "../worker/model-modes";
 
 type StagedMedia = {
   file?: File;
@@ -113,7 +114,8 @@ export default function App() {
   const { branding, setBranding } = useInstanceBranding();
   const [showSettings, setShowSettings] = useState(false);
   const [mode, setMode] = useState<GenerationMode | null>(null);
-  const [models, setModels] = useState<OxenModel[]>([]);
+  const [catalog, setCatalog] = useState<OxenModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [favorites, setFavorites] = useState<OxenModel[]>([]);
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   const [model, setModel] = useState("");
@@ -614,34 +616,51 @@ export default function App() {
   }, [prompt]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setCatalog([]);
+      setModelsLoading(false);
+      return;
+    }
     let cancelled = false;
+    setModelsLoading(true);
     void (async () => {
       try {
-        const data = await api.models(mode);
+        const data = await api.models(null);
         if (cancelled) return;
-        setModels(data.models);
-        setModel((prev) => {
-          const next = pickModel(
-            data.models,
-            favorites,
-            mode ? settings?.defaultModelByMode[mode] : undefined,
-            prev,
-            Boolean(mode),
-          );
-          setNumGenerations((count) => generationCountForModelChange(prev, next, count));
-          return next;
-        });
+        setCatalog(data.models);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load models");
         }
+      } finally {
+        if (!cancelled) setModelsLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [user, mode, favorites, settings]);
+  }, [user]);
+
+  const models = useMemo(
+    () => modelsForComposer(catalog, mode),
+    [catalog, mode],
+  );
+
+  useEffect(() => {
+    setModel((prev) => {
+      const next = pickModel(
+        models,
+        favorites,
+        mode ? settings?.defaultModelByMode[mode] : undefined,
+        prev,
+        Boolean(mode),
+      );
+      if (next !== prev) {
+        setNumGenerations((count) => generationCountForModelChange(prev, next, count));
+      }
+      return next;
+    });
+  }, [models, favorites, mode, settings]);
 
   useEffect(() => {
     if (!modelQuery.trim() || !user?.hasOxenKey) return;
@@ -649,7 +668,7 @@ export default function App() {
       void api
         .searchModels(mode, modelQuery.trim())
         .then((data) => {
-          setModels((prev) => {
+          setCatalog((prev) => {
             const byId = new Map(prev.map((item) => [item.id, item]));
             for (const item of data.models) byId.set(item.id, item);
             return [...byId.values()];
@@ -1944,6 +1963,7 @@ export default function App() {
             mode={mode}
             onModeChange={handleModeChange}
             models={models}
+            modelsLoading={modelsLoading}
             preferred={favorites}
             model={model}
             onModelChange={handleModelChange}

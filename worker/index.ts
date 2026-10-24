@@ -59,11 +59,10 @@ import {
   normalizeMultiPrompt,
   isD1TooBig,
   isMediaGenerationModel,
+  cachedLiveCatalog,
   listFavoriteModels,
   OxenApiError,
-  listModels,
   listQueue,
-  mergeMissingFeaturedModels,
   notePollFailure,
   pollErrorMessage,
   presentGenerationError,
@@ -1413,8 +1412,9 @@ app.get("/api/models", async (c) => {
   try {
     const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
     if (apiKey) {
-      const all = await mergeMissingFeaturedModels(apiKey, await listModels(apiKey));
-      models = catalogForMode(all, mode);
+      const all = await cachedLiveCatalog(apiKey);
+      const featured = GENERATION_MODES.flatMap((item) => featuredVideoFallbacks(item));
+      models = catalogForMode(unionModelsById(all, featured), mode);
     }
   } catch (err) {
     console.error("model list error", err);
