@@ -3144,8 +3144,13 @@ button.history-expand-preview {
   width: 100%;
   max-width: 100%;
   border-radius: 6px;
-  padding: 3px 4px;
-  font-size: 9px;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--neutral-1);
+  color: var(--text);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-s);
 }
 
 .gallery-manage-tile select.gallery-role {
