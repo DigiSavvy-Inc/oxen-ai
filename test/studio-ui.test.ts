@@ -1451,13 +1451,16 @@ describe("get last frame control", () => {
   };
 
   function markup(props: {
-    mode: "text-to-image" | "image-to-image" | "reference-to-video" | "video-to-video" | null;
+    mode: "text-to-image" | "image-to-image" | "text-to-video" | "reference-to-video" | "video-to-video" | null;
     model: string;
     showLastFrame: boolean;
     getLastFrame?: boolean;
     capabilities?: { input?: string[] };
     slots?: ModelControls["slots"];
     resolution?: string[] | null;
+    duration?: ModelControls["duration"];
+    draft?: boolean;
+    resolutionDraftLock?: string | null;
   }) {
     return renderToStaticMarkup(
       createElement(Composer, {
@@ -1465,14 +1468,18 @@ describe("get last frame control", () => {
         mode: props.mode,
         models: [{ id: props.model, capabilities: props.capabilities }],
         model: props.model,
+        duration: props.duration?.kind === "enum" ? (props.duration.defaultValue ?? "auto") : base.duration,
+        draft: props.draft,
         controls: {
           modelId: props.model,
           aspectRatios: null,
-          duration: null,
+          duration: props.duration ?? null,
           seed: true,
           generateAudio: false,
           quality: null,
           resolution: props.resolution ?? null,
+          resolutionDraftLock: props.resolutionDraftLock,
+          draft: props.draft,
           outputFormat: null,
           background: null,
           slots: props.slots ?? [],
@@ -1543,6 +1550,34 @@ describe("get last frame control", () => {
     expect(clip).toContain('accept="image/*,video/*,audio/*"');
     expect(clip).not.toContain("This model needs at least one reference image.");
     expect(clip).not.toContain("This model needs a reference video.");
+  });
+
+  it("offers Auto for Seedance duration and locks a draft at 480p", () => {
+    const open = markup({
+      mode: "text-to-video",
+      model: "bytedance-seedance-2-5-text-to-video",
+      showLastFrame: false,
+      resolution: ["480p", "720p", "1080p", "4k"],
+      duration: {
+        kind: "enum",
+        values: ["auto", "4", "5"],
+        defaultValue: "auto",
+      },
+      resolutionDraftLock: "480p",
+    });
+    expect(open).toContain(">Auto<");
+    expect(open).toContain('aria-label="Duration"');
+    const drafted = markup({
+      mode: "text-to-video",
+      model: "bytedance-seedance-2-5-text-to-video",
+      showLastFrame: false,
+      resolution: ["480p", "720p", "1080p", "4k"],
+      draft: true,
+      resolutionDraftLock: "480p",
+    });
+    expect(drafted).toContain("480p draft");
+    expect(drafted).toContain("disabled");
+    expect(drafted).toContain('value="480p"');
   });
 });
 

@@ -1302,7 +1302,7 @@ export function Composer(props: Props) {
                 >
                   {durationControl.values.map((value) => (
                     <option key={value} value={value}>
-                      {value}
+                      {value === "auto" ? "Auto" : value}
                     </option>
                   ))}
                 </select>
@@ -1350,7 +1350,17 @@ export function Composer(props: Props) {
             <ToolbarField label="Resolution">
               <select
                 className="select"
-                value={props.resolution}
+                value={
+                  props.draft && props.controls.resolutionDraftLock
+                    ? props.controls.resolutionDraftLock
+                    : props.resolution
+                }
+                disabled={Boolean(props.draft && props.controls.resolutionDraftLock)}
+                title={
+                  props.draft && props.controls.resolutionDraftLock
+                    ? "Draft stays at 480p."
+                    : undefined
+                }
                 onChange={(e) => props.onResolutionChange(e.target.value)}
               >
                 {props.controls.resolution.map((value) => (
