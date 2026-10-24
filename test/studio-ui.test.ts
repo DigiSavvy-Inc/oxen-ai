@@ -62,6 +62,7 @@ import {
   tokenForItem,
   promptHighlightParts,
 } from "../src/lib/mentions";
+import { helpFabLift } from "../src/lib/help-fab";
 import { defaultModelChoices, filterModels, generationCountForModelChange, groupPreferredModels, modelLabel, pickModel } from "../src/lib/model-menu";
 import {
   aspectCatalog,
@@ -349,6 +350,27 @@ describe("mentions and cost", () => {
     );
     expect(shifted.left).toBe(832);
     expect(shifted.top).toBe(64);
+    const phone = placeMentionPreview(
+      { left: 40, top: 640, bottom: 658 },
+      { width: 180, height: 80 },
+      { width: 390, height: 700 },
+    );
+    expect(phone.top).toBe(554);
+    expect(phone.top).toBeGreaterThanOrEqual(8);
+    expect(phone.top + 80).toBeLessThanOrEqual(700 - 8);
+  });
+
+  it("lifts the help button above a composer that covers the bottom of the screen", () => {
+    expect(helpFabLift(null, 700)).toBe(16);
+    expect(helpFabLift({ top: 900, bottom: 1200 }, 700)).toBe(16);
+    const lifted = helpFabLift({ top: 380, bottom: 900 }, 700);
+    expect(lifted).toBe(332);
+    expect(700 - lifted).toBeLessThanOrEqual(380);
+    expect(helpFabLift({ top: 8, bottom: 700 }, 700)).toBeLessThanOrEqual(700 - 36 - 64);
+    const composer = readFileSync(new URL("../src/components/Composer.tsx", import.meta.url), "utf8");
+    expect(composer).toContain("visualViewport");
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    expect(css).toContain("--help-fab-lift");
   });
 
   it("resolves a prompt mention to the matching attachment", () => {
