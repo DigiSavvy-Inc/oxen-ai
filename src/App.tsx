@@ -108,6 +108,8 @@ function draftFromGalleryItem(item: GalleryItem): GalleryDraftItem {
   };
 }
 
+const OXEN_KEY_UNREADABLE_MESSAGE = "Your saved Oxen API key can't be read. Re-enter it in Settings.";
+
 export default function App() {
   const { user, loading, logout } = useAuth();
   const { branding, setBranding } = useInstanceBranding();
@@ -345,10 +347,13 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (!user?.oxenKeyUnreadable) return;
-    setShowSettings(true);
-    setError("Your saved Oxen API key can't be read. Re-enter it in Settings.");
-  }, [user?.oxenKeyUnreadable]);
+    if (user?.oxenKeyUnreadable) {
+      setShowSettings(true);
+      setError(OXEN_KEY_UNREADABLE_MESSAGE);
+    } else if (user?.hasOxenKey) {
+      setError((current) => (current === OXEN_KEY_UNREADABLE_MESSAGE ? null : current));
+    }
+  }, [user?.oxenKeyUnreadable, user?.hasOxenKey]);
 
   const refreshCredits = useCallback(async () => {
     if (!user?.hasOxenKey) {
