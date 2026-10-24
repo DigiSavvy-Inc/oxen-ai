@@ -11,6 +11,8 @@ import {
   exchangeGithubCode,
   fetchGithubUser,
   getOxenKey,
+  OxenKeySealError,
+  readOxenKey,
   getSessionId,
   isLoopbackHost,
   isNumericAdminEntry,
@@ -251,10 +253,12 @@ function requireAdmin(sessionUser: SessionUser) {
 }
 
 async function requireOxenKey(user: UserRow, env: Env): Promise<string> {
-  const key = await getOxenKey(user, env.ENCRYPTION_KEY);
+  const { key, unreadable } = await readOxenKey(user, env.ENCRYPTION_KEY);
   if (!key) {
     throw new HTTPException(400, {
-      message: "Add your Oxen API key in Settings before generating",
+      message: unreadable
+        ? "Your saved Oxen API key can't be read. Re-enter it in Settings."
+        : "Add your Oxen API key in Settings before generating",
     });
   }
   return key;
@@ -920,8 +924,15 @@ app.get("/api/health", (c) => c.json({ ok: true, service: "oxen-studio" }));
 
 app.get("/api/auth/me", async (c) => {
   try {
-    await requireUser(c);
-    return c.json({ user: c.get("sessionUser") });
+    const user = await requireUser(c);
+    const sessionUser = c.get("sessionUser");
+    if (sessionUser.hasOxenKey) {
+      const { unreadable } = await readOxenKey(user, c.env.ENCRYPTION_KEY);
+      if (unreadable) {
+        return c.json({ user: { ...sessionUser, hasOxenKey: false, oxenKeyUnreadable: true } });
+      }
+    }
+    return c.json({ user: sessionUser });
   } catch {
     return c.json({ user: null });
   }
@@ -1020,7 +1031,14 @@ app.put("/api/settings/oxen-key", async (c) => {
   if (!c.env.ENCRYPTION_KEY) {
     throw new HTTPException(500, { message: "ENCRYPTION_KEY is not configured" });
   }
-  await saveOxenKey(c.env.DB, user.id, apiKey, c.env.ENCRYPTION_KEY);
+  try {
+    await saveOxenKey(c.env.DB, user.id, apiKey, c.env.ENCRYPTION_KEY);
+  } catch (err) {
+    if (err instanceof OxenKeySealError) {
+      throw new HTTPException(400, { message: err.message });
+    }
+    throw err;
+  }
   return c.json({ ok: true, hasOxenKey: true });
 });
 

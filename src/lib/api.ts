@@ -20,6 +20,8 @@ export type SessionUser = {
   avatarUrl: string | null;
   isAdmin: boolean;
   hasOxenKey: boolean;
+  /** A key is saved but can't be decrypted; the user must re-enter it. */
+  oxenKeyUnreadable?: boolean;
 };
 
 export type OxenModel = {
