@@ -1,4 +1,7 @@
+import { GALLERY_MAX_ITEMS } from "./gallery-limits";
 import { normalizeMediaRole, type MediaRole } from "./schema";
+
+export { GALLERY_MAX_ITEMS };
 
 export type GalleryKind = "image" | "video" | "audio";
 
@@ -29,7 +32,6 @@ export type GallerySummary = {
 
 export const GALLERY_NAME_MAX = 80;
 export const GALLERY_ITEM_NAME_MAX = 180;
-export const GALLERY_MAX_ITEMS = 24;
 export const GALLERY_MAX_ROWS = 100;
 
 type GalleryRow = {
