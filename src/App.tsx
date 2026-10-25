@@ -72,6 +72,7 @@ import {
   safetyToleranceSelection,
   type MediaRole,
 } from "../worker/schema";
+import { GALLERY_MAX_ITEMS as GALLERY_ITEM_CAP } from "../worker/gallery-limits";
 import { DEFAULT_HISTORY_PAGE_SIZE } from "../worker/history-page-size";
 
 type StagedMedia = {
@@ -85,7 +86,6 @@ type StagedMedia = {
   role?: MediaRole | "scene";
 };
 
-const GALLERY_ITEM_CAP = 24;
 const LIBRARY_LOAD_TIMEOUT_MS = 20_000;
 
 function initialLibraryOpen(): boolean {

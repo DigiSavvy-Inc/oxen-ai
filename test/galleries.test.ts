@@ -4,6 +4,7 @@ import { SESSION_COOKIE } from "../worker/auth";
 import {
   acceptGalleryItems,
   acceptGalleryName,
+  GALLERY_MAX_ITEMS,
   galleryKeyForUser,
   getGallery,
   listGalleries,
@@ -162,6 +163,22 @@ describe("galleries", () => {
       acceptGalleryItems("user-1", [
         { kind: "image", name: "hero.png", key: "u/user-1/galleries/a.png" },
         { kind: "audio", name: "bed.mp3", key: "u/someone/galleries/b.mp3" },
+      ]),
+    ).toBeNull();
+  });
+
+  it("stores up to 96 items in one gallery", () => {
+    const full = Array.from({ length: GALLERY_MAX_ITEMS }, (_, index) => ({
+      kind: "image" as const,
+      name: `shot-${index}.png`,
+      key: `u/user-1/galleries/${index}.png`,
+    }));
+    expect(GALLERY_MAX_ITEMS).toBe(96);
+    expect(acceptGalleryItems("user-1", full)).toHaveLength(96);
+    expect(
+      acceptGalleryItems("user-1", [
+        ...full,
+        { kind: "image", name: "extra.png", key: "u/user-1/galleries/extra.png" },
       ]),
     ).toBeNull();
   });
