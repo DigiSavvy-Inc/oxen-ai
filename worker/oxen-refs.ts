@@ -1,4 +1,5 @@
 import { galleryKeyForUser } from "./galleries";
+import { cropImageToRatio, ImageFrameError, type ImageRatioBounds } from "./image-frame";
 import {
   arrayBufferToDataUri,
   canonicalSafeMediaType,
@@ -156,6 +157,8 @@ export type InlineStudioMediaOptions = {
   publicBaseUrl?: string | null;
   /** Test hook. Production downloads with the user's Oxen key, and only on hub.oxen.ai. */
   fetchHub?: (apiKey: string, url: string) => Promise<HubMediaBytes>;
+  /** When set, https image refs outside this width/height range are center-cropped. */
+  fitImageRatio?: ImageRatioBounds;
 };
 
 function hubUrlPath(value: string): string | null {
@@ -315,10 +318,12 @@ export async function inlineStudioMediaRefs(
     // (`*_input_*`) and ByteDance times out downloading hub.oxen.ai.
     if (options?.keepHttps?.[index]) {
       const resolved = options ?? {};
-      if (isOxenHostedMediaUrl(url)) out.push(await studioHttpsForHubUrl(bucket, url, resolved));
-      else if (url.startsWith("data:")) {
-        out.push(await studioHttpsForBytes(bucket, bytesFromDataUri(url), resolved));
-      } else out.push(url);
+      const hosted = isOxenHostedMediaUrl(url)
+        ? await studioHttpsForHubUrl(bucket, url, resolved)
+        : url.startsWith("data:")
+          ? await studioHttpsForBytes(bucket, bytesFromDataUri(url), resolved)
+          : url;
+      out.push(await fitStudioHttpsImage(bucket, hosted, resolved));
       continue;
     }
     if (url.startsWith("data:")) {
@@ -378,6 +383,7 @@ export async function resolveRefsForOxen(
     apiKey?: string;
     db?: D1Database;
     fetchHub?: (apiKey: string, url: string) => Promise<HubMediaBytes>;
+    fitImageRatio?: ImageRatioBounds;
   },
 ): Promise<string[]> {
   const auth: StudioMediaAuth | undefined =
@@ -404,7 +410,38 @@ export async function resolveRefsForOxen(
     db: signing?.db,
     publicBaseUrl: signing?.publicBaseUrl,
     fetchHub: signing?.fetchHub,
+    fitImageRatio: signing?.fitImageRatio,
   });
+}
+
+async function fitStudioHttpsImage(
+  bucket: R2Bucket,
+  url: string,
+  options: InlineStudioMediaOptions,
+): Promise<string> {
+  const bounds = options.fitImageRatio;
+  const images = options.images;
+  if (!bounds || !images) return url;
+  const key = studioMediaKeyFromUrl(url);
+  const userId = options.auth?.userId;
+  const secret = options.auth?.secret;
+  const origin = resolvePublicBaseUrl(options.publicBaseUrl);
+  if (!key || !userId || !secret || !origin || !galleryKeyForUser(userId, key)) return url;
+  const object = await bucket.get(key);
+  if (!object) return url;
+  const contentType = object.httpMetadata?.contentType || guessMediaContentType(key);
+  if (!contentType.toLowerCase().startsWith("image/")) return url;
+  let fitted: { bytes: ArrayBuffer; contentType: string } | null;
+  try {
+    fitted = await cropImageToRatio(images, await object.arrayBuffer(), bounds);
+  } catch (err) {
+    if (err instanceof ImageFrameError) throw new OxenMediaInlineError(err.message);
+    console.error("image ratio crop error", err);
+    return url;
+  }
+  if (!fitted) return url;
+  const stored = await putMediaObject(bucket, fitted.bytes, fitted.contentType, `u/${userId}`);
+  return createSignedMediaUrl(origin, stored.key, secret);
 }
 
 export type OxenRefGroup = {

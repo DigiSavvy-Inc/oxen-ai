@@ -37,6 +37,7 @@ import {
   sniffSafeMediaType,
   verifyMediaSignature,
 } from "./media";
+import { SEEDANCE_IMAGE_RATIO } from "./image-frame";
 import {
   collectOxenRefs,
   OxenMediaInlineError,
@@ -1661,7 +1662,10 @@ app.post("/api/generate", async (c) => {
       imageRefs.urls,
       c.env.IMAGES,
       imageRefs.keepHttps,
-      signing,
+      {
+        ...signing,
+        fitImageRatio: modelId.toLowerCase().includes("seedance") ? SEEDANCE_IMAGE_RATIO : undefined,
+      },
     );
     videoUrls = await resolveRefsForOxen(
       c.env.MEDIA,
