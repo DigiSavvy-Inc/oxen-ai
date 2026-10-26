@@ -2610,6 +2610,11 @@ button.history-expand-preview {
   background: color-mix(in srgb, var(--neutral-2) 94%, transparent);
 }
 
+.fullsize-backdrop.is-swipeable {
+  touch-action: pan-y;
+  overscroll-behavior-x: none;
+}
+
 .fullsize-backdrop img,
 .fullsize-backdrop video {
   max-width: 100%;
