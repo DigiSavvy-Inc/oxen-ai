@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { acceptsSwipePointer, pointerSwipe, wheelPixels, wheelSwipe } from "../src/lib/slide-swipe";
+import {
+  acceptsSwipePointer,
+  pointerHitsVideoControls,
+  pointerSwipe,
+  wheelPixels,
+  wheelSwipe,
+} from "../src/lib/slide-swipe";
 
 describe("slide swipe", () => {
   it("accepts touch and pen, and leaves mouse clicks alone", () => {
@@ -40,6 +46,12 @@ describe("slide swipe", () => {
     accum.x = 40;
     expect(wheelSwipe(accum, 2, 30)).toBe(0);
     expect(accum).toEqual({ x: 0, y: 0 });
+  });
+
+  it("leaves the video picture free to swipe and keeps the control strip", () => {
+    expect(pointerHitsVideoControls(100, 0, 400)).toBe(false);
+    expect(pointerHitsVideoControls(370, 0, 400)).toBe(true);
+    expect(pointerHitsVideoControls(20, 0, 0)).toBe(true);
   });
 
   it("treats a mouse-wheel line tick as enough to step once it crosses the threshold", () => {

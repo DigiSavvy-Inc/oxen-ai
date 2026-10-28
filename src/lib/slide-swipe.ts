@@ -20,6 +20,13 @@ export function acceptsSwipePointer(pointerType: string): boolean {
   return pointerType === "touch" || pointerType === "pen";
 }
 
+/** Native video controls sit on the bottom edge. A swipe there would fight the scrubber. */
+export function pointerHitsVideoControls(clientY: number, top: number, height: number): boolean {
+  if (!(height > 0)) return true;
+  const band = Math.min(48, height * 0.22);
+  return clientY > top + height - band;
+}
+
 /**
  * Finger moving left (negative dx) advances. A mostly vertical move stays put
  * so the actual-size scroller and a sloppy tap still work.

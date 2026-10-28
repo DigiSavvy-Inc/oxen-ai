@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { acceptsSwipePointer, pointerSwipe, wheelSwipe, type WheelAccum } from "../lib/slide-swipe";
+import {
+  acceptsSwipePointer,
+  pointerHitsVideoControls,
+  pointerSwipe,
+  wheelSwipe,
+  type WheelAccum,
+} from "../lib/slide-swipe";
 import { StagedStill, StagedVideo } from "./StagedStill";
 
 export function ExpandCorners() {
@@ -110,14 +116,20 @@ export function FullSizeMedia({
     };
   }, [canCycle, step]);
 
-  function blocksSwipe(target: EventTarget | null): boolean {
-    return target instanceof Element && Boolean(target.closest("button, a, input, textarea, select, video, audio"));
+  function blocksSwipe(event: PointerEvent<HTMLDivElement>): boolean {
+    const target = event.target;
+    if (!(target instanceof Element)) return false;
+    if (target.closest("button, a, input, textarea, select, audio")) return true;
+    const video = target.closest("video");
+    if (!video) return false;
+    const rect = video.getBoundingClientRect();
+    return pointerHitsVideoControls(event.clientY, rect.top, rect.height);
   }
 
   function onPointerDown(event: PointerEvent<HTMLDivElement>) {
     suppressClick.current = false;
     if (!canCycle || !event.isPrimary || !acceptsSwipePointer(event.pointerType)) return;
-    if (blocksSwipe(event.target)) return;
+    if (blocksSwipe(event)) return;
     gesture.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
     try {
       event.currentTarget.setPointerCapture(event.pointerId);

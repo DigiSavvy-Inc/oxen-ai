@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { GallerySummary } from "../lib/api";
+import { gallerySwipeSlides } from "../lib/gallery-slides";
 import type { MediaRole } from "../../worker/schema";
 import type { GalleryDraftItem } from "./GalleryDrawer";
-import { FullSizeMedia, type FitSlide } from "./FullSizeMedia";
+import { FullSizeMedia } from "./FullSizeMedia";
 import { GalleryRoleSelect } from "./GalleryRoleSelect";
 import { GallerySections } from "./GallerySections";
 import { GalleryThumb } from "./GalleryThumb";
@@ -81,16 +82,8 @@ export function GalleryBrowser(props: Props) {
   const canSave = Boolean(props.name.trim()) && !props.saving;
   const selectedItems = props.items.filter((item) => selected.includes(item.id));
   const allSelected = props.items.length > 0 && selectedItems.length === props.items.length;
-  const imageSlides: FitSlide[] = props.items
-    .filter((item) => item.kind === "image" && item.url)
-    .map((item) => ({
-      id: item.id,
-      src: item.url,
-      alt: item.name,
-      mediaType: "image",
-      poster: item.preview || null,
-    }));
-  const fit = imageSlides.find((slide) => slide.id === fitId) ?? null;
+  const viewSlides = gallerySwipeSlides(props.items);
+  const fit = viewSlides.find((slide) => slide.id === fitId) ?? null;
   const others = props.summaries.filter((gallery) => gallery.id !== props.galleryId);
   const canPlace =
     selectedItems.length > 0 &&
@@ -237,7 +230,7 @@ export function GalleryBrowser(props: Props) {
               key={item.id}
               className={`gallery-manage-tile${selected.includes(item.id) ? " is-selected" : ""}`}
             >
-              {item.kind === "image" && item.url ? (
+              {(item.kind === "image" || item.kind === "video") && item.url ? (
                 <button
                   type="button"
                   className="gallery-tile-hit"
@@ -281,8 +274,8 @@ export function GalleryBrowser(props: Props) {
                     type="button"
                     className="gallery-attach-one"
                     onClick={() => {
-                      setFitId(null);
-                      setPlaying({ kind: "video", id: item.id, src: item.url, name: item.name });
+                      setPlaying(null);
+                      setFitId(item.id);
                     }}
                   >
                     <PlayIcon />
@@ -295,7 +288,7 @@ export function GalleryBrowser(props: Props) {
                     className="gallery-attach-one"
                     onClick={() => {
                       setFitId(null);
-                      setPlaying({ kind: "audio", id: item.id, src: item.url, name: item.name });
+                      setPlaying({ id: item.id, src: item.url, name: item.name });
                     }}
                   >
                     <PlayIcon />
@@ -323,13 +316,16 @@ export function GalleryBrowser(props: Props) {
         <FullSizeMedia
           src={fit.src}
           alt={fit.alt}
-          slides={imageSlides}
+          slides={viewSlides}
+          mediaType={fit.mediaType}
           activeId={fit.id}
           onSlide={setFitId}
           onClose={() => setFitId(null)}
         />
       ) : null}
-      {playing ? <PlayingView playing={playing} onClose={() => setPlaying(null)} /> : null}
+      {playing ? (
+        <GalleryAudioPop src={playing.src} name={playing.name} onClose={() => setPlaying(null)} />
+      ) : null}
     </div>
   );
 }
@@ -462,31 +458,10 @@ function GalleryCard({
 }
 
 type Playing = {
-  kind: "video" | "audio";
   id: string;
   src: string;
   name: string;
 };
-
-function PlayingView({ playing, onClose }: { playing: Playing; onClose: () => void }) {
-  switch (playing.kind) {
-    case "video":
-      return (
-        <FullSizeMedia
-          src={playing.src}
-          alt={playing.name}
-          mediaType="video"
-          onClose={onClose}
-        />
-      );
-    case "audio":
-      return <GalleryAudioPop src={playing.src} name={playing.name} onClose={onClose} />;
-    default: {
-      const unreachable: never = playing.kind;
-      return unreachable;
-    }
-  }
-}
 
 function GalleryAudioPop({ src, name, onClose }: { src: string; name: string; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
