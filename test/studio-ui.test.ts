@@ -1335,6 +1335,8 @@ describe("library peek variations", () => {
     const canvas = readFileSync(new URL("../src/components/Canvas.tsx", import.meta.url), "utf8");
     expect(media).toContain("canCycle");
     expect(media).toContain("fullsize-nav");
+    expect(media).toContain("is-swipeable");
+    expect(media).toContain("pointerSwipe");
     expect(media).toContain("!actualSize && slides.length > 1");
     expect(canvas).toContain("slides={slides}");
     expect(peek).toContain("slides={slides}");
@@ -1346,6 +1348,7 @@ describe("library peek variations", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
     expect(media).toContain("createPortal");
     expect(media).toContain("document.body");
+    expect(css).toMatch(/\.fullsize-backdrop\.is-swipeable\s*\{[^}]*touch-action:\s*pan-y/);
     const full = Number(css.match(/\.fullsize-backdrop\s*\{[^}]*z-index:\s*(\d+)/)?.[1]);
     const modal = Number(css.match(/\.modal-backdrop\s*\{[^}]*z-index:\s*(\d+)/)?.[1]);
     const peek = Number(css.match(/\.library-peek\s*\{[^}]*z-index:\s*(\d+)/)?.[1]);
