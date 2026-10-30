@@ -3,6 +3,9 @@ import { createPortal } from "react-dom";
 import type { GallerySummary } from "../lib/api";
 import { GALLERY_ITEM_DRAG_TYPE } from "../lib/gallery-attach";
 import { indexAfterInsertBefore } from "../lib/mentions";
+import type { MediaRole } from "../../worker/schema";
+import { GalleryRoleSelect } from "./GalleryRoleSelect";
+import { GallerySections } from "./GallerySections";
 import { GalleryThumb } from "./GalleryThumb";
 
 export type GalleryDraftItem = {
@@ -12,6 +15,7 @@ export type GalleryDraftItem = {
   preview: string;
   key: string;
   url: string;
+  role?: MediaRole;
 };
 
 type Props = {
@@ -25,6 +29,7 @@ type Props = {
   skipped: string[];
   onAddFiles: (files: FileList | File[] | null) => void;
   onRemove: (index: number) => void;
+  onRoleChange: (index: number, role: MediaRole) => void;
   onReorder: (from: number, to: number) => void;
   onSave: () => void;
   onNew: () => void;
@@ -175,7 +180,7 @@ export function GalleryDrawer(props: Props) {
       {props.status ? <p className="gallery-status">{props.status}</p> : null}
       <div className="gallery-scroll">
       <div
-        className={`gallery-grid${props.items.length > 0 ? " selected-collection" : ""}`}
+        className={props.items.length > 0 ? "selected-collection" : undefined}
         onDragOver={(event) => {
           if (isFileDrag(event) || dragIndex == null) return;
           event.preventDefault();
@@ -192,50 +197,64 @@ export function GalleryDrawer(props: Props) {
           props.onReorder(from, indexAfterInsertBefore(from, insertBefore));
         }}
       >
-        {props.items.map((item, index) => (
-          <div
-            key={item.id}
-            className={`gallery-tile${dragIndex === index ? " is-dragging" : ""}`}
-            draggable
-            onDragStart={(event) => {
-              if ((event.target as HTMLElement).closest("button")) {
+        <GallerySections
+          items={props.items}
+          gridClassName="gallery-grid"
+          renderItem={(item, index) => (
+            <div
+              key={item.id}
+              className={`gallery-tile${dragIndex === index ? " is-dragging" : ""}`}
+              draggable
+              onDragStart={(event) => {
+                if ((event.target as HTMLElement).closest("button, select")) {
+                  event.preventDefault();
+                  return;
+                }
+                event.dataTransfer.effectAllowed = "copyMove";
+                event.dataTransfer.setData("text/plain", String(index));
+                event.dataTransfer.setData(GALLERY_ITEM_DRAG_TYPE, item.id);
+                setDragIndex(index);
+              }}
+              onDragOver={(event) => {
+                if (isFileDrag(event)) return;
                 event.preventDefault();
-                return;
-              }
-              event.dataTransfer.effectAllowed = "copyMove";
-              event.dataTransfer.setData("text/plain", String(index));
-              event.dataTransfer.setData(GALLERY_ITEM_DRAG_TYPE, item.id);
-              setDragIndex(index);
-            }}
-            onDragOver={(event) => {
-              if (isFileDrag(event)) return;
-              event.preventDefault();
-              event.stopPropagation();
-              event.dataTransfer.dropEffect = "move";
-              const rect = event.currentTarget.getBoundingClientRect();
-              const insertBefore = event.clientX < rect.left + rect.width / 2 ? index : index + 1;
-              if (dropInsertBefore !== insertBefore) setDropInsertBefore(insertBefore);
-            }}
-            onDragEnd={() => {
-              setDragIndex(null);
-              setDropInsertBefore(null);
-            }}
-          >
-            <GalleryThumb kind={item.kind} name={item.name} preview={item.preview} slot="tile" />
-            <button
-              type="button"
-              className="gallery-remove"
-              aria-label={`Remove ${item.name}`}
-              onClick={() => props.onRemove(index)}
+                event.stopPropagation();
+                event.dataTransfer.dropEffect = "move";
+                const rect = event.currentTarget.getBoundingClientRect();
+                const insertBefore = event.clientX < rect.left + rect.width / 2 ? index : index + 1;
+                if (dropInsertBefore !== insertBefore) setDropInsertBefore(insertBefore);
+              }}
+              onDragEnd={() => {
+                setDragIndex(null);
+                setDropInsertBefore(null);
+              }}
             >
-              ×
-            </button>
-          </div>
-        ))}
+              <div className="gallery-tile-frame">
+                <GalleryThumb kind={item.kind} name={item.name} preview={item.preview} slot="tile" />
+                <button
+                  type="button"
+                  className="gallery-remove"
+                  aria-label={`Remove ${item.name}`}
+                  onClick={() => props.onRemove(index)}
+                >
+                  ×
+                </button>
+              </div>
+              {item.kind === "image" || item.kind === "video" ? (
+                <GalleryRoleSelect
+                  name={item.name}
+                  role={item.role}
+                  onChange={(role) => props.onRoleChange(index, role)}
+                />
+              ) : null}
+            </div>
+          )}
+        />
       </div>
       {props.accept ? (
         <label className={`gallery-drop${fileHover ? " is-hot" : ""}`}>
           {props.adding ? "Adding…" : props.dropLabel}
+          <span className="gallery-drop-hint">Images, video, and audio sort into their own groups.</span>
           <input
             type="file"
             accept={props.accept}

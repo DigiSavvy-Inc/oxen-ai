@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SEEDANCE_IMAGE_RATIO } from "../worker/image-frame";
 import { createSignedMediaUrl } from "../worker/media";
 import {
   collectOxenRefs,
@@ -338,6 +339,57 @@ describe("resolveRefsForOxen", () => {
     const [url] = await resolveRefsForOxen(bucket, [await signed(KEY)], undefined, [true], SIGNING);
     expect(url.startsWith("data:")).toBe(false);
     expect(isOxenHostedMediaUrl(url)).toBe(false);
+    expect(studioMediaKeyFromUrl(url)).toBe(KEY);
+  });
+
+  it("center-crops a Seedance reference that is wider than 2.5", async () => {
+    const { bucket } = createMockR2();
+    await bucket.put(KEY, PNG.buffer, { httpMetadata: { contentType: "image/png" } });
+    let transform: { width?: number; height?: number; fit?: string } | null = null;
+    const images = {
+      async info() {
+        return { format: "image/png", fileSize: PNG.byteLength, width: 3040, height: 1000 };
+      },
+      input() {
+        return {
+          transform(options: { width?: number; height?: number; fit?: string }) {
+            transform = options;
+            return this;
+          },
+          async output() {
+            return {
+              contentType: () => "image/jpeg",
+              response: () => new Response(new Uint8Array([255, 216, 255])),
+            };
+          },
+        };
+      },
+    };
+    const [url] = await resolveRefsForOxen(bucket, [await signed(KEY)], images as unknown as ImagesBinding, [true], {
+      ...SIGNING,
+      fitImageRatio: SEEDANCE_IMAGE_RATIO,
+    });
+    expect(transform).toEqual({ width: 2500, height: 1000, fit: "cover", gravity: "center" });
+    expect(studioMediaKeyFromUrl(url)).not.toBe(KEY);
+    expect(url.startsWith("https://studio.digisavvy.dev/api/media/u/user-1/")).toBe(true);
+    expect(url.endsWith(".jpg") || url.includes(".jpg?")).toBe(true);
+  });
+
+  it("leaves a Seedance reference inside 0.4 to 2.5 on its original file", async () => {
+    const { bucket } = createMockR2();
+    await bucket.put(KEY, PNG.buffer, { httpMetadata: { contentType: "image/png" } });
+    const images = {
+      async info() {
+        return { format: "image/png", fileSize: PNG.byteLength, width: 1920, height: 1080 };
+      },
+      input() {
+        throw new Error("in-range image should not be cropped");
+      },
+    };
+    const [url] = await resolveRefsForOxen(bucket, [await signed(KEY)], images as unknown as ImagesBinding, [true], {
+      ...SIGNING,
+      fitImageRatio: SEEDANCE_IMAGE_RATIO,
+    });
     expect(studioMediaKeyFromUrl(url)).toBe(KEY);
   });
 

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import type { MediaRole } from "../../worker/schema";
 import {
   coverGeneration,
   groupGenerationBatches,
@@ -233,6 +234,7 @@ export function Sidebar({
   onGalleryOpen,
   onManageGallerySave,
   onGalleryAttach,
+  onGalleryRoleChange,
   onGalleryFeature,
   onGalleryDelete,
   onGalleryRename,
@@ -282,6 +284,7 @@ export function Sidebar({
   onGalleryOpen: (id: string) => void;
   onManageGallerySave: () => void;
   onGalleryAttach: (items?: GalleryDraftItem[]) => string[];
+  onGalleryRoleChange: (index: number, role: MediaRole) => void;
   onGalleryFeature: (index: number) => void;
   onGalleryDelete: (id?: string) => void;
   onGalleryRename: (id: string, name: string) => void;
@@ -530,6 +533,7 @@ export function Sidebar({
           onSave={onManageGallerySave}
           onAttach={onGalleryAttach}
           onRemove={onGalleryRemove}
+          onRoleChange={onGalleryRoleChange}
           onFeature={onGalleryFeature}
           onDelete={() => onGalleryDelete()}
           onRenameGallery={onGalleryRename}

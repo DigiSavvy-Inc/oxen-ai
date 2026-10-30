@@ -90,7 +90,20 @@ export type ModelControls = {
   mentions: boolean;
   pricing: OxenPricing | null;
   multiPrompt: boolean;
+  /**
+   * Seedance `omni_reference_task_type`. Default value is first.
+   * `edit` and `extend` need a reference video.
+   */
+  referenceTask: string[] | null;
+  /** Schema `x-lock` on aspect ratio, keyed by reference task. */
+  aspectLock: ControlLock | null;
+  /** Schema `x-lock` on duration, keyed by reference task. */
+  durationLock: ControlLock | null;
+  /** Resolution `x-lock` while draft is on. Seedance locks this to 480p. */
+  resolutionDraftLock: string | null;
 };
+
+export type ControlLock = { value: string; tasks: string[] };
 
 const FIELD_KIND: Record<MediaField, MediaKind> = {
   input_image: "image",
@@ -228,10 +241,10 @@ function enrichImageSlots(model: OxenModel, schema: JsonSchema, slots: MediaSlot
   }
   if (inferredMax && inferredMax > 1) {
     for (const slot of imageSlots) {
-      if (slot.maxItems < inferredMax) {
-        slot.maxItems = inferredMax;
-        slot.asArray = true;
-      }
+      // A single URI (Seedance start frame) stays one string. Prose that also
+      // mentions an end frame must not turn that field into an array.
+      if (!slot.asArray) continue;
+      if (slot.maxItems < inferredMax) slot.maxItems = inferredMax;
     }
   }
   return next;
@@ -404,6 +417,8 @@ function durationFromSchema(schema: JsonSchema): DurationControl | null {
   const listed = enumStrings(schema);
   const numericListed = listed.filter(isNumericDurationToken);
   const otherListed = listed.filter((value) => !isNumericDurationToken(value));
+  const autoValue = autoDurationValue(schema);
+  if (autoValue && !otherListed.includes(autoValue)) otherListed.unshift(autoValue);
   const bounds = collectNumericBounds(schema);
   const fallback = schemaDefault(schema);
 
@@ -452,6 +467,14 @@ function durationFromSchema(schema: JsonSchema): DurationControl | null {
     return { kind: "enum", values: otherListed, defaultValue };
   }
 
+  return null;
+}
+
+/** Seedance duration is an integer range whose default is the string `auto`. */
+function autoDurationValue(schema: JsonSchema): string | null {
+  const raw = (schema as JsonSchema & { "x-auto-value"?: unknown })["x-auto-value"];
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  if (schema.default === "auto") return "auto";
   return null;
 }
 
@@ -884,6 +907,9 @@ export function parseModelControls(model: OxenModel): ModelControls {
   const mentions = schemaMentionsMedia(root) || mentionKinds.length > 0;
   const generateAudioField = property(root, "generate_audio");
   const draftField = property(root, "draft");
+  const referenceTask = enumWithDefault(property(root, "omni_reference_task_type"));
+  const aspectLock = taskLock(property(root, "aspect_ratio"));
+  const durationLock = taskLock(durationProp);
 
   return {
     modelId: model.id,
@@ -912,7 +938,58 @@ export function parseModelControls(model: OxenModel): ModelControls {
     mentions,
     pricing,
     multiPrompt: Boolean(property(root, "multi_prompt")),
+    referenceTask: referenceTask.length > 0 ? referenceTask : null,
+    aspectLock,
+    durationLock,
+    resolutionDraftLock: draftLockedValue(property(root, "resolution")),
   };
+}
+
+/** Parse controls, and fall back to an empty control set if the schema throws. */
+export function modelControlsOrEmpty(model: OxenModel): ModelControls {
+  try {
+    return parseModelControls(model);
+  } catch (err) {
+    console.error("model schema parse error", model.id, err);
+    return parseModelControls({ id: model.id, display_name: model.display_name });
+  }
+}
+
+function draftLockedValue(schema: JsonSchema | undefined): string | null {
+  if (!schema) return null;
+  const raw = (schema as JsonSchema & { "x-lock"?: unknown })["x-lock"];
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as { value?: unknown; when?: { draft?: unknown } };
+  if (record.when?.draft !== true) return null;
+  if (typeof record.value !== "string" || !record.value.trim()) return null;
+  return record.value.trim();
+}
+
+/** Draft mode uses the schema lock (Seedance: 480p) instead of the selected resolution. */
+export function lockedResolution(
+  draft: boolean | undefined,
+  lock: string | null | undefined,
+  value: string | undefined,
+): string | undefined {
+  if (draft && lock) return lock;
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function taskLock(schema: JsonSchema | undefined): ControlLock | null {
+  if (!schema) return null;
+  const raw = (schema as JsonSchema & { "x-lock"?: unknown })["x-lock"];
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as { value?: unknown; when?: { omni_reference_task_type?: unknown } };
+  if (typeof record.value !== "string" || !record.value.trim()) return null;
+  const task = record.when?.omni_reference_task_type;
+  const tasks = Array.isArray(task)
+    ? task.filter((item): item is string => typeof item === "string" && item.trim() !== "")
+    : typeof task === "string" && task.trim()
+      ? [task]
+      : [];
+  if (tasks.length === 0) return null;
+  return { value: record.value, tasks };
 }
 
 export function unsupportedReferenceMessage(
@@ -971,6 +1048,88 @@ export function pickCompatible<T extends string>(
   return undefined;
 }
 
+const REFERENCE_TASKS = ["auto", "edit", "extend"] as const;
+export type ReferenceTask = (typeof REFERENCE_TASKS)[number];
+
+export function isReferenceTask(value: string): value is ReferenceTask {
+  return (REFERENCE_TASKS as readonly string[]).includes(value);
+}
+
+export function referenceTaskLabel(value: string): string {
+  if (!isReferenceTask(value)) return value;
+  switch (value) {
+    case "auto":
+      return "Auto";
+    case "edit":
+      return "Edit video";
+    case "extend":
+      return "Extend video";
+    default: {
+      const _never: never = value;
+      return _never;
+    }
+  }
+}
+
+/** Edit and extend keep the source clip’s frame, so they need a video. */
+export function referenceTaskNeedsVideo(value: string | null | undefined): boolean {
+  return value === "edit" || value === "extend";
+}
+
+export function referenceTaskMissingVideoMessage(value: string | undefined): string | null {
+  if (value === "edit") return "Edit video needs a reference video.";
+  if (value === "extend") return "Extend video needs a reference video.";
+  return null;
+}
+
+export function referenceTaskHint(
+  value: string | undefined,
+  outputFormats: string[] | null | undefined,
+): string | null {
+  const base =
+    value === "edit"
+      ? "Edit video needs a reference video and keeps that video's aspect ratio."
+      : value === "extend"
+        ? "Extend video needs a reference video and keeps that video's aspect ratio."
+        : null;
+  if (!base) return null;
+  if (outputFormats?.includes("mov")) return `${base} MOV is the recommended format.`;
+  return base;
+}
+
+/** Apply a schema lock when the reference task is one of its triggers. */
+export function applyControlLock<T extends string | number | undefined>(
+  lock: ControlLock | null | undefined,
+  task: string | undefined,
+  current: T,
+): T | string {
+  if (lock && task && lock.tasks.includes(task)) return lock.value;
+  return current;
+}
+
+export function lockedAspectRatio(
+  lock: ControlLock | null | undefined,
+  task: string | undefined,
+  aspect: string | undefined,
+  catalog: string[] | null,
+): string | undefined {
+  const locked = applyControlLock(lock, task, aspect);
+  const value = locked == null || locked === "" ? undefined : String(locked);
+  return resolveEnqueueAspectRatio(value, catalog);
+}
+
+export function lockedDuration(
+  lock: ControlLock | null | undefined,
+  task: string | undefined,
+  control: DurationControl | null,
+  value: number | string | undefined,
+): number | string | undefined {
+  const clamped = control ? clampDuration(value, control) : undefined;
+  const locked = applyControlLock(lock, task, clamped);
+  if (locked == null || locked === "") return undefined;
+  return locked;
+}
+
 function firstExplicitAspect(catalog: string[]): string | undefined {
   return catalog.find((value) => value === "16:9") ?? catalog.find((value) => value !== "auto");
 }
@@ -1000,11 +1159,42 @@ export function resolveEnqueueAspectRatio(
   return trimmed || undefined;
 }
 
-export type MediaRole = "character" | "scene";
+export const REFERENCE_ROLES = ["character", "background", "object", "style"] as const;
+export type MediaRole = (typeof REFERENCE_ROLES)[number];
+
+/** `scene` is the previous name for a non-face reference. */
+export function normalizeMediaRole(value: string | null | undefined): MediaRole {
+  if (value === "background" || value === "scene") return "background";
+  if (value === "object") return "object";
+  if (value === "style") return "style";
+  return "character";
+}
+
+export function referenceRoleUsesFace(value: string | null | undefined): boolean {
+  return normalizeMediaRole(value) === "character";
+}
+
+export function referenceRoleLabel(value: string | null | undefined): string {
+  const role = normalizeMediaRole(value);
+  switch (role) {
+    case "character":
+      return "Character";
+    case "background":
+      return "Background";
+    case "object":
+      return "Object";
+    case "style":
+      return "Style";
+    default: {
+      const _never: never = role;
+      return _never;
+    }
+  }
+}
 
 export type MediaRoleLists = {
-  image?: MediaRole[];
-  video?: MediaRole[];
+  image?: string[];
+  video?: string[];
 };
 
 function preferredSlot(slots: MediaSlot[], kind: MediaKind): MediaSlot | undefined {
@@ -1023,7 +1213,9 @@ function slotForRole(slots: MediaSlot[], kind: MediaKind, role: MediaRole): Medi
   switch (role) {
     case "character":
       return face ?? generic;
-    case "scene":
+    case "background":
+    case "object":
+    case "style":
       return generic ?? face;
     default: {
       const _exhaustive: never = role;
@@ -1039,7 +1231,13 @@ function assignMapped(
 ) {
   const clipped = values.slice(0, slot.maxItems);
   if (clipped.length === 0) return;
-  mapped[slot.field] = slot.asArray || clipped.length > 1 ? clipped : clipped[0];
+  const first = clipped[0];
+  if (!first) return;
+  if (!slot.asArray) {
+    mapped[slot.field] = first;
+    return;
+  }
+  mapped[slot.field] = clipped;
 }
 
 export function mapMediaUrls(
@@ -1061,7 +1259,7 @@ export function mapMediaUrls(
     }
     const buckets = new Map<MediaField, string[]>();
     list.forEach((url, index) => {
-      const role = roleList[index] === "scene" ? "scene" : "character";
+      const role = normalizeMediaRole(roleList[index]);
       const slot = slotForRole(slots, kind, role);
       if (!slot) return;
       const current = buckets.get(slot.field) ?? [];

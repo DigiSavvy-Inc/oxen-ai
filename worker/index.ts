@@ -11,6 +11,8 @@ import {
   exchangeGithubCode,
   fetchGithubUser,
   getOxenKey,
+  OxenKeySealError,
+  readOxenKey,
   getSessionId,
   isLoopbackHost,
   isNumericAdminEntry,
@@ -35,6 +37,7 @@ import {
   sniffSafeMediaType,
   verifyMediaSignature,
 } from "./media";
+import { SEEDANCE_IMAGE_RATIO } from "./image-frame";
 import {
   collectOxenRefs,
   OxenMediaInlineError,
@@ -80,12 +83,16 @@ import {
   clampDuration,
   clampNumericControl,
   imageSlotRequired,
+  lockedResolution,
   mapMediaUrls,
+  modelControlsOrEmpty,
   parseGenerationListScope,
-  parseModelControls,
   showGetLastFrame,
+  lockedAspectRatio,
+  lockedDuration,
   pickCompatible,
-  resolveEnqueueAspectRatio,
+  referenceTaskMissingVideoMessage,
+  referenceTaskNeedsVideo,
   resolveSafetyTolerance,
   resolutionPayloadFields,
   unsupportedReferenceMessage,
@@ -247,10 +254,12 @@ function requireAdmin(sessionUser: SessionUser) {
 }
 
 async function requireOxenKey(user: UserRow, env: Env): Promise<string> {
-  const key = await getOxenKey(user, env.ENCRYPTION_KEY);
+  const { key, unreadable } = await readOxenKey(user, env.ENCRYPTION_KEY);
   if (!key) {
     throw new HTTPException(400, {
-      message: "Add your Oxen API key in Settings before generating",
+      message: unreadable
+        ? "Your saved Oxen API key can't be read. Re-enter it in Settings."
+        : "Add your Oxen API key in Settings before generating",
     });
   }
   return key;
@@ -916,8 +925,15 @@ app.get("/api/health", (c) => c.json({ ok: true, service: "oxen-studio" }));
 
 app.get("/api/auth/me", async (c) => {
   try {
-    await requireUser(c);
-    return c.json({ user: c.get("sessionUser") });
+    const user = await requireUser(c);
+    const sessionUser = c.get("sessionUser");
+    if (sessionUser.hasOxenKey) {
+      const { unreadable } = await readOxenKey(user, c.env.ENCRYPTION_KEY);
+      if (unreadable) {
+        return c.json({ user: { ...sessionUser, hasOxenKey: false, oxenKeyUnreadable: true } });
+      }
+    }
+    return c.json({ user: sessionUser });
   } catch {
     return c.json({ user: null });
   }
@@ -1016,7 +1032,14 @@ app.put("/api/settings/oxen-key", async (c) => {
   if (!c.env.ENCRYPTION_KEY) {
     throw new HTTPException(500, { message: "ENCRYPTION_KEY is not configured" });
   }
-  await saveOxenKey(c.env.DB, user.id, apiKey, c.env.ENCRYPTION_KEY);
+  try {
+    await saveOxenKey(c.env.DB, user.id, apiKey, c.env.ENCRYPTION_KEY);
+  } catch (err) {
+    if (err instanceof OxenKeySealError) {
+      throw new HTTPException(400, { message: err.message });
+    }
+    throw err;
+  }
   return c.json({ ok: true, hasOxenKey: true });
 });
 
@@ -1385,14 +1408,14 @@ app.get("/api/models/:id", async (c) => {
   const modelId = c.req.param("id");
   try {
     const model = await getModel(apiKey, modelId);
-    return c.json({ model, controls: parseModelControls(model) });
+    return c.json({ model, controls: modelControlsOrEmpty(model) });
   } catch (err) {
     // Generate already uses the bundled schema when live detail fails. The composer
     // needs the same controls, or a schema outage blanks every option.
     console.error("model schema error", err);
     const fallback = fallbackModelsFor(null).find((item) => item.id === modelId);
     if (fallback?.request_schema) {
-      return c.json({ model: fallback, controls: parseModelControls(fallback) });
+      return c.json({ model: fallback, controls: modelControlsOrEmpty(fallback) });
     }
     throw err;
   }
@@ -1549,8 +1572,8 @@ app.post("/api/generate", async (c) => {
     images?: string[];
     videos?: string[];
     audios?: string[];
-    image_roles?: ("character" | "scene")[];
-    video_roles?: ("character" | "scene")[];
+    image_roles?: string[];
+    video_roles?: string[];
     generate_audio?: boolean;
     draft?: boolean;
     get_last_frame?: boolean;
@@ -1558,6 +1581,7 @@ app.post("/api/generate", async (c) => {
     quality?: string;
     resolution?: string;
     output_format?: string;
+    omni_reference_task_type?: string;
     background?: string;
     moderation?: string;
     safety_tolerance?: number | string;
@@ -1582,17 +1606,17 @@ app.post("/api/generate", async (c) => {
 
   const meta = MODE_META[mode];
   const modelId = body.model.trim();
-  let controls = parseModelControls({ id: modelId });
+  let controls = modelControlsOrEmpty({ id: modelId });
   let displayName: string | null = null;
   try {
     const detail = await getModel(apiKey, modelId);
-    controls = parseModelControls(detail);
+    controls = modelControlsOrEmpty(detail);
     displayName = detail.display_name ?? null;
   } catch (err) {
     console.error("model schema error", err);
     const fallback = fallbackModelsFor(null).find((item) => item.id === modelId);
     if (fallback?.request_schema) {
-      controls = parseModelControls(fallback);
+      controls = modelControlsOrEmpty(fallback);
       displayName = fallback.display_name ?? null;
     }
   }
@@ -1638,7 +1662,10 @@ app.post("/api/generate", async (c) => {
       imageRefs.urls,
       c.env.IMAGES,
       imageRefs.keepHttps,
-      signing,
+      {
+        ...signing,
+        fitImageRatio: modelId.toLowerCase().includes("seedance") ? SEEDANCE_IMAGE_RATIO : undefined,
+      },
     );
     videoUrls = await resolveRefsForOxen(
       c.env.MEDIA,
@@ -1697,6 +1724,16 @@ app.post("/api/generate", async (c) => {
   if (!draftTaskId && needsVideo && videoUrls.length === 0) {
     throw new HTTPException(400, { message: "input_video is required for this mode" });
   }
+  const referenceTask = pickCompatible(body.omni_reference_task_type, controls.referenceTask);
+  const referenceTaskVideoMessage = referenceTaskMissingVideoMessage(referenceTask);
+  if (
+    !draftTaskId &&
+    referenceTaskNeedsVideo(referenceTask) &&
+    videoUrls.length === 0 &&
+    referenceTaskVideoMessage
+  ) {
+    throw new HTTPException(400, { message: referenceTaskVideoMessage });
+  }
   if (controls.imageVideoExclusive && imageUrls.length > 0 && videoUrls.length > 0) {
     throw new HTTPException(400, {
       message: "Keyframes and a continuation clip can’t be used together",
@@ -1754,8 +1791,14 @@ app.post("/api/generate", async (c) => {
     aspect_ratio:
       meta.mediaType === "audio" && !controls.aspectRatios?.length
         ? undefined
-        : resolveEnqueueAspectRatio(body.aspect_ratio, controls.aspectRatios),
-    duration: controls.duration ? clampDuration(body.duration, controls.duration) : undefined,
+        : lockedAspectRatio(
+            controls.aspectLock,
+            referenceTask,
+            body.aspect_ratio,
+            controls.aspectRatios,
+          ),
+    omni_reference_task_type: meta.mediaType === "video" ? referenceTask : undefined,
+    duration: lockedDuration(controls.durationLock, referenceTask, controls.duration, body.duration),
     seed: controls.seed || useFallback ? body.seed : undefined,
     generate_audio:
       controls.generateAudio || useFallback
@@ -1767,8 +1810,12 @@ app.post("/api/generate", async (c) => {
     quality: pickCompatible(body.quality, controls.quality) ?? (useFallback ? body.quality : undefined),
     ...resolutionPayloadFields(
       controls.resolutionField,
-      pickCompatible(body.resolution, controls.resolution) ??
-        (useFallback ? body.resolution : undefined),
+      lockedResolution(
+        !draftTaskId && body.draft === true,
+        controls.resolutionDraftLock,
+        pickCompatible(body.resolution, controls.resolution) ??
+          (useFallback ? body.resolution : undefined),
+      ),
     ),
     output_format:
       pickCompatible(body.output_format, controls.outputFormat) ??
@@ -1899,6 +1946,7 @@ app.post("/api/generate", async (c) => {
         quality: body.quality,
         resolution: body.resolution,
         output_format: body.output_format,
+        omni_reference_task_type: referenceTask,
         background: body.background,
         safety_tolerance: safetyTolerance,
         sample_rate: typeof sampleRate === "number" ? sampleRate : undefined,

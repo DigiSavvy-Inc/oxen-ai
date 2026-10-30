@@ -12,6 +12,7 @@ export type SharedOxenParams = {
   quality?: string;
   resolution?: string;
   output_format?: string;
+  omni_reference_task_type?: string;
   background?: string;
   safety_tolerance?: number;
   sample_rate?: number;
@@ -69,6 +70,13 @@ function asParams(raw: Record<string, unknown>): SharedOxenParams {
   if (typeof raw.quality === "string") params.quality = raw.quality;
   if (typeof raw.resolution === "string") params.resolution = raw.resolution;
   if (typeof raw.output_format === "string") params.output_format = raw.output_format;
+  if (
+    raw.omni_reference_task_type === "auto" ||
+    raw.omni_reference_task_type === "edit" ||
+    raw.omni_reference_task_type === "extend"
+  ) {
+    params.omni_reference_task_type = raw.omni_reference_task_type;
+  }
   if (typeof raw.background === "string") params.background = raw.background;
   if (typeof raw.safety_tolerance === "number" && Number.isFinite(raw.safety_tolerance)) {
     params.safety_tolerance = raw.safety_tolerance;

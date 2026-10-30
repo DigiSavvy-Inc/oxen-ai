@@ -44,7 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setHasOxenKey = useCallback((value: boolean) => {
-    setUser((prev) => (prev ? { ...prev, hasOxenKey: value } : prev));
+    setUser((prev) => (prev ? { ...prev, hasOxenKey: value, oxenKeyUnreadable: false } : prev));
   }, []);
 
   const value = useMemo(

@@ -20,6 +20,8 @@ export type SessionUser = {
   avatarUrl: string | null;
   isAdmin: boolean;
   hasOxenKey: boolean;
+  /** A key is saved but can't be decrypted; the user must re-enter it. */
+  oxenKeyUnreadable?: boolean;
 };
 
 export type OxenModel = {
@@ -72,6 +74,12 @@ export type ModelControls = {
   pricing: OxenPricing | null;
   /** Kling-style multi-shot. Sent as multi_prompt, never together with prompt. */
   multiPrompt?: boolean;
+  /** Seedance omni_reference_task_type. Default value is first. */
+  referenceTask?: string[] | null;
+  aspectLock?: { value: string; tasks: string[] } | null;
+  durationLock?: { value: string; tasks: string[] } | null;
+  /** Resolution sent while draft is on. Seedance locks this to 480p. */
+  resolutionDraftLock?: string | null;
 };
 
 export type SharedOxenParams = {
@@ -84,6 +92,7 @@ export type SharedOxenParams = {
   quality?: string;
   resolution?: string;
   output_format?: string;
+  omni_reference_task_type?: string;
   background?: string;
   safety_tolerance?: number;
   sample_rate?: number;
@@ -163,6 +172,7 @@ export type GalleryItem = {
   key: string;
   url: string;
   thumbUrl?: string | null;
+  role?: string | null;
 };
 
 export type Gallery = {
@@ -453,7 +463,7 @@ export const api = {
   saveGallery: (body: {
     id?: string | null;
     name: string;
-    items: { kind: GalleryItem["kind"]; name: string; key: string }[];
+    items: { kind: GalleryItem["kind"]; name: string; key: string; role?: string | null }[];
   }) =>
     fetch("/api/galleries", {
       method: "POST",

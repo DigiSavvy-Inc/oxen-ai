@@ -1,5 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
+import {
+  acceptsSwipePointer,
+  pointerHitsVideoControls,
+  pointerSwipe,
+  wheelSwipe,
+  type WheelAccum,
+} from "../lib/slide-swipe";
 import { StagedStill, StagedVideo } from "./StagedStill";
 
 export function ExpandCorners() {
@@ -43,6 +50,9 @@ export function FullSizeMedia({
   mediaType?: FitMediaKind;
 }) {
   const [actualSize, setActualSize] = useState(false);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const gesture = useRef<{ id: number; x: number; y: number } | null>(null);
+  const suppressClick = useRef(false);
   const active = slides.find((slide) => slide.id === activeId);
   const kind = fitMediaKind(active?.mediaType ?? mediaType);
   const poster = active?.poster ?? null;
@@ -82,12 +92,85 @@ export function FullSizeMedia({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose, canCycle, step]);
 
+  useEffect(() => {
+    const node = backdropRef.current;
+    if (!node || !canCycle) return;
+    const accum: WheelAccum = { x: 0, y: 0 };
+    let resetTimer = 0;
+    function onWheel(event: WheelEvent) {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const delta = wheelSwipe(accum, event.deltaX, event.deltaY, event.deltaMode);
+      window.clearTimeout(resetTimer);
+      resetTimer = window.setTimeout(() => {
+        accum.x = 0;
+        accum.y = 0;
+      }, 180);
+      if (delta === 0) return;
+      event.preventDefault();
+      step(delta);
+    }
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      node.removeEventListener("wheel", onWheel);
+      window.clearTimeout(resetTimer);
+    };
+  }, [canCycle, step]);
+
+  function blocksSwipe(event: PointerEvent<HTMLDivElement>): boolean {
+    const target = event.target;
+    if (!(target instanceof Element)) return false;
+    if (target.closest("button, a, input, textarea, select, audio")) return true;
+    const video = target.closest("video");
+    if (!video) return false;
+    const rect = video.getBoundingClientRect();
+    return pointerHitsVideoControls(event.clientY, rect.top, rect.height);
+  }
+
+  function onPointerDown(event: PointerEvent<HTMLDivElement>) {
+    suppressClick.current = false;
+    if (!canCycle || !event.isPrimary || !acceptsSwipePointer(event.pointerType)) return;
+    if (blocksSwipe(event)) return;
+    gesture.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture can fail if the pointer already ended. The swipe still
+      // completes when the finger lifts over the lightbox.
+    }
+  }
+
+  function onPointerUp(event: PointerEvent<HTMLDivElement>) {
+    const start = gesture.current;
+    gesture.current = null;
+    if (!start || start.id !== event.pointerId) return;
+    const delta = pointerSwipe(start, { x: event.clientX, y: event.clientY });
+    if (delta === 0) return;
+    suppressClick.current = true;
+    step(delta);
+  }
+
+  function onPointerCancel(event: PointerEvent<HTMLDivElement>) {
+    if (gesture.current?.id === event.pointerId) gesture.current = null;
+  }
+
+  function onClickCapture(event: MouseEvent<HTMLDivElement>) {
+    if (!suppressClick.current) return;
+    suppressClick.current = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   return createPortal(
     <div
-      className={`fullsize-backdrop${actualSize ? " is-actual" : ""}`}
+      ref={backdropRef}
+      className={`fullsize-backdrop${actualSize ? " is-actual" : ""}${canCycle ? " is-swipeable" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-label={alt}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onClickCapture={onClickCapture}
       onClick={onClose}
     >
       <button type="button" className="icon-btn fullsize-close" aria-label="Close" onClick={onClose}>
