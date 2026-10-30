@@ -10,7 +10,12 @@ import {
   verifyMediaSignature,
 } from "./media";
 import { downloadOxenResult } from "./oxen";
-import { encodeImageForOxen } from "./thumbs";
+import {
+  encodeImageForOxen,
+  isRasterImage,
+  pngForProviderFetch,
+  providerFetchAcceptsImage,
+} from "./thumbs";
 
 const MEDIA_PATH_PREFIX = "/api/media/";
 
@@ -28,6 +33,14 @@ const HUB_TOO_LARGE = "The reference file is too large to send to the model.";
 const HUB_UNSAFE = "The Oxen file is not a supported image, video, or audio file.";
 const FACE_COPY_FAIL =
   "Could not copy the reference file onto Studio. A hub file URL was not sent to the model.";
+
+function avifConvertFail(label?: string | null): string {
+  const name = label?.split("/").pop()?.trim();
+  if (name) {
+    return `Could not convert ${name} from AVIF to PNG. This model does not accept AVIF.`;
+  }
+  return "Could not convert an AVIF image to PNG. This model does not accept AVIF.";
+}
 
 export class OxenMediaInlineError extends Error {
   constructor(message: string) {
@@ -175,6 +188,35 @@ function mediaTypeForBytes(bytes: ArrayBuffer, claimed: string): string {
   throw new OxenMediaInlineError(HUB_UNSAFE);
 }
 
+function claimsAvif(key: string, claimed: string | null | undefined): boolean {
+  const type = (claimed || guessMediaContentType(key)).split(";")[0]?.trim().toLowerCase() ?? "";
+  return type === "image/avif" || key.toLowerCase().endsWith(".avif");
+}
+
+function imageTypeForFetch(bytes: ArrayBuffer, claimed: string): string {
+  const head = new Uint8Array(bytes, 0, Math.min(bytes.byteLength, 64));
+  const sniffed = sniffSafeMediaType(head);
+  if (sniffed) return sniffed;
+  return canonicalSafeMediaType(claimed) ?? claimed;
+}
+
+/** AVIF stays in the library. Providers that fetch the URL get a PNG copy. */
+async function bytesProviderCanFetch(
+  file: HubMediaBytes,
+  images: ImagesBinding | undefined,
+  label?: string | null,
+): Promise<HubMediaBytes> {
+  const type = imageTypeForFetch(file.bytes, file.contentType);
+  if (!isRasterImage(type) || providerFetchAcceptsImage(type)) {
+    return type === file.contentType ? file : { bytes: file.bytes, contentType: type };
+  }
+  const encoded = await pngForProviderFetch(images, file.bytes, type);
+  if (!encoded || !providerFetchAcceptsImage(encoded.contentType)) {
+    throw new OxenMediaInlineError(avifConvertFail(label));
+  }
+  return encoded;
+}
+
 function hubFailure(err: unknown): OxenMediaInlineError {
   if (err instanceof OxenMediaInlineError) return err;
   const name = err instanceof Error ? err.name : "";
@@ -276,8 +318,29 @@ async function studioHttpsForBytes(
   const secret = options.auth?.secret;
   const origin = resolvePublicBaseUrl(options.publicBaseUrl);
   if (!userId || !secret || !origin) throw new OxenMediaInlineError(FACE_COPY_FAIL);
-  const stored = await putMediaObject(bucket, file.bytes, file.contentType, `u/${userId}`);
+  const ready = await bytesProviderCanFetch(file, options.images);
+  const stored = await putMediaObject(bucket, ready.bytes, ready.contentType, `u/${userId}`);
   return createSignedMediaUrl(origin, stored.key, secret);
+}
+
+/** PNG copy of a stored AVIF object. Other files keep the URL already chosen. */
+async function ensureProviderImageUrl(
+  bucket: R2Bucket,
+  url: string,
+  options: InlineStudioMediaOptions,
+): Promise<string> {
+  const key = studioMediaKeyFromUrl(url);
+  if (!key) return url;
+  const head = await bucket.head(key);
+  if (!head) return url;
+  const claimed = head.httpMetadata?.contentType || guessMediaContentType(key);
+  if (!claimsAvif(key, claimed)) return url;
+  const object = await bucket.get(key);
+  if (!object) return url;
+  const raw = await object.arrayBuffer();
+  const file = await bytesProviderCanFetch({ bytes: raw, contentType: claimed }, options.images, key);
+  if (file.contentType === claimed && providerFetchAcceptsImage(file.contentType)) return url;
+  return studioHttpsForBytes(bucket, file, options);
 }
 
 /** Image and face refs need a Studio https URL. Copy a hub-only file into this user's R2 first. */
@@ -293,12 +356,11 @@ async function studioHttpsForHubUrl(
   if (options.db) {
     const key = await studioKeyForHubUrl(options.db, userId, url);
     if (key && (await bucket.head(key))) {
-      return createSignedMediaUrl(origin, key, secret);
+      return ensureProviderImageUrl(bucket, await createSignedMediaUrl(origin, key, secret), options);
     }
   }
   const file = await downloadHubFile(url, options, HUB_HTTPS_COPY_MAX_BYTES);
-  const stored = await putMediaObject(bucket, file.bytes, file.contentType, `u/${userId}`);
-  return createSignedMediaUrl(origin, stored.key, secret);
+  return studioHttpsForBytes(bucket, file, options);
 }
 
 export async function inlineStudioMediaRefs(
@@ -317,7 +379,7 @@ export async function inlineStudioMediaRefs(
       if (isOxenHostedMediaUrl(url)) out.push(await studioHttpsForHubUrl(bucket, url, resolved));
       else if (url.startsWith("data:")) {
         out.push(await studioHttpsForBytes(bucket, bytesFromDataUri(url), resolved));
-      } else out.push(url);
+      } else out.push(await ensureProviderImageUrl(bucket, url, resolved));
       continue;
     }
     if (url.startsWith("data:")) {

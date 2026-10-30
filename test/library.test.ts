@@ -11,6 +11,8 @@ import {
   createImageThumbnail,
   encodeImageForOxen,
   isRasterImage,
+  pngForProviderFetch,
+  providerFetchAcceptsImage,
   THUMB_MAX_BYTES,
 } from "../worker/thumbs";
 import { createEnv, createMockR2, TEST_USER } from "./helpers";
@@ -138,6 +140,13 @@ describe("thumbnails", () => {
       bytes: raw,
       contentType: "image/png",
     });
+    expect(providerFetchAcceptsImage("image/avif")).toBe(false);
+    expect(providerFetchAcceptsImage("image/jpeg")).toBe(true);
+    await expect(pngForProviderFetch(undefined, raw, "image/png")).resolves.toEqual({
+      bytes: raw,
+      contentType: "image/png",
+    });
+    await expect(pngForProviderFetch(undefined, raw, "image/avif")).resolves.toBeNull();
   });
 
   it("skips R2 HEADs for thumbs that already exist unless rebuilding oversized files", () => {

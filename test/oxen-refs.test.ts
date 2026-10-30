@@ -30,6 +30,30 @@ const OXEN_URL = "https://hub.oxen.ai/api/repos/digisavvy/playground/workspaces/
 const HUB_PLAYGROUND_FILE =
   "https://hub.oxen.ai/api/repos/digisavvy/playground/file/main/input_example.jpg?exp=1&sig=test";
 const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+const AVIF = new Uint8Array([
+  0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66,
+]);
+
+function pngImages(): ImagesBinding {
+  const png = PNG.buffer;
+  return {
+    input() {
+      return {
+        output(options: { format?: string }) {
+          if (options?.format !== "image/png") {
+            throw new Error(`expected image/png, got ${options?.format ?? "none"}`);
+          }
+          return {
+            response() {
+              return { arrayBuffer: async () => png };
+            },
+            contentType: () => "image/png",
+          };
+        },
+      };
+    },
+  } as unknown as ImagesBinding;
+}
 
 function dbWithOxenSource(userId: string, key: string, resultUrl: string | null): D1Database {
   return {
@@ -167,6 +191,31 @@ describe("inlineStudioMediaRefs", () => {
       expect(String(err)).not.toContain("hub.oxen.ai");
       expect(String(err)).not.toContain("sig=");
     }
+  });
+
+  it("converts an AVIF face ref to PNG and leaves the original file in place", async () => {
+    const { bucket, store } = createMockR2();
+    const key = "u/user-1/portrait.avif";
+    await bucket.put(key, AVIF.buffer, { httpMetadata: { contentType: "image/avif" } });
+    const [url] = await resolveRefsForOxen(bucket, [await signed(key)], pngImages(), [true], SIGNING);
+    const storedKey = studioMediaKeyFromUrl(url);
+    expect(storedKey).toMatch(/\.png$/);
+    expect(storedKey).not.toBe(key);
+    expect(store.get(storedKey!)?.contentType).toBe("image/png");
+    expect(store.has(key)).toBe(true);
+  });
+
+  it("names the AVIF file when PNG conversion is unavailable", async () => {
+    const { bucket } = createMockR2();
+    const key = "u/user-1/portrait.avif";
+    await bucket.put(key, AVIF.buffer, { httpMetadata: { contentType: "image/avif" } });
+    const attempt = inlineStudioMediaRefs(bucket, [await signed(key)], {
+      keepHttps: [true],
+      auth: AUTH,
+      publicBaseUrl: "https://studio.digisavvy.dev",
+    });
+    await expect(attempt).rejects.toBeInstanceOf(OxenMediaInlineError);
+    await expect(attempt).rejects.toThrow(/portrait\.avif/);
   });
 
   it("leaves character refs as https because Seedance face upload rejects data URIs", async () => {

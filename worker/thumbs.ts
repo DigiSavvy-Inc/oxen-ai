@@ -1,7 +1,26 @@
 export const THUMB_EDGE = 256;
 export const THUMB_MAX_BYTES = 80_000;
 
-const THUMB_FORMATS = ["image/avif", "image/webp", "image/jpeg"] as const;
+const THUMB_FORMATS = ["image/png", "image/webp", "image/jpeg"] as const;
+
+/** Formats ByteDance face upload will fetch. AVIF is not one of them. */
+const PROVIDER_FETCH_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/bmp",
+  "image/tiff",
+  "image/heic",
+  "image/heif",
+]);
+
+export function providerFetchAcceptsImage(contentType: string | null | undefined): boolean {
+  if (!contentType) return false;
+  const type = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  return PROVIDER_FETCH_IMAGE_TYPES.has(type);
+}
 
 export function isRasterImage(contentType: string | null | undefined): boolean {
   if (!contentType) return false;
@@ -46,6 +65,30 @@ async function encodeThumb(
     return { bytes: encoded, contentType: result.contentType() || format };
   } catch (err) {
     console.error("thumbnail encode error", format, err);
+    return null;
+  }
+}
+
+/**
+ * PNG copy for a provider that fetches the URL itself.
+ * JPEG, PNG, WebP, and GIF pass through. AVIF becomes PNG. Null when conversion fails.
+ */
+export async function pngForProviderFetch(
+  images: ImagesBinding | undefined,
+  bytes: ArrayBuffer,
+  contentType: string,
+): Promise<{ bytes: ArrayBuffer; contentType: string } | null> {
+  if (providerFetchAcceptsImage(contentType) || !isRasterImage(contentType)) {
+    return { bytes, contentType };
+  }
+  if (!images) return null;
+  try {
+    const result = await images.input(toStream(bytes)).output({ format: "image/png" });
+    const encoded = await result.response().arrayBuffer();
+    if (encoded.byteLength === 0) return null;
+    return { bytes: encoded, contentType: "image/png" };
+  } catch (err) {
+    console.error("provider png encode error", err);
     return null;
   }
 }
