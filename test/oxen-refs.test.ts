@@ -375,22 +375,36 @@ describe("resolveRefsForOxen", () => {
     expect(url.endsWith(".jpg") || url.includes(".jpg?")).toBe(true);
   });
 
-  it("leaves a Seedance reference inside 0.4 to 2.5 on its original file", async () => {
+  it("rewrites an in-range Seedance reference at its real pixel size", async () => {
     const { bucket } = createMockR2();
     await bucket.put(KEY, PNG.buffer, { httpMetadata: { contentType: "image/png" } });
+    let transform: { width?: number; height?: number; fit?: string } | null = null;
     const images = {
       async info() {
         return { format: "image/png", fileSize: PNG.byteLength, width: 1920, height: 1080 };
       },
       input() {
-        throw new Error("in-range image should not be cropped");
+        return {
+          transform(options: { width?: number; height?: number; fit?: string }) {
+            transform = options;
+            return this;
+          },
+          async output() {
+            return {
+              contentType: () => "image/jpeg",
+              response: () => new Response(new Uint8Array([255, 216, 255])),
+            };
+          },
+        };
       },
     };
     const [url] = await resolveRefsForOxen(bucket, [await signed(KEY)], images as unknown as ImagesBinding, [true], {
       ...SIGNING,
       fitImageRatio: SEEDANCE_IMAGE_RATIO,
     });
-    expect(studioMediaKeyFromUrl(url)).toBe(KEY);
+    expect(transform).toEqual({ width: 1920, height: 1080, fit: "cover", gravity: "center" });
+    expect(studioMediaKeyFromUrl(url)).not.toBe(KEY);
+    expect(url.endsWith(".jpg") || url.includes(".jpg?")).toBe(true);
   });
 
   it("turns a data URI into a Studio https URL when the provider must fetch https", async () => {

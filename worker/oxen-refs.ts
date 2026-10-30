@@ -1,5 +1,5 @@
 import { galleryKeyForUser } from "./galleries";
-import { cropImageToRatio, ImageFrameError, type ImageRatioBounds } from "./image-frame";
+import { ImageFrameError, normalizeSeedanceImage, type ImageRatioBounds } from "./image-frame";
 import {
   arrayBufferToDataUri,
   canonicalSafeMediaType,
@@ -496,7 +496,7 @@ async function fitStudioHttpsImage(
   if (!contentType.toLowerCase().startsWith("image/")) return url;
   let fitted: { bytes: ArrayBuffer; contentType: string } | null;
   try {
-    fitted = await cropImageToRatio(images, await object.arrayBuffer(), bounds);
+    fitted = await normalizeSeedanceImage(images, await object.arrayBuffer());
   } catch (err) {
     if (err instanceof ImageFrameError) throw new OxenMediaInlineError(err.message);
     console.error("image ratio crop error", err);
