@@ -6,6 +6,8 @@ export type SwipePoint = {
 export type WheelAccum = {
   x: number;
   y: number;
+  /** Set after one step so the rest of that trackpad flick cannot step again. */
+  locked?: boolean;
 };
 
 /** -1 previous, 1 next, 0 stay. */
@@ -82,6 +84,11 @@ export function wheelSwipe(
   mode = 0,
   threshold = WHEEL_THRESHOLD,
 ): SwipeStep {
+  if (accum.locked) {
+    accum.x = 0;
+    accum.y = 0;
+    return 0;
+  }
   const x = wheelPixels(deltaX, mode);
   const y = wheelPixels(deltaY, mode);
   if (Math.abs(y) > Math.abs(x)) {
@@ -100,5 +107,6 @@ export function wheelSwipe(
   const step: SwipeStep = accum.x > 0 ? 1 : -1;
   accum.x = 0;
   accum.y = 0;
+  accum.locked = true;
   return step;
 }

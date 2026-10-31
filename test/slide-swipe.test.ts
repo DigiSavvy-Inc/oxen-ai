@@ -39,14 +39,18 @@ describe("slide swipe", () => {
     expect(wheelSwipe(accum, 30, 4)).toBe(0);
     expect(accum.x).toBe(30);
     expect(wheelSwipe(accum, 40, 2)).toBe(1);
-    expect(accum).toEqual({ x: 0, y: 0 });
+    expect(accum).toEqual({ x: 0, y: 0, locked: true });
+    expect(wheelSwipe(accum, 90, 0)).toBe(0);
+    expect(wheelSwipe(accum, 40, 2)).toBe(0);
 
+    accum.locked = false;
     expect(wheelSwipe(accum, -40, -4)).toBe(0);
     expect(wheelSwipe(accum, -30, 0)).toBe(-1);
 
+    accum.locked = false;
     accum.x = 40;
     expect(wheelSwipe(accum, 2, 30)).toBe(0);
-    expect(accum).toEqual({ x: 0, y: 0 });
+    expect(accum).toEqual({ x: 0, y: 0, locked: false });
   });
 
   it("leaves the video picture free to swipe and keeps the control strip", () => {

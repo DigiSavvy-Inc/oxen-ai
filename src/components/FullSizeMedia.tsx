@@ -225,18 +225,20 @@ export function FullSizeMedia({
   useEffect(() => {
     const node = backdropRef.current;
     if (!node || !canCycle) return;
-    const accum: WheelAccum = { x: 0, y: 0 };
+    const accum: WheelAccum = { x: 0, y: 0, locked: false };
     let resetTimer = 0;
     function onWheel(event: WheelEvent) {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const horizontal = Math.abs(event.deltaX) > Math.abs(event.deltaY);
       const delta = wheelSwipe(accum, event.deltaX, event.deltaY, event.deltaMode);
       window.clearTimeout(resetTimer);
       resetTimer = window.setTimeout(() => {
         accum.x = 0;
         accum.y = 0;
-      }, 180);
+        accum.locked = false;
+      }, 320);
+      if (horizontal || accum.locked || delta !== 0) event.preventDefault();
       if (delta === 0) return;
-      event.preventDefault();
       beginSettle(delta);
     }
     node.addEventListener("wheel", onWheel, { passive: false });
