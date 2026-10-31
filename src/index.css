@@ -1106,6 +1106,12 @@ a {
   overflow-x: hidden;
 }
 
+.history-expand-stage {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .history-expand-frame {
   position: relative;
   width: 100%;
@@ -2102,8 +2108,67 @@ button.history-expand-preview {
     border: 1px solid var(--border);
   }
 
+  .history-expand {
+    overflow: visible;
+  }
+
   .history-expand-frame {
     border-radius: 8px;
+    max-height: min(22dvh, 180px);
+  }
+
+  .history-expand-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin-top: 6px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--neutral-1);
+  }
+
+  .history-expand-attach,
+  .history-gallery-tool,
+  .gallery-manage-bar .ghost-btn,
+  .gallery-manage-bar .field {
+    min-height: 44px;
+  }
+
+  .gallery-manage-bar .field {
+    font-size: 16px;
+  }
+
+  .history-gallery-tools {
+    flex-wrap: wrap;
+  }
+
+  .history-gallery-pop {
+    max-height: min(200px, 36dvh);
+  }
+
+  .sidebar:has(.gallery-browser.is-split) {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .sidebar:has(.gallery-browser.is-split) .gallery-browser.is-split,
+  .sidebar:has(.gallery-browser.is-split) .history.is-gallery-source {
+    flex: none;
+    overflow: visible;
+    max-height: none;
+  }
+
+  .sidebar:has(.gallery-browser.is-split) .sidebar-header {
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    background: var(--bg-panel);
+  }
+
+  .sidebar:has(.gallery-browser.is-split) .gallery-manage-bar {
+    position: static;
+    margin: 0 0 8px;
+    padding: 0 0 8px;
   }
 
   .history-count {
@@ -3430,12 +3495,23 @@ button.history-expand-preview {
   color: var(--text-muted);
 }
 
+.gallery-manage-bar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: -12px -12px 8px;
+  padding: 12px 12px 8px;
+  background: var(--bg-panel);
+}
+
 .gallery-manage-head,
 .gallery-manage-actions {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 8px;
 }
 
 .gallery-manage-head .gallery-name {
@@ -3445,6 +3521,10 @@ button.history-expand-preview {
 
 .gallery-manage-actions {
   flex-wrap: wrap;
+}
+
+.gallery-manage-bar .gallery-bulk {
+  margin-bottom: 0;
 }
 
 .gallery-delete {
@@ -3497,6 +3577,21 @@ button.history-expand-preview {
 
 .gallery-select input {
   margin: 0;
+}
+
+@media (max-width: 860px) {
+  .gallery-select {
+    top: 0;
+    left: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 0 0 10px 0;
+  }
+
+  .gallery-select input {
+    width: 20px;
+    height: 20px;
+  }
 }
 
 .gallery-bulk {
