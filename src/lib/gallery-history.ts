@@ -117,6 +117,38 @@ export function toggleHistoryInGallery<T extends { key: string }>(
   return { items: next, added, removed: 0, skipped };
 }
 
+export type HistoryAppendResult<T> = {
+  items: T[];
+  added: number;
+  already: number;
+  skipped: number;
+};
+
+/** Add history items that are not already in the gallery. A drop never removes. */
+export function appendHistoryToGallery<T extends { key: string }>(
+  current: readonly T[],
+  incoming: readonly T[],
+  cap: number,
+): HistoryAppendResult<T> {
+  const next = [...current];
+  let added = 0;
+  let already = 0;
+  let skipped = 0;
+  for (const item of incoming) {
+    if (next.some((entry) => entry.key === item.key)) {
+      already += 1;
+      continue;
+    }
+    if (next.length >= cap) {
+      skipped += 1;
+      continue;
+    }
+    next.push(item);
+    added += 1;
+  }
+  return { items: next, added, already, skipped };
+}
+
 export function historyKeySelected(
   keys: ReadonlySet<string>,
   items: readonly { resultKey?: string | null }[],

@@ -50,6 +50,7 @@ import {
 } from "./lib/library-refs";
 import { planGalleryAttach } from "./lib/gallery-attach";
 import {
+  appendHistoryToGallery,
   historyItemsForGallery,
   toggleHistoryInGallery,
   type HistoryGalleryItem,
@@ -1203,6 +1204,34 @@ export default function App() {
     }
   }
 
+  function onDropHistoryMedia(ids: string[]) {
+    const byId = new Map<string, Generation>();
+    for (const item of [...libraryItems, ...generations]) byId.set(item.id, item);
+    const batch = ids.flatMap((id) => {
+      const item = byId.get(id);
+      return item ? [item] : [];
+    });
+    const incoming = historyItemsForGallery(batch).map((item) => ({
+      ...item,
+      role: item.kind === "audio" ? undefined : ("character" as const),
+    }));
+    if (incoming.length === 0) {
+      setGalleryStatus("That media isn’t stored in Studio yet");
+      return;
+    }
+    const result = appendHistoryToGallery(galleryItems, incoming, GALLERY_ITEM_CAP);
+    setGalleryItems(result.items);
+    if (result.skipped > 0) {
+      setGalleryStatus(`A gallery holds ${GALLERY_ITEM_CAP} items`);
+      return;
+    }
+    if (result.added === 0) {
+      setGalleryStatus("Already in this gallery");
+      return;
+    }
+    setGalleryStatus(null);
+  }
+
   function onToggleHistory(batchItems: Generation[]) {
     const incoming = historyItemsForGallery(batchItems);
     if (incoming.length === 0) {
@@ -1863,6 +1892,7 @@ export default function App() {
         onCreateGalleryClose={cancelCreateGallery}
         onCreateGallerySave={() => void saveCreateGallery()}
         onToggleHistory={onToggleHistory}
+        onDropHistoryMedia={onDropHistoryMedia}
         galleryAccept={galleryAccept}
         galleryDropLabel={galleryDropPhrase ? `Drop ${galleryDropPhrase}` : "Drop media"}
         gallerySummaries={gallerySummaries}

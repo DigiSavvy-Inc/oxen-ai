@@ -19,6 +19,7 @@ import {
 import {
   historyItemForGallery,
   historyItemsForGallery,
+  appendHistoryToGallery,
   historyKeySelected,
   toggleHistoryInGallery,
 } from "../src/lib/gallery-history";
@@ -440,5 +441,30 @@ describe("gallery from history", () => {
       true,
     );
     expect(historyKeySelected(new Set(), [{ resultKey: "u/user-1/results/b.png" }])).toBe(false);
+  });
+
+  it("appends dropped history without removing what is already there", () => {
+    const first = historyItemForGallery(stored);
+    const second = historyItemForGallery({
+      ...stored,
+      id: "gen-2",
+      resultKey: "u/user-1/results/b.png",
+    });
+    const third = historyItemForGallery({
+      ...stored,
+      id: "gen-3",
+      resultKey: "u/user-1/results/c.png",
+    });
+    expect(first && second && third).toBeTruthy();
+    const dropped = appendHistoryToGallery([first!], [first!, second!], 24);
+    expect(dropped.added).toBe(1);
+    expect(dropped.already).toBe(1);
+    expect(dropped.items.map((item) => item.key)).toEqual([
+      "u/user-1/results/a.png",
+      "u/user-1/results/b.png",
+    ]);
+    const capped = appendHistoryToGallery(dropped.items, [third!], 2);
+    expect(capped.skipped).toBe(1);
+    expect(capped.items).toHaveLength(2);
   });
 });

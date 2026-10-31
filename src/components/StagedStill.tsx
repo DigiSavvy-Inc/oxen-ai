@@ -95,7 +95,7 @@ export function StagedStill({ thumb, full, alt, className, scale = false, title,
   }
 
   if (!staged || !thumb) {
-    return <img className={className} src={full} alt={alt} title={title} onClick={onClick} />;
+    return <img className={className} src={full} alt={alt} title={title} draggable={false} onClick={onClick} />;
   }
 
   const size = scale && ratio ? frameSize(ratio) : null;
@@ -112,6 +112,7 @@ export function StagedStill({ thumb, full, alt, className, scale = false, title,
         alt={alt}
         title={title}
         decoding="sync"
+        draggable={false}
         width={size?.width}
         height={size?.height}
         onLoad={(event) => {
@@ -124,6 +125,7 @@ export function StagedStill({ thumb, full, alt, className, scale = false, title,
         src={full}
         alt=""
         aria-hidden
+        draggable={false}
         decoding="async"
         ref={reveal}
         onLoad={(event) => reveal(event.currentTarget)}
@@ -191,6 +193,7 @@ export function StagedVideo({
       muted={muted}
       playsInline={playsInline}
       preload={preload}
+      draggable={false}
       ref={reveal}
       onLoadedData={(event) => reveal(event.currentTarget)}
       onClick={onClick}

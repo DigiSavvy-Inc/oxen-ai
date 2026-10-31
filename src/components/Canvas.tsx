@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { MODE_LABELS, type Generation, type GenerationMode } from "../lib/api";
 import { isActiveGeneration } from "../lib/batches";
 import {
@@ -8,6 +8,8 @@ import {
   downloadFilename,
   downloadMedia,
 } from "../lib/download";
+import { historyItemForGallery } from "../lib/gallery-history";
+import { writeHistoryDrag } from "../lib/history-drag";
 import { estimateGenerationWait } from "../lib/progress";
 import { MAX_TAGS_PER_MEDIA, parseTagList } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
@@ -27,6 +29,15 @@ function fitSlides(variants: Generation[]): FitSlide[] {
       poster: item.thumbUrl || null,
     }];
   });
+}
+
+function startHistoryDrag(event: DragEvent<HTMLElement>, item: Generation) {
+  if (!historyItemForGallery(item)) {
+    event.preventDefault();
+    return;
+  }
+  event.stopPropagation();
+  writeHistoryDrag(event.dataTransfer, [item.id]);
 }
 
 function MediaPreview({
@@ -72,6 +83,8 @@ function MediaPreview({
           type="button"
           className="result-expand"
           aria-label="View full size"
+          draggable={Boolean(historyItemForGallery(generation))}
+          onDragStart={(event) => startHistoryDrag(event, generation)}
           onClick={() => setFitOpen(true)}
         >
           <StagedStill
@@ -402,15 +415,17 @@ export function Canvas({
                   <button
                     type="button"
                     className="variation-thumb-hit"
+                    draggable={Boolean(historyItemForGallery(item))}
+                    onDragStart={(event) => startHistoryDrag(event, item)}
                     onClick={() => onSelect(item.id)}
                     title={`Variation ${index + 1}`}
                     aria-label={`Variation ${index + 1}${item.mediaType === "video" ? ", video" : item.mediaType === "audio" ? ", audio" : ""}`}
                     aria-current={item.id === generation.id ? "true" : undefined}
                   >
                     {item.mediaType === "image" && item.thumbUrl ? (
-                      <img src={item.thumbUrl} alt="" />
+                      <img src={item.thumbUrl} alt="" draggable={false} />
                     ) : item.resultUrl && item.mediaType === "video" ? (
-                      <video src={item.resultUrl} muted playsInline preload="metadata" />
+                      <video src={item.resultUrl} muted playsInline preload="metadata" draggable={false} />
                     ) : (
                       <span className="variation-placeholder">
                         {isActiveGeneration(item) && !item.resultUrl && !item.thumbUrl ? (

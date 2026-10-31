@@ -952,7 +952,7 @@ describe("in-gallery version expand", () => {
     const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
     const drawer = readFileSync(new URL("../src/components/GalleryDrawer.tsx", import.meta.url), "utf8");
     const peek = readFileSync(new URL("../src/components/LibraryPeek.tsx", import.meta.url), "utf8");
-    expect(sidebar).toContain('className="history"');
+    expect(sidebar).toContain("className={`history${galleryDetail ? \" is-gallery-source\" : \"\"}`}");
     expect(sidebar).toContain("history-expand-versions");
     expect(sidebar).toContain(
       'className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}${inGallery ? " is-gallery" : ""}`}',
@@ -1043,7 +1043,7 @@ describe("library history layout", () => {
   it("keeps the scroller off the 3-col square grid so tiles line up", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
     const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
-    expect(sidebar).toContain('className="history"');
+    expect(sidebar).toContain("className={`history${galleryDetail ? \" is-gallery-source\" : \"\"}`}");
     expect(sidebar).toContain('className="history-grid"');
     expect(sidebar).toContain('className="history-pager"');
     expect(sidebar).toContain("of {pageCount}");
@@ -1337,6 +1337,9 @@ describe("library peek variations", () => {
     expect(media).toContain("fullsize-nav");
     expect(media).toContain("is-swipeable");
     expect(media).toContain("pointerSwipe");
+    expect(media).toContain("onPointerMove");
+    expect(media).toContain("fullsize-track");
+    expect(media).toContain("translate3d");
     expect(media).toContain("!actualSize && slides.length > 1");
     expect(canvas).toContain("slides={slides}");
     expect(peek).toContain("slides={slides}");

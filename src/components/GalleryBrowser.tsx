@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { createPortal } from "react-dom";
 import type { GallerySummary } from "../lib/api";
 import { gallerySwipeSlides } from "../lib/gallery-slides";
+import { fileDragOffered, historyDragOffered, readHistoryDrag } from "../lib/history-drag";
 import type { MediaRole } from "../../worker/schema";
 import type { GalleryDraftItem } from "./GalleryDrawer";
 import { FullSizeMedia } from "./FullSizeMedia";
@@ -23,7 +24,12 @@ type Props = {
   name: string;
   items: GalleryDraftItem[];
   saving: boolean;
+  adding: boolean;
   status: string | null;
+  accept: string;
+  dropLabel: string;
+  onAddFiles: (files: FileList | File[] | null) => void;
+  onDropHistory: (ids: string[]) => void;
   onOpen: (id: string) => void;
   onBack: () => void;
   onNameChange: (value: string) => void;
@@ -48,6 +54,8 @@ export function GalleryBrowser(props: Props) {
   const [newName, setNewName] = useState("");
   const [fitId, setFitId] = useState<string | null>(null);
   const [playing, setPlaying] = useState<Playing | null>(null);
+  const [dropHot, setDropHot] = useState(false);
+  const dropDepth = useRef(0);
 
   useEffect(() => {
     setSelected([]);
@@ -114,8 +122,55 @@ export function GalleryBrowser(props: Props) {
     setNewName("");
   }
 
+  function offeredDrop(event: DragEvent) {
+    const types = event.dataTransfer.types;
+    return fileDragOffered(types) || historyDragOffered(types);
+  }
+
+  function onDragEnter(event: DragEvent) {
+    if (!offeredDrop(event)) return;
+    event.preventDefault();
+    dropDepth.current += 1;
+    setDropHot(true);
+  }
+
+  function onDragOver(event: DragEvent) {
+    if (!offeredDrop(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function onDragLeave(event: DragEvent) {
+    if (!offeredDrop(event)) return;
+    dropDepth.current -= 1;
+    if (dropDepth.current <= 0) {
+      dropDepth.current = 0;
+      setDropHot(false);
+    }
+  }
+
+  function onDrop(event: DragEvent) {
+    if (!offeredDrop(event)) return;
+    event.preventDefault();
+    dropDepth.current = 0;
+    setDropHot(false);
+    if (fileDragOffered(event.dataTransfer.types)) {
+      props.onAddFiles(event.dataTransfer.files);
+      return;
+    }
+    const ids = readHistoryDrag(event.dataTransfer);
+    if (ids.length > 0) props.onDropHistory(ids);
+  }
+
   return (
-    <div className="gallery-browser" aria-label="Gallery">
+    <div
+      className={`gallery-browser is-split${dropHot ? " is-drop-hot" : ""}`}
+      aria-label="Gallery"
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <div className="gallery-manage-head">
         <button type="button" className="ghost-btn" onClick={props.onBack}>
           Galleries
@@ -226,6 +281,18 @@ export function GalleryBrowser(props: Props) {
       ) : null}
       {skipped.length > 0 ? <p className="gallery-skipped">Skipped {skipped.join(", ")}</p> : null}
       {props.status ? <p className="gallery-status">{props.status}</p> : null}
+      <label className={`gallery-drop${dropHot ? " is-hot" : ""}`}>
+        {props.adding ? "Adding…" : props.dropLabel || "Drop media"}
+        <input
+          type="file"
+          accept={props.accept}
+          multiple
+          onChange={(event) => {
+            props.onAddFiles(event.target.files);
+            event.target.value = "";
+          }}
+        />
+      </label>
       {props.items.length === 0 ? (
         <div className="history-empty">This gallery is empty.</div>
       ) : (

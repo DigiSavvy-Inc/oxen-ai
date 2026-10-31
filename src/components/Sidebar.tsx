@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import type { MediaRole } from "../../worker/schema";
 import {
   coverGeneration,
@@ -28,6 +28,7 @@ import {
   type HistoryGalleryItem,
   type HistoryGalleryNotice,
 } from "../lib/gallery-history";
+import { writeHistoryDrag } from "../lib/history-drag";
 import { suggestTags } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
 import { CreateGalleryPalette } from "./CreateGalleryPalette";
@@ -60,12 +61,12 @@ function VideoPlayMark() {
 function TileFace({ item, allowFull = false }: { item: Generation; allowFull?: boolean }) {
   const src = tileSrc(item, allowFull);
   if (src && item.mediaType === "image") {
-    return <img src={src} alt="" loading="lazy" />;
+    return <img src={src} alt="" loading="lazy" draggable={false} />;
   }
   if (src && item.mediaType === "video") {
     return (
       <>
-        <video src={item.resultUrl || src} muted playsInline preload="metadata" />
+        <video src={item.resultUrl || src} muted playsInline preload="metadata" draggable={false} />
         <VideoPlayMark />
       </>
     );
@@ -227,6 +228,7 @@ export function Sidebar({
   onCreateGalleryClose,
   onCreateGallerySave,
   onToggleHistory,
+  onDropHistoryMedia,
   galleryAccept,
   galleryDropLabel,
   gallerySummaries,
@@ -277,6 +279,7 @@ export function Sidebar({
   onCreateGalleryClose: () => void;
   onCreateGallerySave: () => void;
   onToggleHistory: (items: Generation[]) => void;
+  onDropHistoryMedia: (ids: string[]) => void;
   galleryAccept: string;
   galleryDropLabel: string;
   gallerySummaries: GallerySummary[];
@@ -309,6 +312,7 @@ export function Sidebar({
   const readyAll = useMemo(() => completedMedia(generations), [generations]);
   const galleryKeySet = useMemo(() => new Set(galleryItems.map((item) => item.key)), [galleryItems]);
   const galleryDetail = galleriesOpen && managingGallery && Boolean(galleryId);
+  const suppressHistoryClick = useRef(false);
 
   function leaveGalleries() {
     setGalleriesOpen(false);
@@ -341,6 +345,31 @@ export function Sidebar({
     historyRef.current?.scrollTo({ top: 0 });
   }, [pagingKey]);
 
+  function rememberHistoryDrag(event: DragEvent<HTMLElement>, items: Generation[]) {
+    const ids = historyItemsForGallery(items).map((item) => item.id);
+    if (ids.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    suppressHistoryClick.current = true;
+    writeHistoryDrag(event.dataTransfer, ids);
+  }
+
+  function finishHistoryDrag() {
+    window.setTimeout(() => {
+      suppressHistoryClick.current = false;
+    }, 0);
+  }
+
+  function historyClick(event: MouseEvent<HTMLElement>, run: () => void) {
+    if (!suppressHistoryClick.current) {
+      run();
+      return;
+    }
+    event.preventDefault();
+    suppressHistoryClick.current = false;
+  }
+
   function commit(action: GalleryExpandAction) {
     const base = expandKeyRef.current === pagingKey ? expandRef.current : CLOSED_EXPAND;
     const next = galleryExpandTransition(base, action);
@@ -362,6 +391,7 @@ export function Sidebar({
     const singleLabel = mediaType === "video" ? "video" : mediaType === "audio" ? "audio" : "image";
     const selected = batch.items.some((item) => item.id === selectedId);
     const inGallery = createGalleryOpen && historyKeySelected(galleryKeySet, batch.items);
+    const dragItems = historyItemsForGallery(batch.items);
     return (
       <div
         key={batch.id}
@@ -372,6 +402,9 @@ export function Sidebar({
           <button
             type="button"
             className="history-tile-hit"
+            draggable={dragItems.length > 0}
+            onDragStart={(event) => rememberHistoryDrag(event, batch.items)}
+            onDragEnd={finishHistoryDrag}
             aria-expanded={createGalleryOpen ? undefined : expanded}
             aria-pressed={createGalleryOpen ? inGallery : undefined}
             aria-label={
@@ -392,17 +425,19 @@ export function Sidebar({
                     : `Open ${singleLabel}`
             }
             title={cover?.prompt || "Generation"}
-            onClick={() => {
-              if (createGalleryOpen) {
-                onToggleHistory(batch.items);
-                return;
-              }
-              commit({
-                type: "tile",
-                batchId: batch.id,
-                count: batch.items.length,
-                openId,
-                mediaType,
+            onClick={(event) => {
+              historyClick(event, () => {
+                if (createGalleryOpen) {
+                  onToggleHistory(batch.items);
+                  return;
+                }
+                commit({
+                  type: "tile",
+                  batchId: batch.id,
+                  count: batch.items.length,
+                  openId,
+                  mediaType,
+                });
               });
             }}
           >
@@ -509,6 +544,7 @@ export function Sidebar({
           accept={galleryAccept}
           dropLabel={galleryDropLabel}
           onAddFiles={onGalleryAddFiles}
+          onDropHistory={onDropHistoryMedia}
           onRemove={onGalleryRemove}
           onSave={onCreateGallerySave}
           onClose={onCreateGalleryClose}
@@ -540,8 +576,15 @@ export function Sidebar({
           onDeleteGallery={onGalleryDelete}
           onDeleteSelected={onGalleryDeleteSelected}
           onPlaceSelected={onGalleryPlace}
+          adding={galleryAdding}
+          accept={galleryAccept}
+          dropLabel={galleryDropLabel}
+          onAddFiles={onGalleryAddFiles}
+          onDropHistory={onDropHistoryMedia}
         />
-      ) : (
+      ) : null}
+
+      {!galleriesOpen || galleryDetail ? (
       <>
       <div className="tag-filter">
         <input
@@ -576,7 +619,7 @@ export function Sidebar({
         ) : null}
       </div>
 
-      <div className="history" ref={historyRef}>
+      <div className={`history${galleryDetail ? " is-gallery-source" : ""}`} ref={historyRef}>
         <div className="history-grid">
           {loading && batches.length === 0 ? (
             <div className="history-empty">
@@ -607,17 +650,22 @@ export function Sidebar({
                             <button
                               type="button"
                               className="history-expand-preview"
+                              draggable={historyItemsForGallery([preview]).length > 0}
+                              onDragStart={(event) => rememberHistoryDrag(event, [preview])}
+                              onDragEnd={finishHistoryDrag}
                               aria-label={createGalleryOpen ? "Add preview to gallery" : "View full size"}
                               aria-pressed={
                                 createGalleryOpen ? historyKeySelected(galleryKeySet, [preview]) : undefined
                               }
                               data-preview-id={preview.id}
-                              onClick={() => {
-                                if (createGalleryOpen) {
-                                  onToggleHistory([preview]);
-                                  return;
-                                }
-                                commit({ type: "preview" });
+                              onClick={(event) => {
+                                historyClick(event, () => {
+                                  if (createGalleryOpen) {
+                                    onToggleHistory([preview]);
+                                    return;
+                                  }
+                                  commit({ type: "preview" });
+                                });
                               }}
                             >
                               <div className="history-tile-media">
@@ -693,6 +741,9 @@ export function Sidebar({
                                 <button
                                   key={item.id}
                                   type="button"
+                                  draggable={historyItemsForGallery([item]).length > 0}
+                                  onDragStart={(event) => rememberHistoryDrag(event, [item])}
+                                  onDragEnd={finishHistoryDrag}
                                   className={`history-version${
                                     createGalleryOpen && historyKeySelected(galleryKeySet, [item]) ? " is-gallery" : ""
                                   }`}
@@ -706,12 +757,14 @@ export function Sidebar({
                                   aria-pressed={
                                     createGalleryOpen ? historyKeySelected(galleryKeySet, [item]) : undefined
                                   }
-                                  onClick={() => {
-                                    if (createGalleryOpen) {
-                                      onToggleHistory([item]);
-                                      return;
-                                    }
-                                    commit({ type: "version", versionId: item.id });
+                                  onClick={(event) => {
+                                    historyClick(event, () => {
+                                      if (createGalleryOpen) {
+                                        onToggleHistory([item]);
+                                        return;
+                                      }
+                                      commit({ type: "version", versionId: item.id });
+                                    });
                                   }}
                                 >
                                   <div className="history-tile-media">
@@ -802,7 +855,7 @@ export function Sidebar({
         </nav>
       ) : null}
       </>
-      )}
+      ) : null}
     </aside>
   );
 }

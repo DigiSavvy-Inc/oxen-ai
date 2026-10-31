@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
+import { fileDragOffered, historyDragOffered, readHistoryDrag } from "../lib/history-drag";
 import type { GalleryDraftItem } from "./GalleryDrawer";
 import { GalleryThumb } from "./GalleryThumb";
 
@@ -12,13 +13,15 @@ type Props = {
   accept: string;
   dropLabel: string;
   onAddFiles: (files: FileList | File[] | null) => void;
+  onDropHistory: (ids: string[]) => void;
   onRemove: (index: number) => void;
   onSave: () => void;
   onClose: () => void;
 };
 
-function isFileDrag(event: DragEvent) {
-  return Array.from(event.dataTransfer.types).includes("Files");
+function offeredDrop(event: DragEvent) {
+  const types = event.dataTransfer.types;
+  return fileDragOffered(types) || historyDragOffered(types);
 }
 
 export function CreateGalleryPalette(props: Props) {
@@ -36,18 +39,23 @@ export function CreateGalleryPalette(props: Props) {
   }
 
   function onDragOver(event: DragEvent) {
-    if (!isFileDrag(event)) return;
+    if (!offeredDrop(event)) return;
     event.preventDefault();
     event.stopPropagation();
     setFileHover(true);
   }
 
   function onDrop(event: DragEvent) {
-    if (!isFileDrag(event)) return;
+    if (!offeredDrop(event)) return;
     event.preventDefault();
     event.stopPropagation();
     setFileHover(false);
-    props.onAddFiles(event.dataTransfer.files);
+    if (fileDragOffered(event.dataTransfer.types)) {
+      props.onAddFiles(event.dataTransfer.files);
+      return;
+    }
+    const ids = readHistoryDrag(event.dataTransfer);
+    if (ids.length > 0) props.onDropHistory(ids);
   }
 
   return (
@@ -63,7 +71,7 @@ export function CreateGalleryPalette(props: Props) {
       }}
       onDragOver={onDragOver}
       onDragLeave={(event) => {
-        if (!isFileDrag(event)) return;
+        if (!offeredDrop(event)) return;
         event.preventDefault();
         setFileHover(false);
       }}
