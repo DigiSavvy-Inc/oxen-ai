@@ -1091,6 +1091,17 @@ describe("library history layout", () => {
     expect(phone).toMatch(
       /\.history-row-detail \.history-expand-frame \.media-download\s*\{[^}]*pointer-events:\s*auto/,
     );
+    expect(css).toMatch(/\.gallery-manage-bar\s*\{[^}]*position:\s*sticky/);
+    expect(css).toMatch(/\.history-expand-stage\s*\{[^}]*position:\s*relative/);
+    expect(phone).toMatch(/\.history-expand-bar\s*\{[^}]*position:\s*sticky/);
+    expect(phone).toMatch(/\.history-expand-bar\s*\{[^}]*bottom:\s*0/);
+    expect(phone).toMatch(/\.gallery-browser\.is-split,\s*\n\s*\.sidebar:has\(\.gallery-browser\.is-split\) \.history\.is-gallery-source\s*\{[^}]*overflow:\s*visible/);
+    expect(phone).toMatch(/\.gallery-select\s*\{[^}]*width:\s*44px/);
+    expect(sidebar).toContain("history-expand-stage");
+    expect(sidebar).toContain('draggable={canDrag && dragItems.length > 0}');
+    const galleryBrowser = readFileSync(new URL("../src/components/GalleryBrowser.tsx", import.meta.url), "utf8");
+    expect(galleryBrowser).toContain("gallery-manage-bar");
+    expect(sidebar).toContain("querySelector(\".history-expand-bar\")");
     expect(css).toMatch(/\.history-expand-frame \.expand-corner-tr\s*\{[^}]*left:\s*0/);
     expect(css).toMatch(/\.history-expand-frame \.expand-corner-bl\s*\{[^}]*right:\s*0/);
     expect(css).toMatch(/\.history-expand-frame \.expand-corner-bl\s*\{[^}]*border-color:\s*var\(--text\)/);
