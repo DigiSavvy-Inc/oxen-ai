@@ -165,6 +165,13 @@ export function GalleryBrowser(props: Props) {
           <span className="gallery-bulk-count">
             {selectedItems.length} selected
           </span>
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={() => setSkipped(props.onAttach(selectedItems))}
+          >
+            Attach
+          </button>
           {confirmSelected ? (
             <button
               type="button"

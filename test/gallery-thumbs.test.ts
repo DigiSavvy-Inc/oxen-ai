@@ -49,6 +49,7 @@ describe("gallery slot thumbs", () => {
     expect(browser).toContain('"cover"');
     expect(browser).toContain('slot="tile"');
     expect(browser).toContain("Attach all");
+    expect(browser).toContain("onAttach(selectedItems)");
     expect(browser).toContain("onAttach([item])");
     expect(browser).toContain("Feature");
   });
