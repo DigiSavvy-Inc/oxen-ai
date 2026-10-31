@@ -1,4 +1,5 @@
 import { REFERENCE_ROLES, normalizeMediaRole, referenceRoleLabel, referenceRoleUsesFace, type MediaRole } from "../../worker/schema";
+import { referenceRoleTitle } from "../lib/reference-roles";
 
 type Props = {
   name: string;
@@ -12,16 +13,16 @@ export function GalleryRoleSelect(props: Props) {
     <select
       className={`attach-role gallery-role${referenceRoleUsesFace(value) ? "" : " is-plain"}`}
       aria-label={`Reference role for ${props.name}`}
-      title={referenceRoleLabel(value)}
+      title={referenceRoleTitle(value)}
       value={value}
       onMouseDown={(event) => event.stopPropagation()}
       onChange={(event) => props.onChange(normalizeMediaRole(event.target.value))}
     >
-      {REFERENCE_ROLES.map((role) => (
-        <option key={role} value={role}>
-          {referenceRoleLabel(role)}
-        </option>
-      ))}
+        {REFERENCE_ROLES.map((role) => (
+          <option key={role} value={role} title={referenceRoleTitle(role)}>
+            {referenceRoleLabel(role)}
+          </option>
+        ))}
     </select>
   );
 }

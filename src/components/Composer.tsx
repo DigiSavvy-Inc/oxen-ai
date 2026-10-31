@@ -38,6 +38,7 @@ import {
   type PromptMention,
 } from "../lib/mentions";
 import { shortenFileName } from "../lib/files";
+import { prependMissingBindings, referenceBindingText, referenceRoleTitle } from "../lib/reference-roles";
 import { GALLERY_ITEM_DRAG_TYPE, galleryItemsForDrop, isGalleryItemDrag } from "../lib/gallery-attach";
 import { acceptedMediaKinds, fileAcceptValue, mediaKindPhrase, attachKindCap } from "../lib/library-refs";
 import { aspectCatalog, aspectSelectOptions } from "../lib/params";
@@ -68,23 +69,6 @@ type AttachItem = {
   kind: "image" | "video" | "audio";
   role?: string;
 };
-
-function referenceRoleTitle(role: MediaRole): string {
-  switch (role) {
-    case "character":
-      return "Character. Faces and people go on the face input.";
-    case "background":
-      return "Background. The place or setting, sent as a normal reference.";
-    case "object":
-      return "Object. A prop or product, sent as a normal reference.";
-    case "style":
-      return "Style. Look and color, sent as a normal reference.";
-    default: {
-      const _never: never = role;
-      return _never;
-    }
-  }
-}
 
 function faceFieldForKind(kind: AttachItem["kind"]): "input_face_images" | "input_face_videos" | null {
   switch (kind) {
@@ -386,6 +370,17 @@ export function Composer(props: Props) {
       (slot) => slot.field === "input_face_images" || slot.field === "input_face_videos",
     ),
   );
+  const bindingRoleKinds = (["image", "video"] as const).filter((kind) => {
+    const faceField = faceFieldForKind(kind);
+    return Boolean(
+      faceField &&
+        props.controls?.slots.some((slot) => slot.field === faceField) &&
+        props.controls?.slots.some((slot) => slot.kind === kind && !slot.field.includes("face")),
+    );
+  });
+  const bindingText = props.controls?.mentions
+    ? referenceBindingText(props.attachments, { faceFirst, roleKinds: bindingRoleKinds })
+    : "";
   const mentionSource = useMemo(
     () => mentionOrdered(props.attachments, faceFirst),
     [props.attachments, faceFirst],
@@ -587,6 +582,13 @@ export function Composer(props: Props) {
     }
     handle.addEventListener("pointermove", onMove);
     handle.addEventListener("pointerup", onUp);
+  }
+
+  function insertBindings() {
+    const result = prependMissingBindings(props.prompt, bindingText);
+    if (!result) return;
+    props.onPromptChange(result.next);
+    placeCaret(result.caret, result.next);
   }
 
   function insertMention(item: AttachItem) {
@@ -1184,7 +1186,7 @@ export function Composer(props: Props) {
                         }
                       >
                         {REFERENCE_ROLES.map((value) => (
-                          <option key={value} value={value}>
+                          <option key={value} value={value} title={referenceRoleTitle(value)}>
                             {referenceRoleLabel(value)}
                           </option>
                         ))}
@@ -1207,6 +1209,16 @@ export function Composer(props: Props) {
               <div className="attach-drop-slot" aria-hidden>
                 Drop
               </div>
+            ) : null}
+            {bindingText ? (
+              <button
+                className="ghost-btn"
+                type="button"
+                title="Add a line for each reference. A line already in the prompt is left as it is. Name the people yourself."
+                onClick={insertBindings}
+              >
+                Insert bindings
+              </button>
             ) : null}
             {audioMax > 1 ? (
               <span className="attach-count">

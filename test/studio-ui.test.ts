@@ -459,6 +459,8 @@ describe("mentions and cost", () => {
     expect(html).toContain("Background");
     expect(html).toContain("Object");
     expect(html).toContain("Style");
+    expect(html).toContain("tight headshot");
+    expect(html).toContain("Insert bindings");
 
     const plain = renderToStaticMarkup(
       createElement(Composer, {
@@ -510,6 +512,7 @@ describe("mentions and cost", () => {
       }),
     );
     expect(plain).not.toContain("attach-role");
+    expect(plain).not.toContain("Insert bindings");
     expect(plain.indexOf("room.png")).toBeLessThan(plain.indexOf("hero.png"));
     expect(tokenBefore(plain, "room.png")).toBe("@Image1");
     expect(tokenBefore(plain, "hero.png")).toBe("@Image2");
