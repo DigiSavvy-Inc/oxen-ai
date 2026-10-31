@@ -11,6 +11,30 @@ export type WheelAccum = {
 /** -1 previous, 1 next, 0 stay. */
 export type SwipeStep = -1 | 0 | 1;
 
+export type StripSlot = -1 | 0 | 1;
+
+/**
+ * Where a slide sits in a windowed strip: -1 previous, 0 current, 1 next.
+ * Slides outside that window are omitted. Two-item galleries park the other
+ * slide on `pairSide`, because it is both the previous and the next.
+ */
+export function stripOffset(
+  index: number,
+  active: number,
+  count: number,
+  pairSide: StripSlot = 1,
+): StripSlot | null {
+  if (count <= 0 || index < 0 || index >= count) return null;
+  if (count === 1) return 0;
+  if (count === 2) return index === active ? 0 : pairSide;
+  let delta = index - active;
+  delta %= count;
+  if (delta > count / 2) delta -= count;
+  if (delta < -count / 2) delta += count;
+  if (delta === 0 || delta === 1 || delta === -1) return delta;
+  return null;
+}
+
 const DOMINANCE = 1.15;
 const POINTER_THRESHOLD = 48;
 const WHEEL_THRESHOLD = 64;

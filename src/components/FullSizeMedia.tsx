@@ -8,12 +8,14 @@ import {
   type PointerEvent,
   type TransitionEvent,
 } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   acceptsSwipePointer,
   pointerHitsVideoControls,
   pointerSwipe,
+  stripOffset,
   wheelSwipe,
+  type StripSlot,
   type SwipeStep,
   type WheelAccum,
 } from "../lib/slide-swipe";
@@ -47,7 +49,6 @@ type Gesture = {
   axis: "pending" | "x";
 };
 
-const TRACK_REST = "translate3d(-33.333333%, 0, 0)";
 const TRACK_EASE = "transform 240ms cubic-bezier(0.22, 0.8, 0.2, 1)";
 
 function fitMediaKind(value: FitMediaKind | undefined): FitMediaKind {
@@ -80,6 +81,8 @@ export function FullSizeMedia({
 }) {
   const [actualSize, setActualSize] = useState(false);
   const [phase, setPhase] = useState<GesturePhase>("idle");
+  const [cursor, setCursor] = useState(activeId ?? "");
+  const [pairSide, setPairSide] = useState<StripSlot>(1);
   const backdropRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -87,14 +90,23 @@ export function FullSizeMedia({
   const suppressClick = useRef(false);
   const pendingStep = useRef<SwipeStep>(0);
   const phaseRef = useRef<GesturePhase>("idle");
+  const cursorRef = useRef(cursor);
+  const pairSideRef = useRef(pairSide);
+  const ownStep = useRef(false);
+  const settleStarted = useRef(0);
+  cursorRef.current = cursor;
+  pairSideRef.current = pairSide;
   const active = slides.find((slide) => slide.id === activeId);
   const kind = fitMediaKind(active?.mediaType ?? mediaType);
   const poster = active?.poster ?? null;
   const slideKey = active?.id ?? src;
   const canCycle = !actualSize && slides.length > 1 && Boolean(onSlide);
   const current: FitSlide = active ?? { id: slideKey, src, alt, mediaType: kind, poster };
-  const previous = canCycle ? slideAt(slides, activeId, -1) : null;
-  const next = canCycle ? slideAt(slides, activeId, 1) : null;
+  const shownId = cursor || current.id;
+  if (activeId && activeId !== cursor && phaseRef.current === "idle" && !ownStep.current) {
+    cursorRef.current = activeId;
+    setCursor(activeId);
+  }
 
   const step = useCallback(
     (delta: number) => {
@@ -116,19 +128,45 @@ export function FullSizeMedia({
     const node = trackRef.current;
     if (!node) return;
     node.style.transition = animate ? TRACK_EASE : "none";
-    node.style.transform = offset === 0 ? TRACK_REST : `translate3d(calc(-33.333333% + ${offset}px), 0, 0)`;
+    node.style.transform = `translate3d(${offset}px, 0, 0)`;
   }
+
+  const slidesRef = useRef(slides);
+  slidesRef.current = slides;
+  const onSlideRef = useRef(onSlide);
+  onSlideRef.current = onSlide;
 
   const commitSettle = useCallback(() => {
     if (phaseRef.current !== "settling") return;
     const delta = pendingStep.current;
     pendingStep.current = 0;
     setGesturePhase("idle");
-    placeTrack(0, false);
-    if (delta) stepRef.current(delta);
+    if (!delta) {
+      placeTrack(0, false);
+      return;
+    }
+    const list = slidesRef.current;
+    const upcoming = slideAt(list, cursorRef.current, delta);
+    if (!upcoming || upcoming.id === cursorRef.current) {
+      placeTrack(0, false);
+      return;
+    }
+    // Leave the track where the animation ended. The layout effect snaps it
+    // back only after this slide is the centered one, so the old image cannot
+    // flash through.
+    ownStep.current = true;
+    cursorRef.current = upcoming.id;
+    setCursor(upcoming.id);
+    onSlideRef.current?.(upcoming.id);
   }, []);
   const commitRef = useRef(commitSettle);
   commitRef.current = commitSettle;
+
+  function parkPair(side: StripSlot) {
+    if (slidesRef.current.length !== 2 || side === 0 || pairSideRef.current === side) return;
+    pairSideRef.current = side;
+    flushSync(() => setPairSide(side));
+  }
 
   function beginSettle(delta: SwipeStep) {
     if (phaseRef.current === "settling") return;
@@ -137,21 +175,24 @@ export function FullSizeMedia({
       stepRef.current(delta);
       return;
     }
+    settleStarted.current = performance.now();
     if (delta === 0) {
       pendingStep.current = 0;
       setGesturePhase("settling");
       placeTrack(0, true);
       return;
     }
+    parkPair(delta > 0 ? 1 : -1);
     pendingStep.current = delta;
     setGesturePhase("settling");
     placeTrack(delta > 0 ? -width : width, true);
   }
 
   useLayoutEffect(() => {
-    if (!canCycle || phaseRef.current !== "idle") return;
+    if (!ownStep.current || !canCycle || phaseRef.current !== "idle") return;
+    ownStep.current = false;
     placeTrack(0, false);
-  }, [canCycle, activeId]);
+  }, [canCycle, cursor]);
 
   useEffect(() => {
     setActualSize(false);
@@ -159,7 +200,7 @@ export function FullSizeMedia({
 
   useEffect(() => {
     if (phase !== "settling") return;
-    const timer = window.setTimeout(() => commitRef.current(), 280);
+    const timer = window.setTimeout(() => commitRef.current(), 480);
     return () => window.clearTimeout(timer);
   }, [phase]);
 
@@ -236,6 +277,8 @@ export function FullSizeMedia({
       }
       start.axis = "x";
       suppressClick.current = true;
+      if (dx < 0) parkPair(1);
+      else parkPair(-1);
       setGesturePhase("dragging");
       try {
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -266,6 +309,8 @@ export function FullSizeMedia({
   function onTrackEnd(event: TransitionEvent<HTMLDivElement>) {
     if (event.propertyName !== "transform") return;
     if (event.target !== event.currentTarget) return;
+    if (phaseRef.current !== "settling") return;
+    if (performance.now() - settleStarted.current < 200) return;
     commitRef.current();
   }
 
@@ -280,7 +325,6 @@ export function FullSizeMedia({
     const poster = slide.poster ?? null;
     const slideKind = fitMediaKind(slide.mediaType);
     if (slideKind === "video") {
-      if (!interactive && poster) return <img src={poster} alt="" />;
       return (
         <StagedVideo
           src={slide.src}
@@ -327,10 +371,13 @@ export function FullSizeMedia({
     );
   }
 
-  function slotKey(slide: FitSlide, slot: "prev" | "current" | "next"): string {
-    if (slides.length === 2 && slot !== "current") return `${slide.id}:${slot}`;
-    return slide.id;
-  }
+  const activeIndex = Math.max(0, slides.findIndex((slide) => slide.id === shownId));
+  const windowSlides = canCycle
+    ? slides.flatMap((slide, index) => {
+        const offset = stripOffset(index, activeIndex, slides.length, pairSide);
+        return offset == null ? [] : [{ slide, offset }];
+      })
+    : [];
 
   return createPortal(
     <div
@@ -375,18 +422,19 @@ export function FullSizeMedia({
           ›
         </button>
       ) : null}
-      {canCycle && previous && next ? (
+      {canCycle && windowSlides.length > 0 ? (
         <div className="fullsize-stage" ref={stageRef}>
           <div className="fullsize-track is-cycle" ref={trackRef} onTransitionEnd={onTrackEnd}>
-            <div key={slotKey(previous, "prev")} className="fullsize-slide is-peek" aria-hidden>
-              {renderSlide(previous, false)}
-            </div>
-            <div key={slotKey(current, "current")} className="fullsize-slide">
-              {renderSlide(current, true)}
-            </div>
-            <div key={slotKey(next, "next")} className="fullsize-slide is-peek" aria-hidden>
-              {renderSlide(next, false)}
-            </div>
+            {windowSlides.map(({ slide, offset }) => (
+              <div
+                key={slide.id}
+                className={`fullsize-slide${offset === 0 ? "" : " is-peek"}`}
+                style={{ transform: `translate3d(${offset * 100}%, 0, 0)` }}
+                aria-hidden={offset === 0 ? undefined : true}
+              >
+                {renderSlide(slide, offset === 0)}
+              </div>
+            ))}
           </div>
         </div>
       ) : kind === "video" ? (

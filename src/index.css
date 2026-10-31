@@ -2629,29 +2629,20 @@ button.history-expand-preview {
 }
 
 .fullsize-track {
-  display: flex;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   width: 100%;
+  height: 100%;
   will-change: transform;
 }
 
-.fullsize-track.is-cycle {
-  width: 300%;
-  transform: translate3d(-33.333333%, 0, 0);
-}
-
 .fullsize-slide {
-  flex: 0 0 100%;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
+  position: absolute;
+  inset: 0;
   display: grid;
   place-items: center;
-}
-
-.fullsize-track.is-cycle .fullsize-slide {
-  flex-basis: 33.333333%;
-  width: 33.333333%;
+  min-width: 0;
+  transition: none;
 }
 
 .fullsize-slide.is-peek {

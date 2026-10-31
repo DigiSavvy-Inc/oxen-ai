@@ -35,6 +35,16 @@ function frameSize(ratio: number): { width: number; height: number } {
   return { width: Math.max(1, Math.round(FULL_EDGE * ratio)), height: FULL_EDGE };
 }
 
+function cachedComplete(url: string): boolean {
+  if (typeof document === "undefined" || !url) return false;
+  for (const img of Array.from(document.images)) {
+    if (!img.complete || !img.naturalWidth) continue;
+    const src = img.currentSrc || img.getAttribute("src") || "";
+    if (sameMedia(src, url)) return true;
+  }
+  return false;
+}
+
 function frameProps(scale: boolean, ratio: number | null): { className: string; style?: CSSProperties } {
   if (!scale || !ratio) return { className: "staged-still" };
   return {
@@ -86,11 +96,11 @@ type StillProps = {
 export function StagedStill({ thumb, full, alt, className, scale = false, title, onClick }: StillProps) {
   const staged = Boolean(thumb && thumb !== full);
   const [forFull, setForFull] = useState(full);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(() => cachedComplete(full));
   const [ratio, setRatio] = useState<number | null>(() => (scale && thumb ? cachedRatio(thumb) : null));
   if (forFull !== full) {
     setForFull(full);
-    setReady(false);
+    setReady(cachedComplete(full));
     setRatio(scale && thumb ? cachedRatio(thumb) : null);
   }
 

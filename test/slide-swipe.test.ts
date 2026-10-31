@@ -3,6 +3,7 @@ import {
   acceptsSwipePointer,
   pointerHitsVideoControls,
   pointerSwipe,
+  stripOffset,
   wheelPixels,
   wheelSwipe,
 } from "../src/lib/slide-swipe";
@@ -57,5 +58,17 @@ describe("slide swipe", () => {
   it("treats a mouse-wheel line tick as enough to step once it crosses the threshold", () => {
     const accum = { x: 0, y: 0 };
     expect(wheelSwipe(accum, 4, 0, 1)).toBe(1);
+  });
+
+  it("keeps only the current slide and its two neighbors in the strip", () => {
+    expect(stripOffset(0, 0, 4)).toBe(0);
+    expect(stripOffset(1, 0, 4)).toBe(1);
+    expect(stripOffset(3, 0, 4)).toBe(-1);
+    expect(stripOffset(2, 0, 4)).toBeNull();
+    expect(stripOffset(0, 3, 4)).toBe(1);
+    expect(stripOffset(1, 0, 2, 1)).toBe(1);
+    expect(stripOffset(1, 0, 2, -1)).toBe(-1);
+    expect(stripOffset(1, 1, 2, -1)).toBe(0);
+    expect(stripOffset(0, 1, 2, -1)).toBe(-1);
   });
 });
