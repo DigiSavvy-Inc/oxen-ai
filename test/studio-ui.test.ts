@@ -23,6 +23,7 @@ import {
   ALL_MODES,
   MODE_LABELS,
   estimateGenerationCost,
+  mentionChipLabel,
   mentionToken,
   modeHasReferenceGallery,
   slotRequired,
@@ -180,6 +181,9 @@ describe("mentions and cost", () => {
     expect(mentionToken("image", 0)).toBe("@Image1");
     expect(mentionToken("video", 1)).toBe("@Video2");
     expect(mentionToken("audio", 2)).toBe("@Audio3");
+    expect(mentionChipLabel("@Image1")).toBe("Image 1");
+    expect(mentionChipLabel("@Video2")).toBe("Video 2");
+    expect(mentionChipLabel("@Audio3")).toBe("Audio 3");
   });
 
   it("treats a typed @ as an open mention and a picked token as closed", () => {
@@ -445,14 +449,14 @@ describe("mentions and cost", () => {
     );
     const tokenBefore = (markup: string, name: string) => {
       const at = markup.indexOf(name);
-      return markup.slice(Math.max(0, at - 80), at).match(/@(Image|Video|Audio)\d+/)?.[0] ?? "";
+      return markup.slice(Math.max(0, at - 80), at).match(/(Image|Video|Audio) \d+/)?.[0] ?? "";
     };
     expect(html.indexOf("room.png")).toBeLessThan(html.indexOf("hero.png"));
-    expect(tokenBefore(html, "room.png")).toBe("@Image2");
-    expect(tokenBefore(html, "hero.png")).toBe("@Image1");
-    expect(tokenBefore(html, "walk.mp4")).toBe("@Video1");
+    expect(tokenBefore(html, "room.png")).toBe("Image 2");
+    expect(tokenBefore(html, "hero.png")).toBe("Image 1");
+    expect(tokenBefore(html, "walk.mp4")).toBe("Video 1");
     const audioName = html.indexOf('class="attach-chip-name">voice.mp3');
-    expect(html.slice(audioName - 80, audioName)).toContain("@Audio1");
+    expect(html.slice(audioName - 80, audioName)).toContain("Audio 1");
     expect(html.slice(audioName, audioName + 180)).not.toContain("attach-role");
     expect(html.match(/class="attach-role"/g)?.length).toBe(2);
     expect(html.match(/class="attach-role is-plain"/g)?.length).toBe(1);
@@ -514,8 +518,8 @@ describe("mentions and cost", () => {
     expect(plain).not.toContain("attach-role");
     expect(plain).not.toContain("Insert bindings");
     expect(plain.indexOf("room.png")).toBeLessThan(plain.indexOf("hero.png"));
-    expect(tokenBefore(plain, "room.png")).toBe("@Image1");
-    expect(tokenBefore(plain, "hero.png")).toBe("@Image2");
+    expect(tokenBefore(plain, "room.png")).toBe("Image 1");
+    expect(tokenBefore(plain, "hero.png")).toBe("Image 2");
   });
 
   it("numbers Seedance character refs before scene refs", () => {

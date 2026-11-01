@@ -13,6 +13,7 @@ import {
   ALL_MODES,
   MODE_LABELS,
   estimateGenerationCost,
+  mentionChipLabel,
   modeHasReferenceGallery,
   modeIsVideo,
   modelSupportsMode,
@@ -1167,9 +1168,7 @@ export function Composer(props: Props) {
                       ) : null}
                     </div>
                     <span className="attach-chip-copy">
-                      {props.controls?.mentions ? (
-                        <span className="attach-chip-token">{token}</span>
-                      ) : null}
+                      <span className="attach-chip-token">{mentionChipLabel(token)}</span>
                       <span className="attach-chip-name">{shortenFileName(item.name)}</span>
                       <span className="attach-name-tip" role="tooltip">
                         {item.name}

@@ -4083,9 +4083,11 @@ button.history-expand-preview {
 }
 
 .attach-chip-token {
-  font-family: var(--mono);
   color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .attach-role {

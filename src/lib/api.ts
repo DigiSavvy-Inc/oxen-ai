@@ -261,6 +261,13 @@ export function mentionToken(kind: MediaSlot["kind"], index: number): string {
   }
 }
 
+/** Chip label for a mention token: `@Image1` becomes `Image 1`. */
+export function mentionChipLabel(token: string): string {
+  const match = /^@(Image|Video|Audio)(\d+)$/.exec(token);
+  if (!match?.[1] || !match[2]) return token;
+  return `${match[1]} ${match[2]}`;
+}
+
 export function slotRequired(
   controls: Pick<ModelControls, "slots"> | null,
   kind: MediaSlot["kind"],
