@@ -14,12 +14,14 @@ export function HistoryGalleryActions({
   summaries,
   onAdd,
   onCreate,
+  setLabel = "Add set",
 }: {
   image: HistoryGalleryItem | null;
   setItems: HistoryGalleryItem[];
   summaries: GallerySummary[];
   onAdd: (galleryId: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
   onCreate: (name: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
+  setLabel?: string;
 }) {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [name, setName] = useState("");
@@ -95,7 +97,7 @@ export function HistoryGalleryActions({
           type="button"
           className="history-gallery-tool"
           aria-expanded={menu === "add"}
-          aria-label="Add this image to a gallery"
+          aria-label="Add this to a gallery"
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => open("add")}
         >
@@ -107,11 +109,11 @@ export function HistoryGalleryActions({
           type="button"
           className="history-gallery-tool"
           aria-expanded={menu === "set"}
-          aria-label="Add this set to a gallery"
+          aria-label="Add the selection to a gallery"
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => open("set")}
         >
-          Add set
+          {setLabel}
         </button>
       ) : null}
       <button

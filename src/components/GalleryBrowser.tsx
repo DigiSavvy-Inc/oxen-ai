@@ -164,7 +164,7 @@ export function GalleryBrowser(props: Props) {
 
   return (
     <div
-      className={`gallery-browser is-split${dropHot ? " is-drop-hot" : ""}`}
+      className={`gallery-browser${dropHot ? " is-drop-hot" : ""}`}
       aria-label="Gallery"
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}

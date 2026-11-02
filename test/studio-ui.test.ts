@@ -959,10 +959,14 @@ describe("in-gallery version expand", () => {
     const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
     const drawer = readFileSync(new URL("../src/components/GalleryDrawer.tsx", import.meta.url), "utf8");
     const peek = readFileSync(new URL("../src/components/LibraryPeek.tsx", import.meta.url), "utf8");
-    expect(sidebar).toContain("className={`history${galleryDetail ? \" is-gallery-source\" : \"\"}`}");
+    expect(sidebar).toContain("{!galleriesOpen ? (");
+    expect(sidebar).toContain('className="history"');
+    expect(sidebar).not.toContain("is-gallery-source");
+    expect(sidebar).toContain('aria-label="Media type"');
+    expect(sidebar).toContain("Select page");
     expect(sidebar).toContain("history-expand-versions");
     expect(sidebar).toContain(
-      'className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}${inGallery ? " is-gallery" : ""}`}',
+      'className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}${inGallery ? " is-gallery" : ""}${batchPicked ? " is-picked" : ""}`}',
     );
     expect(sidebar).toContain("row.map((batch) => batchTile(batch))");
     expect(sidebar).not.toContain("expandVisible.expandedId ? null");
@@ -1050,7 +1054,11 @@ describe("library history layout", () => {
   it("keeps the scroller off the 3-col square grid so tiles line up", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
     const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
-    expect(sidebar).toContain("className={`history${galleryDetail ? \" is-gallery-source\" : \"\"}`}");
+    expect(sidebar).toContain("{!galleriesOpen ? (");
+    expect(sidebar).toContain('className="history"');
+    expect(sidebar).not.toContain("is-gallery-source");
+    expect(sidebar).toContain('aria-label="Media type"');
+    expect(sidebar).toContain("Select page");
     expect(sidebar).toContain('className="history-grid"');
     expect(sidebar).toContain('className="history-pager"');
     expect(sidebar).toContain("of {pageCount}");
@@ -1182,6 +1190,30 @@ describe("library history layout", () => {
     expect(closed).not.toContain("history-gallery-mark");
     expect(closed).not.toContain('id="create-gallery"');
     expect(closed).toContain("Open image");
+    expect(closed).toContain('aria-label="Media type"');
+    expect(closed).toContain("Videos");
+    expect(closed).toContain('aria-label="Select image"');
+
+    const video = gen({
+      id: "clip-1",
+      status: "succeeded",
+      mediaType: "video",
+      resultUrl: "https://studio.example/clip.mp4",
+      thumbUrl: "https://studio.example/clip.jpg",
+      resultKey: "u/user-1/results/clip.mp4",
+    });
+    const videos = renderToStaticMarkup(
+      createElement(Sidebar, {
+        ...shared,
+        createGalleryOpen: false,
+        generations: [video],
+        media: "video",
+      }),
+    );
+    expect(videos).toContain('aria-checked="true"');
+    expect(videos).toContain("Videos");
+    expect(videos).toContain('aria-label="Select video"');
+    expect(videos).toContain("Select page");
   });
 });
 

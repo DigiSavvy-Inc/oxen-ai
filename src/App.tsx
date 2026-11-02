@@ -22,6 +22,7 @@ import {
   slotRequired,
   type CreditBalance,
   type Generation,
+  type LibraryMediaFilter,
   type GenerationMode,
   type ModelControls,
   type OxenModel,
@@ -174,6 +175,7 @@ export default function App() {
   const [libraryPage, setLibraryPage] = useState(1);
   const [libraryTagInput, setLibraryTagInput] = useState("");
   const [libraryTag, setLibraryTag] = useState("");
+  const [libraryMedia, setLibraryMedia] = useState<LibraryMediaFilter>("");
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
   const hydratedParamsUserId = useRef<string | null>(null);
@@ -257,12 +259,13 @@ export default function App() {
       page: libraryPage,
       pageSize: historyPageSize,
       tag: libraryTag,
+      media: libraryMedia,
     });
     setLibraryItems(data.generations);
     setLibraryTotal(data.total ?? data.generations.length);
     setLibraryTags(data.tags ?? []);
     setGenerations((prev) => mergeGenerations(prev, data.generations));
-  }, [historyPageSize, libraryPage, libraryTag]);
+  }, [historyPageSize, libraryMedia, libraryPage, libraryTag]);
 
   async function replaceProfileMedia() {
     const [active, library, galleries] = await Promise.all([
@@ -284,6 +287,7 @@ export default function App() {
     setLibraryPage(1);
     setLibraryTag("");
     setLibraryTagInput("");
+    setLibraryMedia("");
     setGallerySummaries(galleries.galleries);
     setPeekId(null);
     setSelectedId(keepCanvasClear ? null : (merged[0]?.id ?? null));
@@ -1880,6 +1884,11 @@ export default function App() {
         appliedTag={libraryTag}
         allTags={libraryTags}
         onTagInput={setLibraryTagInput}
+        media={libraryMedia}
+        onMedia={(value) => {
+          setLibraryMedia(value);
+          setLibraryPage(1);
+        }}
         page={libraryPage}
         pageCount={libraryPageCount}
         onPage={setLibraryPage}

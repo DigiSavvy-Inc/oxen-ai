@@ -1,9 +1,12 @@
 import { clampHistoryPageSize, DEFAULT_HISTORY_PAGE_SIZE } from "./user-settings";
 
+export type LibraryMedia = "" | "image" | "video" | "audio";
+
 export type LibraryPage = {
   page: number;
   pageSize: number;
   tag: string;
+  media: LibraryMedia;
 };
 
 const BATCH_KEY = `CASE WHEN batch_id IS NOT NULL AND TRIM(batch_id) != '' THEN batch_id ELSE 'legacy' || char(0) || created_at || char(0) || mode || char(0) || IFNULL(media_type, '') || char(0) || model || char(0) || IFNULL(prompt, '') END`;
@@ -14,6 +17,7 @@ function keyedAndMatched(profileId?: string | null): string {
     SELECT id, created_at, ${BATCH_KEY} AS batch_key
     FROM generations
     WHERE user_id = ?${profile}
+      AND (? = '' OR media_type = ?)
   ),
   matched AS (
     SELECT k.batch_key AS batch_key, MAX(k.created_at) AS newest
@@ -28,16 +32,22 @@ function keyedAndMatched(profileId?: string | null): string {
   )`;
 }
 
+export function parseLibraryMedia(raw: string | undefined): LibraryMedia {
+  if (raw === "image" || raw === "video" || raw === "audio") return raw;
+  return "";
+}
+
 export function parseLibraryPage(
   pageRaw: string | undefined,
   pageSizeRaw: string | undefined,
   tagRaw: string | undefined,
+  mediaRaw?: string | undefined,
 ): LibraryPage {
   const pageSize = clampHistoryPageSize(pageSizeRaw ?? DEFAULT_HISTORY_PAGE_SIZE);
   const parsedPage = Number(pageRaw);
   const page = Number.isFinite(parsedPage) && parsedPage >= 1 ? Math.floor(parsedPage) : 1;
   const tag = (tagRaw ?? "").trim().replace(/^#+/, "").slice(0, 32);
-  return { page, pageSize, tag };
+  return { page, pageSize, tag, media: parseLibraryMedia(mediaRaw) };
 }
 
 export function tagLikePattern(tag: string): string {
@@ -45,9 +55,9 @@ export function tagLikePattern(tag: string): string {
   return `%${needle.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
 }
 
-function matchBinds(userId: string, tag: string, profileId?: string | null): unknown[] {
+function matchBinds(userId: string, query: LibraryPage, profileId?: string | null): unknown[] {
   const profile = profileId ? [profileId] : [];
-  return [userId, ...profile, tag ? "1" : "", userId, tagLikePattern(tag)];
+  return [userId, ...profile, query.media, query.media, query.tag ? "1" : "", userId, tagLikePattern(query.tag)];
 }
 
 export function libraryCountSql(
@@ -58,7 +68,7 @@ export function libraryCountSql(
   return {
     sql: `WITH ${keyedAndMatched(profileId)}
       SELECT COUNT(*) AS total FROM matched`,
-    binds: matchBinds(userId, query.tag, profileId),
+    binds: matchBinds(userId, query, profileId),
   };
 }
 
@@ -83,7 +93,7 @@ export function libraryListSql(
       JOIN paged p ON p.batch_key = k.batch_key
       WHERE g.user_id = ?${profile}
       ORDER BY g.created_at DESC, g.id DESC`,
-    binds: [...matchBinds(userId, query.tag, profileId), query.pageSize, offset, userId, ...profileBind],
+    binds: [...matchBinds(userId, query, profileId), query.pageSize, offset, userId, ...profileBind],
   };
 }
 

@@ -2035,7 +2035,12 @@ app.get("/api/generations", async (c) => {
   let pageMeta: { page: number; pageSize: number; total: number; tags: string[] } | null = null;
   let rows: { results?: GenerationRow[] };
   if (scope === "library") {
-    const query = parseLibraryPage(c.req.query("page"), c.req.query("pageSize"), c.req.query("tag"));
+    const query = parseLibraryPage(
+      c.req.query("page"),
+      c.req.query("pageSize"),
+      c.req.query("tag"),
+      c.req.query("media"),
+    );
     const count = libraryCountSql(user.id, query, profileId);
     const totalRow = await c.env.DB.prepare(count.sql).bind(...count.binds).first<{ total: number }>();
     const list = libraryListSql(user.id, query, profileId);

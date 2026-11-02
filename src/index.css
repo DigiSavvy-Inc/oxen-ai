@@ -3278,10 +3278,6 @@ button.history-expand-preview {
   padding: 12px;
 }
 
-.gallery-browser.is-split {
-  flex: 1 1 0;
-}
-
 .gallery-browser.is-drop-hot {
   background: color-mix(in srgb, var(--bg-hover) 65%, transparent);
 }
@@ -3290,8 +3286,50 @@ button.history-expand-preview {
   margin-bottom: 10px;
 }
 
-.history.is-gallery-source {
-  border-top: 1px solid var(--border);
+.history-kind {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.history-kind .ghost-btn {
+  padding: 4px 8px;
+}
+
+.history-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-bulk-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.history-select {
+  z-index: 3;
+}
+
+.history-tile.is-picked .history-tile-square {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.history-version-wrap {
+  position: relative;
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  max-width: calc((100% - 12px) / 3);
+}
+
+.history-version-wrap .history-version {
+  width: 100%;
+  max-width: none;
 }
 
 .history-tile-hit[draggable="true"],

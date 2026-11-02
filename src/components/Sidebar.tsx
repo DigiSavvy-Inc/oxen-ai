@@ -6,7 +6,7 @@ import {
   isActiveGeneration,
   type GenerationBatch,
 } from "../lib/batches";
-import type { GallerySummary, Generation } from "../lib/api";
+import type { GallerySummary, Generation, LibraryMediaFilter } from "../lib/api";
 import { brandMarkClass } from "../lib/branding";
 import {
   completedMedia,
@@ -179,8 +179,26 @@ const CLOSED_EXPAND: GalleryExpandState = {
 
 const GALLERY_COLUMNS = 3;
 
-function emptyLibraryMessage(appliedTag: string, loadError?: string | null): string {
+const MEDIA_FILTERS: { id: LibraryMediaFilter; label: string }[] = [
+  { id: "", label: "All" },
+  { id: "image", label: "Images" },
+  { id: "video", label: "Videos" },
+  { id: "audio", label: "Audio" },
+];
+
+function mediaFilterLabel(media: LibraryMediaFilter): string {
+  return MEDIA_FILTERS.find((item) => item.id === media)?.label.toLowerCase() ?? "media";
+}
+
+function emptyLibraryMessage(
+  appliedTag: string,
+  media: LibraryMediaFilter,
+  loadError?: string | null,
+): string {
   if (loadError) return loadError;
+  const kind = media ? mediaFilterLabel(media) : "";
+  if (appliedTag.trim() && kind) return `No ${kind} with that tag.`;
+  if (kind) return `No ${kind} yet.`;
   if (appliedTag.trim()) return "No media with that tag.";
   return "No generations yet. Write a prompt and hit Generate — jobs run through Oxen's async queue.";
 }
@@ -204,6 +222,8 @@ export function Sidebar({
   appliedTag,
   allTags,
   onTagInput,
+  media = "",
+  onMedia,
   page,
   pageCount,
   onPage,
@@ -255,6 +275,8 @@ export function Sidebar({
   appliedTag: string;
   allTags: string[];
   onTagInput: (value: string) => void;
+  media?: LibraryMediaFilter;
+  onMedia?: (value: LibraryMediaFilter) => void;
   page: number;
   pageCount: number;
   onPage: (page: number) => void;
@@ -296,7 +318,7 @@ export function Sidebar({
   onHistoryAddToGallery: (galleryId: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
   onHistoryCreateGallery: (name: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
 }) {
-  const pagingKey = `${page}\0${appliedTag}`;
+  const pagingKey = `${page}\0${appliedTag}\0${media}`;
   const [pageDraft, setPageDraft] = useState(String(page));
   const pageCommitSkip = useRef(false);
   const [galleriesOpen, setGalleriesOpen] = useState(false);
@@ -313,6 +335,10 @@ export function Sidebar({
   const galleryKeySet = useMemo(() => new Set(galleryItems.map((item) => item.key)), [galleryItems]);
   const galleryDetail = galleriesOpen && managingGallery && Boolean(galleryId);
   const suppressHistoryClick = useRef(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [bulkNote, setBulkNote] = useState<string | null>(null);
+  const [confirmBulk, setConfirmBulk] = useState<null | "studio" | "oxen">(null);
+  const [downloadingPicked, setDownloadingPicked] = useState(false);
 
   function leaveGalleries() {
     setGalleriesOpen(false);
@@ -342,8 +368,80 @@ export function Sidebar({
   useEffect(() => {
     expandKeyRef.current = pagingKey;
     expandRef.current = CLOSED_EXPAND;
+    setPicked([]);
+    setBulkNote(null);
+    setConfirmBulk(null);
     historyRef.current?.scrollTo({ top: 0 });
   }, [pagingKey]);
+
+  const pickedItems = useMemo(
+    () => generations.filter((item) => picked.includes(item.id)),
+    [generations, picked],
+  );
+  const pickedReady = useMemo(() => completedMedia(pickedItems), [pickedItems]);
+  const pickedDrafts = useMemo(() => historyItemsForGallery(pickedItems), [pickedItems]);
+  const pageIds = useMemo(() => generations.map((item) => item.id), [generations]);
+  const pageSelected = pageIds.length > 0 && pageIds.every((id) => picked.includes(id));
+
+  function clearPickState() {
+    setBulkNote(null);
+    setConfirmBulk(null);
+  }
+
+  function toggleIds(ids: string[]) {
+    clearPickState();
+    setPicked((current) => {
+      const every = ids.length > 0 && ids.every((id) => current.includes(id));
+      if (every) return current.filter((id) => !ids.includes(id));
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return [...next];
+    });
+  }
+
+  function togglePage() {
+    clearPickState();
+    setPicked(pageSelected ? [] : pageIds);
+  }
+
+  async function downloadPicked() {
+    if (pickedReady.length === 0 || downloadingPicked) return;
+    setDownloadingPicked(true);
+    setBulkNote(null);
+    try {
+      await downloadAllMedia(pickedReady);
+    } finally {
+      setDownloadingPicked(false);
+    }
+  }
+
+  function attachPicked() {
+    if (!onAttach) return;
+    let attached = 0;
+    let skipped = 0;
+    for (const item of pickedItems) {
+      const ready = Boolean(historyItemForGallery(item));
+      const allowed = ready && (attachSupported ? attachSupported(item) : true);
+      if (!allowed) {
+        skipped += 1;
+        continue;
+      }
+      onAttach(item);
+      attached += 1;
+    }
+    if (attached === 0) {
+      setBulkNote(skipped > 0 ? "This model can't take the selected media." : "Nothing ready to attach.");
+      return;
+    }
+    setBulkNote(skipped > 0 ? `Attached ${attached}. Skipped ${skipped}.` : `Attached ${attached}.`);
+  }
+
+  function deletePicked(fromOxen: boolean) {
+    if (!onDelete || picked.length === 0) return;
+    onDelete(picked, fromOxen);
+    setPicked([]);
+    clearPickState();
+  }
 
   function rememberHistoryDrag(event: DragEvent<HTMLElement>, items: Generation[]) {
     const ids = historyItemsForGallery(items).map((item) => item.id);
@@ -392,10 +490,12 @@ export function Sidebar({
     const selected = batch.items.some((item) => item.id === selectedId);
     const inGallery = createGalleryOpen && historyKeySelected(galleryKeySet, batch.items);
     const dragItems = historyItemsForGallery(batch.items);
+    const batchIds = batch.items.map((item) => item.id);
+    const batchPicked = batchIds.length > 0 && batchIds.every((id) => picked.includes(id));
     return (
       <div
         key={batch.id}
-        className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}${inGallery ? " is-gallery" : ""}`}
+        className={`history-tile${selected ? " active" : ""}${expanded ? " is-open" : ""}${inGallery ? " is-gallery" : ""}${batchPicked ? " is-picked" : ""}`}
         data-batch-id={batch.id}
       >
         <div className="history-tile-square">
@@ -445,6 +545,14 @@ export function Sidebar({
               {cover ? <TileFace item={cover} allowFull /> : null}
             </div>
           </button>
+          <label className="gallery-select history-select">
+            <input
+              type="checkbox"
+              checked={batchPicked}
+              aria-label={`Select ${multi ? `${batch.items.length} ${singleLabel}s` : singleLabel}`}
+              onChange={() => toggleIds(batchIds)}
+            />
+          </label>
           {inGallery ? (
             <span className="history-gallery-mark" aria-hidden="true">
               ✓
@@ -584,9 +692,28 @@ export function Sidebar({
         />
       ) : null}
 
-      {!galleriesOpen || galleryDetail ? (
+      {!galleriesOpen ? (
       <>
       <div className="tag-filter">
+        <div className="history-kind" role="radiogroup" aria-label="Media type">
+          {MEDIA_FILTERS.map((filter) => (
+            <button
+              key={filter.id || "all"}
+              type="button"
+              role="radio"
+              aria-checked={media === filter.id}
+              className={`ghost-btn${media === filter.id ? " active" : ""}`}
+              onClick={() => onMedia?.(filter.id)}
+            >
+              {filter.label}
+            </button>
+          ))}
+          {pageIds.length > 0 ? (
+            <button type="button" className="ghost-btn" onClick={togglePage}>
+              {pageSelected ? "Clear" : "Select page"}
+            </button>
+          ) : null}
+        </div>
         <input
           className="tag-filter-input"
           value={tagInput}
@@ -619,7 +746,61 @@ export function Sidebar({
         ) : null}
       </div>
 
-      <div className={`history${galleryDetail ? " is-gallery-source" : ""}`} ref={historyRef}>
+      {picked.length > 0 ? (
+        <div className="history-bulk">
+          <span className="gallery-bulk-count">
+            {picked.length} selected
+          </span>
+          <button
+            type="button"
+            className="ghost-btn"
+            disabled={pickedReady.length === 0 || downloadingPicked}
+            onClick={() => void downloadPicked()}
+          >
+            {downloadingPicked ? "Downloading…" : "Download"}
+          </button>
+          {onAttach ? (
+            <button type="button" className="ghost-btn" onClick={attachPicked}>
+              Attach
+            </button>
+          ) : null}
+          {pickedDrafts.length > 0 ? (
+            <HistoryGalleryActions
+              image={pickedDrafts.length === 1 ? pickedDrafts[0] : null}
+              setItems={pickedDrafts}
+              summaries={gallerySummaries}
+              onAdd={onHistoryAddToGallery}
+              onCreate={onHistoryCreateGallery}
+              setLabel="Add to gallery"
+            />
+          ) : null}
+          {onDelete ? (
+            confirmBulk === "studio" ? (
+              <button type="button" className="ghost-btn danger-btn" onClick={() => deletePicked(false)}>
+                Delete {picked.length} from Studio
+              </button>
+            ) : (
+              <button type="button" className="ghost-btn" onClick={() => setConfirmBulk("studio")}>
+                Delete
+              </button>
+            )
+          ) : null}
+          {onDelete ? (
+            confirmBulk === "oxen" ? (
+              <button type="button" className="ghost-btn danger-btn" onClick={() => deletePicked(true)}>
+                Delete {picked.length} from Oxen
+              </button>
+            ) : (
+              <button type="button" className="ghost-btn" onClick={() => setConfirmBulk("oxen")}>
+                Oxen
+              </button>
+            )
+          ) : null}
+          {bulkNote ? <span className="history-bulk-note">{bulkNote}</span> : null}
+        </div>
+      ) : null}
+
+      <div className="history" ref={historyRef}>
         <div className="history-grid">
           {loading && batches.length === 0 ? (
             <div className="history-empty">
@@ -627,7 +808,7 @@ export function Sidebar({
             </div>
           ) : batches.length === 0 ? (
             <div className="history-empty">
-              {emptyLibraryMessage(appliedTag, loadError)}
+              {emptyLibraryMessage(appliedTag, media, loadError)}
             </div>
           ) : (
             chunkBatches(batches).map((row) => {
@@ -738,8 +919,8 @@ export function Sidebar({
                             {versionsBesidePreview(openBatch.items, preview.id).map((item) => {
                               const index = openBatch.items.findIndex((entry) => entry.id === item.id);
                               return (
+                                <div key={item.id} className="history-version-wrap" role="listitem">
                                 <button
-                                  key={item.id}
                                   type="button"
                                   draggable={historyItemsForGallery([item]).length > 0}
                                   onDragStart={(event) => rememberHistoryDrag(event, [item])}
@@ -771,6 +952,15 @@ export function Sidebar({
                                     <TileFace item={item} allowFull />
                                   </div>
                                 </button>
+                                <label className="gallery-select history-select">
+                                  <input
+                                    type="checkbox"
+                                    checked={picked.includes(item.id)}
+                                    aria-label={`Select variation ${index + 1}`}
+                                    onChange={() => toggleIds([item.id])}
+                                  />
+                                </label>
+                                </div>
                               );
                             })}
                           </div>

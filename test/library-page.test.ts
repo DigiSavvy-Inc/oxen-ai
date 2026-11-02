@@ -7,6 +7,7 @@ describe("parseLibraryPage", () => {
       page: 1,
       pageSize: 24,
       tag: "",
+      media: "",
     });
   });
 
@@ -15,12 +16,15 @@ describe("parseLibraryPage", () => {
       page: 2,
       pageSize: 24,
       tag: "Campaign",
+      media: "",
     });
-    expect(parseLibraryPage("0", "48", "  logo ")).toEqual({
+    expect(parseLibraryPage("0", "48", "  logo ", "clip")).toEqual({
       page: 1,
       pageSize: 48,
       tag: "logo",
+      media: "",
     });
+    expect(parseLibraryPage("1", "24", "", "video")).toMatchObject({ media: "video" });
   });
 });
 
@@ -31,13 +35,28 @@ describe("library page sql", () => {
     expect(list.sql).toContain("LIMIT ?");
     expect(list.sql).toContain("OFFSET ?");
     expect(list.sql).not.toContain("LIMIT 100");
-    expect(list.binds).toEqual(["user-1", "", "user-1", "%%", 12, 24, "user-1"]);
+    expect(list.sql).toContain("media_type = ?");
+    expect(list.binds).toEqual(["user-1", "", "", "", "user-1", "%%", 12, 24, "user-1"]);
     const count = libraryCountSql("user-1", query);
     expect(count.sql).toContain("COUNT(*)");
-    expect(count.binds).toEqual(["user-1", "", "user-1", "%%"]);
+    expect(count.binds).toEqual(["user-1", "", "", "", "user-1", "%%"]);
+    const videos = libraryListSql("user-1", { ...query, media: "video" });
+    expect(videos.binds.slice(0, 5)).toEqual(["user-1", "video", "video", "", "user-1"]);
     const scoped = libraryListSql("user-1", query, "profile-1");
     expect(scoped.sql).toContain("profile_id = ?");
-    expect(scoped.binds).toEqual(["user-1", "profile-1", "", "user-1", "%%", 12, 24, "user-1", "profile-1"]);
+    expect(scoped.binds).toEqual([
+      "user-1",
+      "profile-1",
+      "",
+      "",
+      "",
+      "user-1",
+      "%%",
+      12,
+      24,
+      "user-1",
+      "profile-1",
+    ]);
     expect(libraryListSql("user-1", query).sql).not.toContain("profile_id");
   });
 });

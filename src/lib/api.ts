@@ -131,6 +131,8 @@ export type InstanceBranding = {
   customLogo: boolean;
 };
 
+export type LibraryMediaFilter = "" | "image" | "video" | "audio";
+
 export type Generation = {
   id: string;
   oxenGenerationId: string;
@@ -386,13 +388,20 @@ export const api = {
     }).then((r) => parseJson<{ reply: string }>(r)),
   listGenerations: (
     scope: "active" | "library" = "library",
-    options?: { signal?: AbortSignal; page?: number; pageSize?: number; tag?: string },
+    options?: {
+      signal?: AbortSignal;
+      page?: number;
+      pageSize?: number;
+      tag?: string;
+      media?: LibraryMediaFilter;
+    },
   ) => {
     const params = new URLSearchParams({ scope });
     if (scope === "library") {
       if (options?.page) params.set("page", String(options.page));
       if (options?.pageSize) params.set("pageSize", String(options.pageSize));
       if (options?.tag) params.set("tag", options.tag);
+      if (options?.media) params.set("media", options.media);
     }
     return fetch(`/api/generations?${params}`, { signal: options?.signal }).then((r) =>
       parseJson<{
