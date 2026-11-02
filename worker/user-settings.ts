@@ -14,6 +14,9 @@ export type SharedOxenParams = {
   output_format?: string;
   omni_reference_task_type?: string;
   background?: string;
+  moderation?: string;
+  disable_safety_checker?: boolean;
+  enable_safety_checker?: boolean;
   safety_tolerance?: number;
   sample_rate?: number;
   speed?: number;
@@ -78,6 +81,15 @@ function asParams(raw: Record<string, unknown>): SharedOxenParams {
     params.omni_reference_task_type = raw.omni_reference_task_type;
   }
   if (typeof raw.background === "string") params.background = raw.background;
+  if (typeof raw.moderation === "string" && raw.moderation.trim()) {
+    params.moderation = raw.moderation.trim();
+  }
+  if (typeof raw.disable_safety_checker === "boolean") {
+    params.disable_safety_checker = raw.disable_safety_checker;
+  }
+  if (typeof raw.enable_safety_checker === "boolean") {
+    params.enable_safety_checker = raw.enable_safety_checker;
+  }
   if (typeof raw.safety_tolerance === "number" && Number.isFinite(raw.safety_tolerance)) {
     params.safety_tolerance = raw.safety_tolerance;
   } else if (

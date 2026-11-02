@@ -70,6 +70,7 @@ import {
   normalizeMediaRole,
   referenceRoleUsesFace,
   referenceTaskNeedsVideo,
+  safetyCheckerRequestValue,
   safetyToleranceSelection,
   type MediaRole,
 } from "../worker/schema";
@@ -134,6 +135,8 @@ export default function App() {
   const [generateAudio, setGenerateAudio] = useState(false);
   const [draft, setDraft] = useState(false);
   const [safetyTolerance, setSafetyTolerance] = useState("");
+  const [safetyCheckerOn, setSafetyCheckerOn] = useState(false);
+  const [moderation, setModeration] = useState("");
   const [getLastFrame, setGetLastFrame] = useState(false);
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
   const [gallerySummaries, setGallerySummaries] = useState<GallerySummary[]>([]);
@@ -751,6 +754,12 @@ export default function App() {
           setSafetyTolerance(safetyToleranceSelection(data.controls.safetyTolerance));
         } else {
           setSafetyTolerance("");
+        }
+        setSafetyCheckerOn(false);
+        if (data.controls.moderation) {
+          setModeration(data.controls.moderation.defaultValue);
+        } else {
+          setModeration("");
         }
         const rate = data.controls.sampleRate;
         if (rate) setSampleRate((prev) => nearestDurationValue(prev, rate));
@@ -1779,6 +1788,16 @@ export default function App() {
         const chosen = safetyTolerance || safetyToleranceSelection(controls.safetyTolerance);
         if (chosen !== "") payload.safety_tolerance = Number(chosen);
       }
+      if (controls?.safetyChecker) {
+        const checker = safetyCheckerRequestValue(controls.safetyChecker, safetyCheckerOn);
+        if (typeof checker === "boolean") payload[controls.safetyChecker.field] = checker;
+      }
+      if (controls?.moderation) {
+        const chosen = controls.moderation.values.includes(moderation)
+          ? moderation
+          : controls.moderation.defaultValue;
+        if (chosen) payload.moderation = chosen;
+      }
       if (images.length) {
         payload.images = images;
         if (modelHasFaceSlot("image")) payload.image_roles = imageRoles;
@@ -2088,6 +2107,10 @@ export default function App() {
             onBackgroundChange={rememberParam(setBackground)}
             safetyTolerance={safetyTolerance}
             onSafetyToleranceChange={rememberParam(setSafetyTolerance)}
+            safetyCheckerOn={safetyCheckerOn}
+            onSafetyCheckerChange={rememberParam(setSafetyCheckerOn)}
+            moderation={moderation}
+            onModerationChange={rememberParam(setModeration)}
             attachments={staged.map((item) => ({
               name: item.name,
               preview: item.preview,

@@ -90,7 +90,7 @@ Required: `mode`, `model`, `prompt`. `num_generations` is clamped to 1–4 (defa
 
 Reference fields the handler actually reads: `images`, `input_image`, `input_images`, `input_face_images`, `videos`, `input_video`, `input_videos`, `input_face_videos`, `audios`, `input_audios`. `image_roles` / `video_roles` are `"character"` or `"scene"` and only matter when the model has a face slot (`input_face_images` / `input_face_videos`).
 
-Optional passthrough, kept only when the model schema allows it: `aspect_ratio`, `duration`, `seed`, `generate_audio`, `quality`, `resolution`, `output_format`, `background`, `moderation`. `get_last_frame: true` is stored for some video models; the Worker does not extract a still. `lastFrameUrl` stays empty unless something later `POST`s `/api/generations/:id/last-frame`.
+Optional passthrough, kept only when the model schema allows it: `aspect_ratio`, `duration`, `seed`, `generate_audio`, `quality`, `resolution`, `output_format`, `background`, `safety_tolerance`, `moderation`, `disable_safety_checker`, `enable_safety_checker`. When the schema has a safety field and the request omits it, Studio sends the least strict allowed value. `get_last_frame: true` is stored for some video models; the Worker does not extract a still. `lastFrameUrl` stays empty unless something later `POST`s `/api/generations/:id/last-frame`.
 
 Response: `{ "generations": [ { "id", "oxenGenerationId", "batchId", "status", "mediaType", "resultUrl": null, ... } ] }`. One Studio `id` per output. They share `batchId`. There is no batch fetch. Poll each `id`.
 

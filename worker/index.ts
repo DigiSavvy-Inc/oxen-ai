@@ -93,6 +93,9 @@ import {
   pickCompatible,
   referenceTaskMissingVideoMessage,
   referenceTaskNeedsVideo,
+  explicitBoolean,
+  resolveModeration,
+  resolveSafetyChecker,
   resolveSafetyTolerance,
   resolutionPayloadFields,
   unsupportedReferenceMessage,
@@ -1584,6 +1587,8 @@ app.post("/api/generate", async (c) => {
     omni_reference_task_type?: string;
     background?: string;
     moderation?: string;
+    disable_safety_checker?: boolean | string;
+    enable_safety_checker?: boolean | string;
     safety_tolerance?: number | string;
     sample_rate?: number;
     speed?: number;
@@ -1771,6 +1776,31 @@ app.post("/api/generate", async (c) => {
     asStringList(mapped.input_audio) ??
     (useFallback && audioUrls.length > 0 ? audioUrls : undefined);
   const safetyTolerance = resolveSafetyTolerance(body.safety_tolerance, controls.safetyTolerance);
+  const moderation = controls.moderation
+    ? resolveModeration(body.moderation, controls.moderation)
+    : useFallback
+      ? body.moderation
+      : undefined;
+  const safetyChecker = controls.safetyChecker
+    ? resolveSafetyChecker(
+        controls.safetyChecker.field === "disable_safety_checker"
+          ? body.disable_safety_checker
+          : body.enable_safety_checker,
+        controls.safetyChecker,
+      )
+    : undefined;
+  const disableSafetyChecker =
+    controls.safetyChecker?.field === "disable_safety_checker"
+      ? safetyChecker
+      : useFallback
+        ? explicitBoolean(body.disable_safety_checker)
+        : undefined;
+  const enableSafetyChecker =
+    controls.safetyChecker?.field === "enable_safety_checker"
+      ? safetyChecker
+      : useFallback
+        ? explicitBoolean(body.enable_safety_checker)
+        : undefined;
   const sampleRate = clampNumericControl(body.sample_rate, controls.sampleRate);
   const speed = clampNumericControl(body.speed, controls.speed);
   const volume = clampNumericControl(body.volume, controls.volume);
@@ -1823,7 +1853,9 @@ app.post("/api/generate", async (c) => {
     background:
       pickCompatible(body.background, controls.background) ??
       (useFallback ? body.background : undefined),
-    moderation: controls.moderation || useFallback ? body.moderation : undefined,
+    moderation,
+    disable_safety_checker: disableSafetyChecker,
+    enable_safety_checker: enableSafetyChecker,
     safety_tolerance: safetyTolerance,
     input_image:
       mapped.input_image ?? (useFallback && imageUrls.length === 1 ? imageUrls[0] : undefined),
@@ -1948,6 +1980,9 @@ app.post("/api/generate", async (c) => {
         output_format: body.output_format,
         omni_reference_task_type: referenceTask,
         background: body.background,
+        moderation,
+        disable_safety_checker: disableSafetyChecker,
+        enable_safety_checker: enableSafetyChecker,
         safety_tolerance: safetyTolerance,
         sample_rate: typeof sampleRate === "number" ? sampleRate : undefined,
         speed,

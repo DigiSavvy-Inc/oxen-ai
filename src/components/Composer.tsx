@@ -179,6 +179,10 @@ type Props = {
   onGenerateAudioChange: (value: boolean) => void;
   safetyTolerance?: string;
   onSafetyToleranceChange?: (value: string) => void;
+  safetyCheckerOn?: boolean;
+  onSafetyCheckerChange?: (on: boolean) => void;
+  moderation?: string;
+  onModerationChange?: (value: string) => void;
   showLastFrame?: boolean;
   getLastFrame?: boolean;
   onGetLastFrameChange?: (value: boolean) => void;
@@ -1487,6 +1491,43 @@ export function Composer(props: Props) {
               onChange={props.onSafetyToleranceChange}
             />
           )}
+
+          {props.controls?.safetyChecker ? (
+            <ToolbarField label="Checker">
+              <select
+                className="select"
+                aria-label="Safety checker"
+                title="Safety checker. Off leaves it disabled."
+                value={props.safetyCheckerOn ? "on" : "off"}
+                onChange={(e) => props.onSafetyCheckerChange?.(e.target.value === "on")}
+              >
+                <option value="off">Off</option>
+                <option value="on">On</option>
+              </select>
+            </ToolbarField>
+          ) : null}
+
+          {props.controls?.moderation ? (
+            <ToolbarField label="Moderation">
+              <select
+                className="select"
+                aria-label="Moderation"
+                title="Content moderation. The least restrictive value is selected."
+                value={
+                  props.controls.moderation.values.includes(props.moderation ?? "")
+                    ? props.moderation
+                    : props.controls.moderation.defaultValue
+                }
+                onChange={(e) => props.onModerationChange?.(e.target.value)}
+              >
+                {props.controls.moderation.values.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </ToolbarField>
+          ) : null}
 
           <ToolbarField label="Count">
             <select

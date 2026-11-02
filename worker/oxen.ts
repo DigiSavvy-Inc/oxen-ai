@@ -96,6 +96,8 @@ export type EnqueueBody = {
   omni_reference_task_type?: string;
   background?: string;
   moderation?: string;
+  disable_safety_checker?: boolean;
+  enable_safety_checker?: boolean;
   draft_task_id?: string;
   multi_prompt?: { prompt: string; duration: number }[];
 };
@@ -427,6 +429,12 @@ export function buildEnqueuePayload(
       assignIfPresent(payload, "output_format", body.output_format);
       assignIfPresent(payload, "background", body.background);
       assignIfPresent(payload, "moderation", body.moderation);
+      if (body.disable_safety_checker != null) {
+        payload.disable_safety_checker = body.disable_safety_checker;
+      }
+      if (body.enable_safety_checker != null) {
+        payload.enable_safety_checker = body.enable_safety_checker;
+      }
       assignIfPresent(payload, "safety_tolerance", body.safety_tolerance);
       if (mediaType === "video") {
         assignIfPresent(payload, "input_video", body.input_video);

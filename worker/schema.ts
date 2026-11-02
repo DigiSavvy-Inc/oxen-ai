@@ -53,6 +53,20 @@ export type DurationControl =
 
 export type ResolutionField = "resolution" | "size" | "image_size";
 
+export type SafetyCheckerField = "disable_safety_checker" | "enable_safety_checker";
+
+export type SafetyCheckerControl = {
+  field: SafetyCheckerField;
+  /** Request value that leaves the checker off. */
+  offValue: boolean;
+};
+
+export type ModerationControl = {
+  values: string[];
+  /** Least restrictive allowed value. */
+  defaultValue: string;
+};
+
 export type ModelControls = {
   modelId: string;
   aspectRatios: string[] | null;
@@ -69,8 +83,15 @@ export type ModelControls = {
    * value, not the schema's stricter default.
    */
   safetyTolerance: DurationControl | null;
-  /** True when the request schema has a moderation field. */
-  moderation: boolean;
+  /**
+   * `disable_safety_checker` or `enable_safety_checker`. `offValue` is the
+   * boolean that leaves the checker off.
+   */
+  safetyChecker: SafetyCheckerControl | null;
+  /**
+   * Allowed moderation values. `defaultValue` is the least restrictive one.
+   */
+  moderation: ModerationControl | null;
   /** Schema default for generate_audio, when the field declares one. */
   generateAudioDefault: boolean | null;
   /** True when the request schema has a draft flag. */
@@ -678,6 +699,91 @@ function safetyToleranceFromSchema(schema: JsonSchema | undefined): DurationCont
   };
 }
 
+function listedChoiceTokens(description: string): string[] {
+  const match = description.match(/one of:\s*([^.]+)/i);
+  if (!match?.[1]) return [];
+  return match[1]
+    .split(",")
+    .map((part) => part.trim().replace(/^['"`]+|['"`]+$/g, ""))
+    .filter((part) => part.length > 0);
+}
+
+function safetyCheckerFromSchema(root: JsonSchema): SafetyCheckerControl | null {
+  if (findProperty(root, "disable_safety_checker")) {
+    return { field: "disable_safety_checker", offValue: true };
+  }
+  if (findProperty(root, "enable_safety_checker")) {
+    return { field: "enable_safety_checker", offValue: false };
+  }
+  return null;
+}
+
+/**
+ * GPT Image documents `low` as less restrictive than `auto`. Other catalogs
+ * that name off, disabled, or none use that token.
+ */
+function mostPermissiveModeration(values: string[], description: string): string {
+  const less = description.match(/['"`]?([a-z0-9_-]+)['"`]?\s+is\s+less\s+restrictive/i);
+  if (less?.[1]) {
+    const named = values.find((value) => value.toLowerCase() === less[1].toLowerCase());
+    if (named) return named;
+  }
+  for (const token of ["off", "disabled", "none", "low"]) {
+    const found = values.find((value) => value.toLowerCase() === token);
+    if (found) return found;
+  }
+  return values[0] ?? "low";
+}
+
+function moderationFromSchema(schema: JsonSchema | undefined): ModerationControl | null {
+  if (!schema) return null;
+  const description = safetyDescription(schema);
+  const values = enumStrings(schema);
+  const choices = values.length > 0 ? values : listedChoiceTokens(description);
+  const allowed = choices.length > 0 ? choices : ["low", "auto"];
+  return { values: allowed, defaultValue: mostPermissiveModeration(allowed, description) };
+}
+
+/** A boolean the client actually sent. Omitted input stays omitted. */
+export function explicitBoolean(raw: boolean | string | undefined): boolean | undefined {
+  if (typeof raw === "boolean") return raw;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return undefined;
+}
+
+/** Boolean sent for the schema's checker field. Omitted input leaves the checker off. */
+export function resolveSafetyChecker(
+  raw: boolean | string | undefined,
+  control: SafetyCheckerControl | null,
+): boolean | undefined {
+  if (!control) return undefined;
+  if (typeof raw === "boolean") return raw;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return control.offValue;
+}
+
+/** Checker request value. `checkerOn` false is the least strict setting. */
+export function safetyCheckerRequestValue(
+  control: SafetyCheckerControl | null | undefined,
+  checkerOn: boolean,
+): boolean | undefined {
+  if (!control) return undefined;
+  return checkerOn ? !control.offValue : control.offValue;
+}
+
+/** Allowed moderation token. Omitted or unknown input uses the least restrictive value. */
+export function resolveModeration(
+  raw: string | undefined,
+  control: ModerationControl | null,
+): string | undefined {
+  if (!control) return undefined;
+  const token = raw?.trim() ?? "";
+  if (control.values.includes(token)) return token;
+  return control.defaultValue;
+}
+
 /** Value shown when a model with safety_tolerance is selected. */
 export function safetyToleranceSelection(control: DurationControl | null | undefined): string {
   if (!control) return "";
@@ -851,6 +957,8 @@ export function parseModelControls(model: OxenModel): ModelControls {
   const outputFormat = enumWithDefault(property(root, "output_format"));
   const background = enumStrings(property(root, "background"));
   const safetyTolerance = safetyToleranceFromSchema(findProperty(root, "safety_tolerance"));
+  const safetyChecker = safetyCheckerFromSchema(root);
+  const moderation = moderationFromSchema(findProperty(root, "moderation"));
   const sampleRate = numberControl(property(root, "sample_rate"));
   const speed = numberControl(property(root, "speed"));
   const volume = numberControl(property(root, "volume"));
@@ -923,7 +1031,8 @@ export function parseModelControls(model: OxenModel): ModelControls {
     outputFormat: outputFormat.length > 0 ? outputFormat : null,
     background: background.length > 0 ? background : null,
     safetyTolerance,
-    moderation: Boolean(property(root, "moderation")),
+    safetyChecker,
+    moderation,
     generateAudioDefault: booleanDefault(generateAudioField),
     draft: Boolean(draftField) || /seedance-2[.-]5/i.test(model.id),
     draftDefault: booleanDefault(draftField) ?? false,

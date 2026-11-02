@@ -999,6 +999,95 @@ describe("safety_tolerance enqueue", () => {
     expect(queued).toMatchObject({ quality: "high", num_generations: 1 });
     expect(stored.join("\n")).not.toContain("safety_tolerance");
   });
+
+  it("turns the safety checker off when a Flux schema includes it and the request omits it", async () => {
+    const { res, queued } = await postGenerate(
+      "flux-2-dev",
+      {
+        type: "object",
+        required: ["prompt"],
+        properties: {
+          prompt: { type: "string" },
+          disable_safety_checker: { type: "boolean", default: false },
+        },
+      },
+      {},
+    );
+    expect(res.status).toBe(200);
+    expect(queued?.disable_safety_checker).toBe(true);
+    expect(queued).not.toHaveProperty("enable_safety_checker");
+  });
+
+  it("keeps the safety checker on when the request asks for it", async () => {
+    const { queued } = await postGenerate(
+      "flux-kontext-dev",
+      {
+        type: "object",
+        required: ["prompt"],
+        properties: {
+          prompt: { type: "string" },
+          disable_safety_checker: { type: "boolean", default: false },
+        },
+      },
+      { disable_safety_checker: false },
+    );
+    expect(queued?.disable_safety_checker).toBe(false);
+  });
+
+  it("sends enable_safety_checker false for a schema that uses that field", async () => {
+    const { queued } = await postGenerate(
+      "ideogram-v4",
+      {
+        type: "object",
+        required: ["prompt"],
+        properties: {
+          prompt: { type: "string" },
+          enable_safety_checker: { type: "boolean", default: true },
+        },
+      },
+      {},
+    );
+    expect(queued?.enable_safety_checker).toBe(false);
+    expect(queued).not.toHaveProperty("disable_safety_checker");
+  });
+
+  it("sends the least restrictive moderation value and keeps a chosen one", async () => {
+    const schema = {
+      type: "object",
+      required: ["prompt"],
+      properties: {
+        prompt: { type: "string" },
+        moderation: {
+          type: "string",
+          enum: ["low", "auto"],
+          default: "low",
+          description: "'low' is less restrictive than 'auto'.",
+        },
+      },
+    };
+    const omitted = await postGenerate("gpt-image-2-5-flare", schema, {});
+    expect(omitted.queued?.moderation).toBe("low");
+    const chosen = await postGenerate("gpt-image-2-5-sunburst", schema, { moderation: "auto" });
+    expect(chosen.queued?.moderation).toBe("auto");
+  });
+
+  it("omits checker and moderation fields the schema does not have", async () => {
+    const { queued } = await postGenerate(
+      "bytedance-seedream-5-pro",
+      {
+        type: "object",
+        required: ["prompt"],
+        properties: {
+          prompt: { type: "string" },
+          input_image: { type: "array", items: { type: "string" } },
+        },
+      },
+      { disable_safety_checker: true, enable_safety_checker: false, moderation: "low" },
+    );
+    expect(queued).not.toHaveProperty("disable_safety_checker");
+    expect(queued).not.toHaveProperty("enable_safety_checker");
+    expect(queued).not.toHaveProperty("moderation");
+  });
 });
 
 describe("Flux 3 Video enqueue", () => {

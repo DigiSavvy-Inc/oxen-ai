@@ -8,6 +8,8 @@ import {
   lockedDuration,
   parseModelControls,
   preferredAspectRatio,
+  resolveModeration,
+  resolveSafetyChecker,
   resolveSafetyTolerance,
   resolveEnqueueAspectRatio,
   resolutionPayloadFields,
@@ -697,6 +699,7 @@ describe("safety_tolerance", () => {
     });
     expect(controls.safetyTolerance).toBeNull();
     expect(resolveSafetyTolerance(6, controls.safetyTolerance)).toBeUndefined();
+    expect(controls.safetyChecker).toEqual({ field: "disable_safety_checker", offValue: true });
   });
 
   it("forwards a chosen allowed value and falls back to the most permissive value", () => {
@@ -709,6 +712,88 @@ describe("safety_tolerance", () => {
     expect(resolveSafetyTolerance(0, controls.safetyTolerance)).toBe(0);
     expect(resolveSafetyTolerance(9, controls.safetyTolerance)).toBe(4);
     expect(resolveSafetyTolerance("2", controls.safetyTolerance)).toBe(2);
+  });
+});
+
+describe("safety checker and moderation", () => {
+  it("reads disable_safety_checker and leaves the checker off unless asked", () => {
+    const controls = parseModelControls({
+      id: "flux-2-dev",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          input_image: { type: "array", items: { type: "string" } },
+          disable_safety_checker: {
+            type: "boolean",
+            default: false,
+            description: "Disable safety checker for generated images.",
+          },
+        },
+      },
+    });
+    expect(controls.safetyChecker).toEqual({ field: "disable_safety_checker", offValue: true });
+    expect(controls.moderation).toBeNull();
+    expect(resolveSafetyChecker(undefined, controls.safetyChecker)).toBe(true);
+    expect(resolveSafetyChecker(false, controls.safetyChecker)).toBe(false);
+    expect(resolveSafetyChecker("true", controls.safetyChecker)).toBe(true);
+  });
+
+  it("reads enable_safety_checker as off when the request value is false", () => {
+    const controls = parseModelControls({
+      id: "ideogram-v4",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          enable_safety_checker: { type: "boolean", default: true },
+        },
+      },
+    });
+    expect(controls.safetyChecker).toEqual({ field: "enable_safety_checker", offValue: false });
+    expect(resolveSafetyChecker(undefined, controls.safetyChecker)).toBe(false);
+    expect(resolveSafetyChecker(true, controls.safetyChecker)).toBe(true);
+  });
+
+  it("reads moderation and defaults to the less restrictive value", () => {
+    const controls = parseModelControls({
+      id: "gpt-image-2-5-flare",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          moderation: {
+            type: "string",
+            enum: ["low", "auto"],
+            default: "low",
+            description:
+              "Content moderation strictness. 'low' is less restrictive than 'auto'. One of: low, auto.",
+          },
+        },
+      },
+    });
+    expect(controls.safetyChecker).toBeNull();
+    expect(controls.moderation).toEqual({ values: ["low", "auto"], defaultValue: "low" });
+    expect(resolveModeration(undefined, controls.moderation)).toBe("low");
+    expect(resolveModeration("auto", controls.moderation)).toBe("auto");
+    expect(resolveModeration("strict", controls.moderation)).toBe("low");
+  });
+
+  it("omits both controls when the schema has neither field", () => {
+    const controls = parseModelControls({
+      id: "bytedance-seedream-5-pro",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          input_image: { type: "array", items: { type: "string" } },
+        },
+      },
+    });
+    expect(controls.safetyChecker).toBeNull();
+    expect(controls.moderation).toBeNull();
+    expect(resolveSafetyChecker(true, controls.safetyChecker)).toBeUndefined();
+    expect(resolveModeration("low", controls.moderation)).toBeUndefined();
   });
 });
 

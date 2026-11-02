@@ -1836,6 +1836,8 @@ describe("Flux 3 Video composer", () => {
     expect(text).toContain("Draft");
     expect(text).toContain('aria-label="Safety tolerance"');
     expect(text).toContain('value="4"');
+    expect(text).not.toContain('aria-label="Safety checker"');
+    expect(text).not.toContain('aria-label="Moderation"');
     expect(text).not.toContain("audio/*");
     expect(text).not.toContain("@Audio");
     expect(text).not.toContain('accept="image/*"');
@@ -1856,5 +1858,133 @@ describe("Flux 3 Video composer", () => {
     expect(attachKindCap(controls, "video-to-video", "video", fluxModel)).toBe(1);
     expect(attachKindCap(controls, "text-to-video", "image", fluxModel)).toBe(0);
     expect(attachKindCap(controls, "text-to-video", "video", fluxModel)).toBe(0);
+  });
+
+  it("shows the checker and moderation controls when the schema has those fields", () => {
+    const checker = parseModelControls({
+      id: "flux-2-dev",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          disable_safety_checker: { type: "boolean", default: false },
+        },
+      },
+    }) as ModelControls;
+    const withChecker = renderToStaticMarkup(
+      createElement(Composer, {
+        mode: "image-to-image",
+        onModeChange: () => undefined,
+        models: [fluxModel],
+        preferred: [],
+        model: "flux-2-dev",
+        onModelChange: () => undefined,
+        modelQuery: "",
+        onModelQueryChange: () => undefined,
+        isFavorite: false,
+        onToggleFavorite: () => undefined,
+        controls: checker,
+        prompt: "",
+        onPromptChange: () => undefined,
+        aspectRatio: "1:1",
+        onAspectRatioChange: () => undefined,
+        duration: "",
+        onDurationChange: () => undefined,
+        seed: "",
+        onSeedChange: () => undefined,
+        numGenerations: 1,
+        onNumGenerationsChange: () => undefined,
+        generateAudio: false,
+        onGenerateAudioChange: () => undefined,
+        safetyCheckerOn: false,
+        onSafetyCheckerChange: () => undefined,
+        quality: "",
+        onQualityChange: () => undefined,
+        resolution: "",
+        onResolutionChange: () => undefined,
+        outputFormat: "",
+        onOutputFormatChange: () => undefined,
+        background: "",
+        onBackgroundChange: () => undefined,
+        attachments: [],
+        onAddFiles: () => undefined,
+        onClearAttachment: () => undefined,
+        onAttachmentRoleChange: () => undefined,
+        onReorderAttachments: () => undefined,
+        busy: false,
+        error: null,
+        onGenerate: () => undefined,
+        canGenerate: true,
+      }),
+    );
+    expect(withChecker).toContain('aria-label="Safety checker"');
+    expect(withChecker).toContain('value="off"');
+    expect(withChecker).toContain(">Off<");
+    expect(withChecker).toContain(">On<");
+
+    const moderated = parseModelControls({
+      id: "gpt-image-2-5-flare",
+      request_schema: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          moderation: {
+            type: "string",
+            enum: ["low", "auto"],
+            description: "'low' is less restrictive than 'auto'.",
+          },
+        },
+      },
+    }) as ModelControls;
+    const withModeration = renderToStaticMarkup(
+      createElement(Composer, {
+        mode: "image-to-image",
+        onModeChange: () => undefined,
+        models: [fluxModel],
+        preferred: [],
+        model: "gpt-image-2-5-flare",
+        onModelChange: () => undefined,
+        modelQuery: "",
+        onModelQueryChange: () => undefined,
+        isFavorite: false,
+        onToggleFavorite: () => undefined,
+        controls: moderated,
+        prompt: "",
+        onPromptChange: () => undefined,
+        aspectRatio: "1:1",
+        onAspectRatioChange: () => undefined,
+        duration: "",
+        onDurationChange: () => undefined,
+        seed: "",
+        onSeedChange: () => undefined,
+        numGenerations: 1,
+        onNumGenerationsChange: () => undefined,
+        generateAudio: false,
+        onGenerateAudioChange: () => undefined,
+        moderation: "low",
+        onModerationChange: () => undefined,
+        quality: "",
+        onQualityChange: () => undefined,
+        resolution: "",
+        onResolutionChange: () => undefined,
+        outputFormat: "",
+        onOutputFormatChange: () => undefined,
+        background: "",
+        onBackgroundChange: () => undefined,
+        attachments: [],
+        onAddFiles: () => undefined,
+        onClearAttachment: () => undefined,
+        onAttachmentRoleChange: () => undefined,
+        onReorderAttachments: () => undefined,
+        busy: false,
+        error: null,
+        onGenerate: () => undefined,
+        canGenerate: true,
+      }),
+    );
+    expect(withModeration).toContain('aria-label="Moderation"');
+    expect(withModeration).toContain(">low<");
+    expect(withModeration).toContain(">auto<");
+    expect(withModeration).toContain('value="low"');
   });
 });

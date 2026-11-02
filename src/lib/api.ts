@@ -43,6 +43,16 @@ export type MediaSlot = {
   asArray: boolean;
 };
 
+export type SafetyCheckerControl = {
+  field: "disable_safety_checker" | "enable_safety_checker";
+  offValue: boolean;
+};
+
+export type ModerationControl = {
+  values: string[];
+  defaultValue: string;
+};
+
 export type DurationControl =
   | { kind: "int"; min: number; max: number; step?: number; defaultValue?: number }
   | { kind: "enum"; values: string[]; defaultValue?: string };
@@ -63,6 +73,8 @@ export type ModelControls = {
   outputFormat: string[] | null;
   background: string[] | null;
   safetyTolerance?: DurationControl | null;
+  safetyChecker?: SafetyCheckerControl | null;
+  moderation?: ModerationControl | null;
   sampleRate?: DurationControl | null;
   speed?: DurationControl | null;
   volume?: DurationControl | null;
@@ -94,6 +106,9 @@ export type SharedOxenParams = {
   output_format?: string;
   omni_reference_task_type?: string;
   background?: string;
+  moderation?: string;
+  disable_safety_checker?: boolean;
+  enable_safety_checker?: boolean;
   safety_tolerance?: number;
   sample_rate?: number;
   speed?: number;
