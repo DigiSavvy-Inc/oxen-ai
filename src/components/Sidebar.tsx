@@ -179,6 +179,23 @@ const CLOSED_EXPAND: GalleryExpandState = {
 
 const GALLERY_COLUMNS = 3;
 
+function prefersFinePointer(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+}
+
+function useFinePointer() {
+  const [fine, setFine] = useState(prefersFinePointer);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const sync = () => setFine(media.matches);
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+  return fine;
+}
+
 function emptyLibraryMessage(appliedTag: string, loadError?: string | null): string {
   if (loadError) return loadError;
   if (appliedTag.trim()) return "No media with that tag.";
@@ -312,6 +329,7 @@ export function Sidebar({
   const readyAll = useMemo(() => completedMedia(generations), [generations]);
   const galleryKeySet = useMemo(() => new Set(galleryItems.map((item) => item.key)), [galleryItems]);
   const galleryDetail = galleriesOpen && managingGallery && Boolean(galleryId);
+  const canDrag = useFinePointer();
   const suppressHistoryClick = useRef(false);
 
   function leaveGalleries() {
@@ -336,8 +354,11 @@ export function Sidebar({
 
   useEffect(() => {
     if (!expandVisible.expandedId) return;
-    expandedTileRef.current?.scrollIntoView({ block: "nearest" });
-  }, [expandVisible.expandedId]);
+    const root = expandedTileRef.current;
+    if (!root) return;
+    const bar = root.querySelector(".history-expand-bar");
+    (bar ?? root).scrollIntoView({ block: "nearest" });
+  }, [expandVisible.expandedId, expandVisible.previewId]);
 
   useEffect(() => {
     expandKeyRef.current = pagingKey;
@@ -402,7 +423,7 @@ export function Sidebar({
           <button
             type="button"
             className="history-tile-hit"
-            draggable={dragItems.length > 0}
+            draggable={canDrag && dragItems.length > 0}
             onDragStart={(event) => rememberHistoryDrag(event, batch.items)}
             onDragEnd={finishHistoryDrag}
             aria-expanded={createGalleryOpen ? undefined : expanded}
@@ -645,12 +666,13 @@ export function Sidebar({
                   {openBatch && preview ? (
                     <div className="history-row-detail" ref={expandedTileRef} key={`${openBatch.id}-detail`}>
                       <div className="history-expand">
+                        <div className="history-expand-stage">
                         <div className="history-expand-frame">
                           {canFit ? (
                             <button
                               type="button"
                               className="history-expand-preview"
-                              draggable={historyItemsForGallery([preview]).length > 0}
+                              draggable={canDrag && historyItemsForGallery([preview]).length > 0}
                               onDragStart={(event) => rememberHistoryDrag(event, [preview])}
                               onDragEnd={finishHistoryDrag}
                               aria-label={createGalleryOpen ? "Add preview to gallery" : "View full size"}
@@ -700,8 +722,10 @@ export function Sidebar({
                               ) : null}
                             </div>
                           ) : null}
-                          {onAttach || historyItemsForGallery(openBatch.items).length > 0 ? (
-                            <div className="history-expand-bar">
+                          {canFit ? <ExpandCorners /> : null}
+                        </div>
+                        {onAttach || historyItemsForGallery(openBatch.items).length > 0 ? (
+                          <div className="history-expand-bar">
                               {onAttach ? (
                                 <button
                                   type="button"
@@ -729,9 +753,8 @@ export function Sidebar({
                                 onAdd={onHistoryAddToGallery}
                                 onCreate={onHistoryCreateGallery}
                               />
-                            </div>
-                          ) : null}
-                          {canFit ? <ExpandCorners /> : null}
+                          </div>
+                        ) : null}
                         </div>
                         {openBatch.items.length > 1 ? (
                           <div className="history-expand-versions" role="list" aria-label="Versions">
@@ -741,7 +764,7 @@ export function Sidebar({
                                 <button
                                   key={item.id}
                                   type="button"
-                                  draggable={historyItemsForGallery([item]).length > 0}
+                                  draggable={canDrag && historyItemsForGallery([item]).length > 0}
                                   onDragStart={(event) => rememberHistoryDrag(event, [item])}
                                   onDragEnd={finishHistoryDrag}
                                   className={`history-version${

@@ -171,6 +171,7 @@ export function GalleryBrowser(props: Props) {
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
+      <div className="gallery-manage-bar">
       <div className="gallery-manage-head">
         <button type="button" className="ghost-btn" onClick={props.onBack}>
           Galleries
@@ -281,6 +282,7 @@ export function GalleryBrowser(props: Props) {
       ) : null}
       {skipped.length > 0 ? <p className="gallery-skipped">Skipped {skipped.join(", ")}</p> : null}
       {props.status ? <p className="gallery-status">{props.status}</p> : null}
+      </div>
       <label className={`gallery-drop${dropHot ? " is-hot" : ""}`}>
         {props.adding ? "Adding…" : props.dropLabel || "Drop media"}
         <input
