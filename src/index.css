@@ -3192,8 +3192,52 @@ button.history-expand-preview {
   box-shadow: var(--shadow-s);
 }
 
-.gallery-manage-tile select.gallery-role {
-  flex: 1 1 100%;
+.gallery-role-chip {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  color: #fff;
+  box-shadow: var(--shadow-s);
+}
+
+.gallery-role-chip svg,
+.gallery-attach-one svg,
+.gallery-feature svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.gallery-role-chip.is-character {
+  background: #321b46;
+}
+
+.gallery-role-chip.is-background {
+  background: #2f6284;
+}
+
+.gallery-role-chip.is-object {
+  background: #9a5528;
+}
+
+.gallery-role-chip.is-style {
+  background: #5c3d86;
+}
+
+.gallery-role-chip select.gallery-role {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .gallery-drop.is-hot,
@@ -3579,23 +3623,42 @@ button.history-expand-preview {
 
 .gallery-feature,
 .gallery-attach-one {
-  padding: 2px 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   border: 0;
   border-radius: 6px;
-  background: var(--neutral-1);
-  color: var(--text);
-  font-size: 10px;
+  background: #1f6f78;
+  color: #fff;
   box-shadow: var(--shadow-s);
+  flex: 0 0 auto;
+}
+
+.gallery-play {
+  background: #1f6b4a;
+}
+
+.gallery-feature {
+  background: #c47b2b;
 }
 
 .gallery-tile-actions {
   position: absolute;
   left: 4px;
-  right: 4px;
   bottom: 4px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 3px;
+  width: max-content;
+  max-width: calc(100% - 8px);
+  pointer-events: none;
+}
+
+.gallery-tile-actions > * {
+  pointer-events: auto;
 }
 
 .profile-switch {

@@ -338,6 +338,7 @@ export function GalleryBrowser(props: Props) {
               <div className="gallery-tile-actions">
                 {item.kind === "image" || item.kind === "video" ? (
                   <GalleryRoleSelect
+                    compact
                     name={item.name}
                     role={item.role}
                     onChange={(role) => props.onRoleChange(index, role)}
@@ -346,39 +347,49 @@ export function GalleryBrowser(props: Props) {
                 {item.kind === "video" && item.url ? (
                   <button
                     type="button"
-                    className="gallery-attach-one"
+                    className="gallery-attach-one gallery-play"
+                    aria-label={`Play ${item.name}`}
+                    title="Play"
                     onClick={() => {
                       setPlaying(null);
                       setFitId(item.id);
                     }}
                   >
                     <PlayIcon />
-                    Play
                   </button>
                 ) : null}
                 {item.kind === "audio" && item.url ? (
                   <button
                     type="button"
-                    className="gallery-attach-one"
+                    className="gallery-attach-one gallery-play"
+                    aria-label={`Play ${item.name}`}
+                    title="Play"
                     onClick={() => {
                       setFitId(null);
                       setPlaying({ id: item.id, src: item.url, name: item.name });
                     }}
                   >
                     <PlayIcon />
-                    Play
                   </button>
                 ) : null}
                 <button
                   type="button"
                   className="gallery-attach-one"
+                  aria-label={`Attach ${item.name}`}
+                  title="Attach"
                   onClick={() => setSkipped(props.onAttach([item]))}
                 >
-                  Attach
+                  <AttachIcon />
                 </button>
                 {index > 0 && item.kind === "image" ? (
-                  <button type="button" className="gallery-feature" onClick={() => props.onFeature(index)}>
-                    Feature
+                  <button
+                    type="button"
+                    className="gallery-feature"
+                    aria-label={`Feature ${item.name}`}
+                    title="Feature"
+                    onClick={() => props.onFeature(index)}
+                  >
+                    <FeatureIcon />
                   </button>
                 ) : null}
               </div>
@@ -601,8 +612,34 @@ function TrashIcon() {
 
 function PlayIcon() {
   return (
-    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+    <svg viewBox="0 0 16 16" aria-hidden="true">
       <path d="M5 3.2v9.6L13 8 5 3.2z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function AttachIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M6.2 8.6 9.4 5.4a2.1 2.1 0 0 1 3 3L8.2 12.6a3.2 3.2 0 0 1-4.5-4.5l4.4-4.4"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function FeatureIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M8 2.4 9.5 6h3.7L10.6 8.3l1.2 3.6L8 9.6 4.2 11.9l1.2-3.6L2.8 6H6.5L8 2.4z"
+        fill="currentColor"
+      />
     </svg>
   );
 }
