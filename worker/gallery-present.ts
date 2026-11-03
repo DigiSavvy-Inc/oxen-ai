@@ -8,6 +8,7 @@ export type GalleryPreviewJson = {
   kind: GalleryKind;
   name: string;
   thumbUrl: string | null;
+  mediaUrl: string | null;
 };
 
 export type GalleryCardJson = {
@@ -63,7 +64,9 @@ async function previewFor(
   const thumbKey = thumbs.get(item.key) ?? null;
   const previewKey = item.kind === "image" ? thumbKey || item.key : thumbKey;
   const thumbUrl = previewKey ? await displayStoredMediaUrl(env, previewKey, null) : null;
-  return { kind: item.kind, name: item.name, thumbUrl };
+  const mediaUrl =
+    item.kind === "video" && !thumbUrl ? await displayStoredMediaUrl(env, item.key, null) : null;
+  return { kind: item.kind, name: item.name, thumbUrl, mediaUrl };
 }
 
 export async function presentGallery(

@@ -120,6 +120,7 @@ export type StudioSettings = {
   defaultModelByMode: Partial<Record<GenerationMode, string>>;
   lastParams: SharedOxenParams;
   historyPageSize: number;
+  videoThumbSeconds: number;
 };
 
 /** Instance-wide name and logo. `savedName` is null when the default is in use. */
@@ -172,6 +173,7 @@ export type GalleryPreview = {
   kind: "image" | "video" | "audio";
   name: string;
   thumbUrl: string | null;
+  mediaUrl?: string | null;
 };
 
 export type GallerySummary = {

@@ -3154,6 +3154,39 @@ button.history-expand-preview {
   color: var(--text-muted);
 }
 
+.gallery-video-still {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.gallery-video-still img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gallery-video-mark {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--neutral-10) 55%, transparent);
+  color: #fff;
+  pointer-events: none;
+}
+
+.gallery-video-mark svg {
+  width: 12px;
+  height: 12px;
+}
+
 .gallery-remove {
   position: absolute;
   top: 4px;

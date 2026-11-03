@@ -1207,11 +1207,13 @@ app.put("/api/settings/studio", async (c) => {
     defaultModelByMode?: Partial<Record<GenerationMode, string>>;
     lastParams?: Record<string, unknown>;
     historyPageSize?: number;
+    videoThumbSeconds?: number;
   }>();
   const settings = await saveStudioSettings(c.env.DB, user.id, {
     defaultModelByMode: body.defaultModelByMode,
     lastParams: body.lastParams,
     historyPageSize: body.historyPageSize,
+    videoThumbSeconds: body.videoThumbSeconds,
   });
   return c.json(settings);
 });

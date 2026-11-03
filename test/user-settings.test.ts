@@ -24,11 +24,19 @@ describe("parseStudioSettings", () => {
       omni_reference_task_type: "extend",
     });
     expect(settings.historyPageSize).toBe(24);
+    expect(settings.videoThumbSeconds).toBe(1);
   });
 
   it("keeps history page size on the allowed steps", () => {
     expect(parseStudioSettings("{}", "{}", 48).historyPageSize).toBe(48);
     expect(parseStudioSettings("{}", "{}", 13).historyPageSize).toBe(24);
     expect(parseStudioSettings("{}", "{}", null).historyPageSize).toBe(24);
+  });
+
+  it("reads the gallery video still as seconds", () => {
+    expect(parseStudioSettings("{}", "{}", 24, 2500).videoThumbSeconds).toBe(2.5);
+    expect(parseStudioSettings("{}", "{}", 24, 0).videoThumbSeconds).toBe(0);
+    expect(parseStudioSettings("{}", "{}", 24, 999999).videoThumbSeconds).toBe(120);
+    expect(parseStudioSettings("{}", "{}", 24, null).videoThumbSeconds).toBe(1);
   });
 });

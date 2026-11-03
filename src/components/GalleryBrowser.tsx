@@ -448,11 +448,11 @@ function GalleryCard({
           ) : (
             previews.map((item, index) => (
               <span key={`${gallery.id}-${index}`} className="gallery-card-thumb">
-                {item.thumbUrl ? (
+                {item.thumbUrl || (item.kind === "video" && item.mediaUrl) ? (
                   <GalleryThumb
                     kind={item.kind}
                     name={item.name}
-                    preview={item.thumbUrl}
+                    preview={item.thumbUrl || item.mediaUrl || ""}
                     slot={featured && index === 0 ? "cover" : "strip"}
                   />
                 ) : (

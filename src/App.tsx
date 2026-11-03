@@ -6,6 +6,7 @@ import { ChatThread } from "./components/ChatThread";
 import { HelpDock } from "./components/HelpDock";
 import { Composer, type PromptField } from "./components/Composer";
 import type { GalleryDraftItem } from "./components/GalleryDrawer";
+import { VideoThumbSecondsProvider } from "./components/GalleryThumb";
 import { CreditMeter } from "./components/CreditMeter";
 import { LibraryPeek } from "./components/LibraryPeek";
 import { LoginPage } from "./components/LoginPage";
@@ -50,6 +51,7 @@ import {
   supportedMediaNotice,
 } from "./lib/library-refs";
 import { planGalleryAttach } from "./lib/gallery-attach";
+import { galleryPreviewIsImage } from "./lib/gallery-thumbs";
 import {
   appendHistoryToGallery,
   historyItemsForGallery,
@@ -77,6 +79,7 @@ import {
 } from "../worker/schema";
 import { GALLERY_MAX_ITEMS as GALLERY_ITEM_CAP } from "../worker/gallery-limits";
 import { DEFAULT_HISTORY_PAGE_SIZE } from "../worker/history-page-size";
+import { DEFAULT_VIDEO_THUMB_SECONDS } from "../worker/video-thumb";
 
 type StagedMedia = {
   file?: File;
@@ -101,11 +104,12 @@ function initialLibraryOpen(): boolean {
 }
 
 function draftFromGalleryItem(item: GalleryItem): GalleryDraftItem {
+  const still = item.thumbUrl && galleryPreviewIsImage(item.thumbUrl) ? item.thumbUrl : "";
   return {
     id: item.id,
     kind: item.kind,
     name: item.name,
-    preview: item.thumbUrl || (item.kind === "image" ? item.url : ""),
+    preview: still || (item.kind === "audio" ? "" : item.url),
     key: item.key,
     url: item.url,
     role: item.kind === "audio" ? undefined : item.role ? normalizeMediaRole(item.role) : undefined,
@@ -442,6 +446,7 @@ export default function App() {
           defaultModelByMode: {},
           lastParams: {},
           historyPageSize: DEFAULT_HISTORY_PAGE_SIZE,
+          videoThumbSeconds: DEFAULT_VIDEO_THUMB_SECONDS,
         });
       });
     void refreshFavorites();
@@ -1881,6 +1886,7 @@ export default function App() {
   }
 
   return (
+    <VideoThumbSecondsProvider seconds={settings?.videoThumbSeconds ?? DEFAULT_VIDEO_THUMB_SECONDS}>
     <div className={`app-shell${libraryOpen ? " library-open" : ""}${peek ? " has-peek" : ""}`}>
       <Sidebar
         logoUrl={branding.logoUrl}
@@ -2159,5 +2165,6 @@ export default function App() {
       ) : null}
       <HelpDock />
     </div>
+    </VideoThumbSecondsProvider>
   );
 }

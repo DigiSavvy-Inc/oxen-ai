@@ -1,4 +1,5 @@
 import { clampHistoryPageSize, DEFAULT_HISTORY_PAGE_SIZE, HISTORY_PAGE_SIZES } from "./history-page-size";
+import { DEFAULT_VIDEO_THUMB_SECONDS, videoThumbMs, videoThumbSecondsFromMs } from "./video-thumb";
 import type { GenerationMode } from "./types";
 
 export { clampHistoryPageSize, DEFAULT_HISTORY_PAGE_SIZE, HISTORY_PAGE_SIZES };
@@ -28,12 +29,14 @@ export type StudioSettings = {
   defaultModelByMode: Partial<Record<GenerationMode, string>>;
   lastParams: SharedOxenParams;
   historyPageSize: number;
+  videoThumbSeconds: number;
 };
 
 const EMPTY: StudioSettings = {
   defaultModelByMode: {},
   lastParams: {},
   historyPageSize: DEFAULT_HISTORY_PAGE_SIZE,
+  videoThumbSeconds: DEFAULT_VIDEO_THUMB_SECONDS,
 };
 
 function parseJsonObject(value: string | null | undefined): Record<string, unknown> {
@@ -112,11 +115,13 @@ export function parseStudioSettings(
   defaultModelByMode: string | null | undefined,
   lastParams: string | null | undefined,
   historyPageSize?: number | string | null,
+  videoThumbMsValue?: number | string | null,
 ): StudioSettings {
   return {
     defaultModelByMode: asModeMap(parseJsonObject(defaultModelByMode)),
     lastParams: asParams(parseJsonObject(lastParams)),
     historyPageSize: clampHistoryPageSize(historyPageSize ?? DEFAULT_HISTORY_PAGE_SIZE),
+    videoThumbSeconds: videoThumbSecondsFromMs(videoThumbMsValue ?? videoThumbMs(DEFAULT_VIDEO_THUMB_SECONDS)),
   };
 }
 
@@ -125,10 +130,16 @@ function missingHistoryColumn(err: unknown): boolean {
   return message.includes("history_page_size") || message.includes("no such column");
 }
 
+function missingColumn(err: unknown, name: string): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes(name);
+}
+
 type SettingsRow = {
   default_model_by_mode: string;
   last_params: string;
   history_page_size?: number | null;
+  video_thumb_ms?: number | null;
 };
 
 export async function getStudioSettings(
@@ -139,19 +150,35 @@ export async function getStudioSettings(
   try {
     row = await db
       .prepare(
-        `SELECT default_model_by_mode, last_params, history_page_size FROM user_settings WHERE user_id = ?`,
+        `SELECT default_model_by_mode, last_params, history_page_size, video_thumb_ms
+         FROM user_settings WHERE user_id = ?`,
       )
       .bind(userId)
       .first<SettingsRow>();
   } catch (err) {
-    if (!missingHistoryColumn(err)) throw err;
-    row = await db
-      .prepare(`SELECT default_model_by_mode, last_params FROM user_settings WHERE user_id = ?`)
-      .bind(userId)
-      .first<SettingsRow>();
+    if (!missingColumn(err, "video_thumb_ms") && !missingHistoryColumn(err)) throw err;
+    try {
+      row = await db
+        .prepare(
+          `SELECT default_model_by_mode, last_params, history_page_size FROM user_settings WHERE user_id = ?`,
+        )
+        .bind(userId)
+        .first<SettingsRow>();
+    } catch (inner) {
+      if (!missingHistoryColumn(inner)) throw inner;
+      row = await db
+        .prepare(`SELECT default_model_by_mode, last_params FROM user_settings WHERE user_id = ?`)
+        .bind(userId)
+        .first<SettingsRow>();
+    }
   }
   if (!row) return { ...EMPTY, defaultModelByMode: {}, lastParams: {} };
-  return parseStudioSettings(row.default_model_by_mode, row.last_params, row.history_page_size);
+  return parseStudioSettings(
+    row.default_model_by_mode,
+    row.last_params,
+    row.history_page_size,
+    row.video_thumb_ms,
+  );
 }
 
 export async function saveStudioSettings(
@@ -161,6 +188,7 @@ export async function saveStudioSettings(
     defaultModelByMode?: Partial<Record<GenerationMode, string>>;
     lastParams?: Record<string, unknown>;
     historyPageSize?: number;
+    videoThumbSeconds?: number;
   },
 ): Promise<StudioSettings> {
   const current = await getStudioSettings(db, userId);
@@ -173,25 +201,49 @@ export async function saveStudioSettings(
       ...(patch.lastParams ?? {}),
     }),
     historyPageSize: clampHistoryPageSize(patch.historyPageSize ?? current.historyPageSize),
+    videoThumbSeconds: videoThumbSecondsFromMs(
+      videoThumbMs(patch.videoThumbSeconds ?? current.videoThumbSeconds),
+    ),
   };
   const now = Math.floor(Date.now() / 1000);
   const models = JSON.stringify(next.defaultModelByMode);
   const params = JSON.stringify(next.lastParams);
+  const thumbMs = videoThumbMs(next.videoThumbSeconds);
   try {
     await db
       .prepare(
-        `INSERT INTO user_settings (user_id, default_model_by_mode, last_params, history_page_size, updated_at)
-         VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO user_settings (
+           user_id, default_model_by_mode, last_params, history_page_size, video_thumb_ms, updated_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(user_id) DO UPDATE SET
            default_model_by_mode = excluded.default_model_by_mode,
            last_params = excluded.last_params,
            history_page_size = excluded.history_page_size,
+           video_thumb_ms = excluded.video_thumb_ms,
            updated_at = excluded.updated_at`,
       )
-      .bind(userId, models, params, next.historyPageSize, now)
+      .bind(userId, models, params, next.historyPageSize, thumbMs, now)
       .run();
   } catch (err) {
-    if (!missingHistoryColumn(err)) throw err;
+    if (!missingColumn(err, "video_thumb_ms") && !missingHistoryColumn(err)) throw err;
+    try {
+      await db
+        .prepare(
+          `INSERT INTO user_settings (user_id, default_model_by_mode, last_params, history_page_size, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET
+             default_model_by_mode = excluded.default_model_by_mode,
+             last_params = excluded.last_params,
+             history_page_size = excluded.history_page_size,
+             updated_at = excluded.updated_at`,
+        )
+        .bind(userId, models, params, next.historyPageSize, now)
+        .run();
+      return next;
+    } catch (inner) {
+      if (!missingHistoryColumn(inner)) throw inner;
+    }
     await db
       .prepare(
         `INSERT INTO user_settings (user_id, default_model_by_mode, last_params, updated_at)

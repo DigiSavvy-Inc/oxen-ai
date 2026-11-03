@@ -27,6 +27,7 @@ import {
   HISTORY_PAGE_SIZES,
   clampHistoryPageSize,
 } from "../../worker/history-page-size";
+import { clampVideoThumbSeconds, MAX_VIDEO_THUMB_SECONDS } from "../../worker/video-thumb";
 
 type AllowRow = {
   github_login: string;
@@ -312,6 +313,21 @@ export function SettingsModal({
       setModelError(err instanceof Error ? err.message : "Failed to save default");
     } finally {
       setModelBusy(false);
+    }
+  }
+
+  async function setVideoThumbSeconds(value: string) {
+    setLibraryBusy(true);
+    setLibraryError(null);
+    try {
+      const next = await api.saveStudioSettings({
+        videoThumbSeconds: clampVideoThumbSeconds(value),
+      });
+      onSettingsChange(next);
+    } catch (err) {
+      setLibraryError(err instanceof Error ? err.message : "Failed to save library settings");
+    } finally {
+      setLibraryBusy(false);
     }
   }
 
@@ -622,6 +638,28 @@ export function SettingsModal({
                 ))}
               </select>
             </label>
+            <label htmlFor="video-thumb-seconds">
+              Video still, seconds into the clip
+              <input
+                id="video-thumb-seconds"
+                className="field"
+                type="number"
+                min={0}
+                max={MAX_VIDEO_THUMB_SECONDS}
+                step={0.5}
+                disabled={libraryBusy}
+                defaultValue={settings?.videoThumbSeconds ?? 1}
+                key={settings?.videoThumbSeconds ?? 1}
+                onBlur={(event) => void setVideoThumbSeconds(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void setVideoThumbSeconds((event.target as HTMLInputElement).value);
+                  }
+                }}
+              />
+            </label>
+            <p>Gallery tiles grab one frame at this time. A shorter clip uses its last moment.</p>
             {libraryError ? <p className="settings-bad">{libraryError}</p> : null}
             {libraryBusy ? <StatusWait label="Saving library settings" /> : null}
           </>
