@@ -3640,6 +3640,10 @@ button.history-expand-preview {
   background: #1f6b4a;
 }
 
+.gallery-attach-one.is-attached {
+  background: #0c2c30;
+}
+
 .gallery-feature {
   background: #c47b2b;
 }

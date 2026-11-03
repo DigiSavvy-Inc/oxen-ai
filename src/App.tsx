@@ -229,6 +229,14 @@ export default function App() {
     () => new Set(staged.map((item) => item.generationId).filter((id): id is string => Boolean(id))),
     [staged],
   );
+  const attachedMediaKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const item of staged) {
+      if (item.key) keys.add(item.key);
+      if (item.url) keys.add(item.url);
+    }
+    return keys;
+  }, [staged]);
 
   const closeLibrary = useCallback(() => {
     setLibraryOpen(false);
@@ -1902,6 +1910,7 @@ export default function App() {
           else void onDeleteGenerations(ids, false);
         }}
         attachedIds={attachedIds}
+        attachedMediaKeys={attachedMediaKeys}
         onAttach={addLibraryItem}
         attachSupported={(item) => {
           const ref = libraryRefFromGeneration(item);

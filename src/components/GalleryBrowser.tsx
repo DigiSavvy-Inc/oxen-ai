@@ -35,6 +35,7 @@ type Props = {
   onNameChange: (value: string) => void;
   onSave: () => void;
   onAttach: (items?: GalleryDraftItem[]) => string[];
+  attachedKeys?: ReadonlySet<string>;
   onRemove: (index: number) => void;
   onRoleChange: (index: number, role: MediaRole) => void;
   onFeature: (index: number) => void;
@@ -299,7 +300,9 @@ export function GalleryBrowser(props: Props) {
         <GallerySections
           items={props.items}
           gridClassName="gallery-manage-grid"
-          renderItem={(item, index) => (
+          renderItem={(item, index) => {
+            const attached = itemAttached(item, props.attachedKeys);
+            return (
             <div
               key={item.id}
               className={`gallery-manage-tile${selected.includes(item.id) ? " is-selected" : ""}`}
@@ -374,12 +377,12 @@ export function GalleryBrowser(props: Props) {
                 ) : null}
                 <button
                   type="button"
-                  className="gallery-attach-one"
-                  aria-label={`Attach ${item.name}`}
-                  title="Attach"
+                  className={`gallery-attach-one${attached ? " is-attached" : ""}`}
+                  aria-label={`${attached ? "Attached" : "Attach"} ${item.name}`}
+                  title={attached ? "Attached" : "Attach"}
                   onClick={() => setSkipped(props.onAttach([item]))}
                 >
-                  <AttachIcon />
+                  {attached ? <AttachedIcon /> : <AttachIcon />}
                 </button>
                 {index > 0 && item.kind === "image" ? (
                   <button
@@ -394,7 +397,8 @@ export function GalleryBrowser(props: Props) {
                 ) : null}
               </div>
             </div>
-          )}
+            );
+          }}
         />
       )}
       {fit ? (
@@ -618,6 +622,12 @@ function PlayIcon() {
   );
 }
 
+function itemAttached(item: GalleryDraftItem, keys: ReadonlySet<string> | undefined): boolean {
+  if (!keys) return false;
+  if (item.key && keys.has(item.key)) return true;
+  return Boolean(item.url && keys.has(item.url));
+}
+
 function AttachIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -626,6 +636,21 @@ function AttachIcon() {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function AttachedIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M3.4 8.2 6.5 11.3 12.6 4.8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
         strokeLinecap="round"
         strokeLinejoin="round"
       />

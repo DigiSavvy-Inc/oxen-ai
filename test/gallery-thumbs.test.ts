@@ -1,5 +1,8 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { GalleryBrowser } from "../src/components/GalleryBrowser";
 import {
   galleryPreviewIsImage,
   gallerySlotSrc,
@@ -52,5 +55,44 @@ describe("gallery slot thumbs", () => {
     expect(browser).toContain("onAttach(selectedItems)");
     expect(browser).toContain("onAttach([item])");
     expect(browser).toContain("Feature");
+  });
+
+  it("marks a gallery tile attached when its file is already on the composer", () => {
+    const html = renderToStaticMarkup(
+      createElement(GalleryBrowser, {
+        summaries: [],
+        detail: true,
+        galleryId: "g1",
+        name: "Set",
+        items: [
+          { id: "a", kind: "image", name: "one.png", preview: "", key: "key-a", url: "https://example/a.png" },
+          { id: "b", kind: "image", name: "two.png", preview: "", key: "key-b", url: "https://example/b.png" },
+        ],
+        saving: false,
+        adding: false,
+        status: null,
+        accept: "image/*",
+        dropLabel: "Drop",
+        attachedKeys: new Set(["key-b"]),
+        onAddFiles: () => undefined,
+        onDropHistory: () => undefined,
+        onOpen: () => undefined,
+        onBack: () => undefined,
+        onNameChange: () => undefined,
+        onSave: () => undefined,
+        onAttach: () => [],
+        onRemove: () => undefined,
+        onRoleChange: () => undefined,
+        onFeature: () => undefined,
+        onDelete: () => undefined,
+        onRenameGallery: () => undefined,
+        onDeleteGallery: () => undefined,
+        onDeleteSelected: async () => false,
+        onPlaceSelected: async () => false,
+      }),
+    );
+    expect(html).toContain('aria-label="Attach one.png"');
+    expect(html).toContain('aria-label="Attached two.png"');
+    expect(html).toContain("gallery-attach-one is-attached");
   });
 });

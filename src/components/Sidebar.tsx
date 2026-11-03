@@ -233,6 +233,7 @@ export function Sidebar({
   onDownloadAll,
   onDelete,
   attachedIds,
+  attachedMediaKeys,
   onAttach,
   attachSupported,
   createGalleryOpen,
@@ -286,6 +287,7 @@ export function Sidebar({
   onDownloadAll?: () => void;
   onDelete?: (ids: string[], fromOxen?: boolean) => void;
   attachedIds?: Set<string>;
+  attachedMediaKeys?: ReadonlySet<string>;
   onAttach?: (item: Generation) => void;
   attachSupported?: (item: Generation) => boolean;
   createGalleryOpen: boolean;
@@ -676,6 +678,7 @@ export function Sidebar({
           onNameChange={onGalleryNameChange}
           onSave={onManageGallerySave}
           onAttach={onGalleryAttach}
+          attachedKeys={attachedMediaKeys}
           onRemove={onGalleryRemove}
           onRoleChange={onGalleryRoleChange}
           onFeature={onGalleryFeature}
