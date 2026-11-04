@@ -121,6 +121,7 @@
   --app-max: 1440px;
   --panel-width: 360px;
   --app-gutter: max(0px, calc((100vw - var(--app-max)) / 2));
+  --slide-width: min(100vw, calc(var(--app-gutter) + var(--panel-width)));
 }
 
 * {
@@ -184,15 +185,15 @@ a {
   display: flex;
   flex-direction: column;
   position: fixed;
-  z-index: 40;
-  inset: 52px 0 0 auto;
-  width: min(100vw, calc(var(--app-gutter) + var(--panel-width)));
+  z-index: 46;
+  inset: 52px auto 0 0;
+  width: var(--slide-width);
   background: var(--bg-panel);
-  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
   min-height: 0;
   overflow: hidden;
   overscroll-behavior: contain;
-  transform: translateX(calc(100% + 24px));
+  transform: translateX(calc(-100% - 24px));
   visibility: hidden;
   pointer-events: none;
   transition:
@@ -211,14 +212,6 @@ a {
     visibility 0s linear 0s;
 }
 
-.library-backdrop {
-  position: fixed;
-  inset: 0 var(--app-gutter);
-  z-index: 35;
-  border: 0;
-  background: color-mix(in srgb, var(--neutral-10) 28%, transparent);
-}
-
 .workspace {
   position: relative;
   min-width: 0;
@@ -227,9 +220,9 @@ a {
 
 .library-peek {
   position: fixed;
-  z-index: 40;
+  z-index: 46;
   inset: 52px 0 0 auto;
-  width: min(100vw, calc(var(--app-gutter) + var(--panel-width)));
+  width: var(--slide-width);
   display: flex;
   flex-direction: column;
   border: 0;
@@ -869,17 +862,6 @@ a {
 
 .app-shell.has-peek .main {
   padding-right: var(--panel-width);
-}
-
-@media (min-width: 861px) {
-  .app-shell.library-open.has-peek .library-peek {
-    right: calc(var(--app-gutter) + var(--panel-width));
-    width: var(--panel-width);
-  }
-
-  .app-shell.library-open.has-peek .main {
-    padding-right: calc(var(--panel-width) * 2);
-  }
 }
 
 .main-top {
@@ -2211,10 +2193,6 @@ button.history-expand-preview {
     width: 100%;
     border-left: 0;
     border-right: 0;
-  }
-
-  .library-backdrop {
-    display: none;
   }
 
   .sidebar-header {
@@ -4653,6 +4631,12 @@ select.attach-role {
   background: var(--bg-active);
 }
 
+@media (min-width: 861px) {
+  .app-shell.library-open .help-fab {
+    left: calc(var(--slide-width) + 12px);
+  }
+}
+
 .help-backdrop {
   z-index: 60;
 }
@@ -5178,7 +5162,7 @@ select.attach-role {
   position: fixed;
   z-index: 46;
   inset: 52px 0 0 auto;
-  width: min(100vw, 420px);
+  width: var(--slide-width);
   display: flex;
   flex-direction: column;
   gap: 12px;

@@ -196,7 +196,7 @@ export const DOC_ARTICLES: DocArticle[] = [
     blocks: [
       {
         type: "p",
-        text: "Library slides in from the right. It is past work, using small thumbnails. Filter by tag. Tags apply to a generation group, not each variation. Projects and Settings use that same right edge, from buttons in the top bar. On a phone, Library, Projects, and Galleries open together from the menu on the left, and each one fills the screen. Settings stays on the profile icon.",
+        text: "Library slides in from the left. It is past work, using small thumbnails. Filter by tag. Tags apply to a generation group, not each variation. Projects and Settings slide in from the right, from buttons in the top bar. Those panels share one width, and the top bar stays above them. On a phone, Library, Projects, and Galleries open together from the menu on the left, and each one fills the screen. Settings stays on the profile icon.",
       },
       {
         type: "p",

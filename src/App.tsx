@@ -2403,7 +2403,7 @@ export default function App() {
       {libraryOpen ? (
         <button
           type="button"
-          className="library-backdrop"
+          className="slide-backdrop"
           aria-label="Close library"
           onClick={closeLibrary}
         />

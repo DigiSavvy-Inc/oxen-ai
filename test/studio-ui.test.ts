@@ -1412,20 +1412,19 @@ describe("thumbnail frames", () => {
 });
 
 describe("app column", () => {
-  it("caps the shell, slides the library in from the right, and runs the attach peek to the right edge", () => {
+  it("caps the shell, slides the library in from the left, and runs the attach peek to the right edge", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
     expect(css).toContain("--app-max: 1440px");
     expect(css).toContain("--app-gutter:");
+    expect(css).toContain("--slide-width: min(100vw, calc(var(--app-gutter) + var(--panel-width)))");
     expect(css).toMatch(/\.app-shell\s*\{[^}]*max-width:\s*var\(--app-max\)/);
-    expect(css).toMatch(/\.sidebar\s*\{[^}]*inset:\s*52px 0 0 auto/);
-    expect(css).toMatch(
-      /\.sidebar\s*\{[^}]*width:\s*min\(100vw,\s*calc\(var\(--app-gutter\) \+ var\(--panel-width\)\)\)/,
-    );
-    expect(css).toMatch(/\.sidebar\s*\{[^}]*transform:\s*translateX\(calc\(100% \+ 24px\)\)/);
+    expect(css).toMatch(/\.sidebar\s*\{[^}]*inset:\s*52px auto 0 0/);
+    expect(css).toMatch(/\.sidebar\s*\{[^}]*width:\s*var\(--slide-width\)/);
+    expect(css).toMatch(/\.sidebar\s*\{[^}]*transform:\s*translateX\(calc\(-100% - 24px\)\)/);
     expect(css).toMatch(/\.library-peek\s*\{[^}]*inset:\s*52px 0 0 auto/);
-    expect(css).toMatch(
-      /\.library-peek\s*\{[^}]*width:\s*min\(100vw,\s*calc\(var\(--app-gutter\) \+ var\(--panel-width\)\)\)/,
-    );
+    expect(css).toMatch(/\.library-peek\s*\{[^}]*width:\s*var\(--slide-width\)/);
+    expect(css).toMatch(/\.project-slide\s*\{[^}]*width:\s*var\(--slide-width\)/);
+    expect(css).toMatch(/\.slide-backdrop\s*\{[^}]*inset:\s*52px 0 0 0/);
     expect(css).toMatch(/\.app-shell\.has-peek \.main\s*\{[^}]*padding-right:\s*var\(--panel-width\)/);
     expect(css).not.toMatch(/\.app-shell\.library-open \.main\s*\{[^}]*padding-left:\s*var\(--panel-width\)/);
     expect(css).toMatch(/\.main-top\s*\{[^}]*width:\s*min\(920px,/);
