@@ -1,5 +1,6 @@
 import type { GalleryKind, StoredGallery, StoredGalleryItem } from "./galleries";
 import { getGallery, listGalleries } from "./galleries";
+import { DEFAULT_HISTORY_PAGE_SIZE } from "./history-page-size";
 import { displayStoredMediaUrl } from "./media";
 import { ensureDefaultProfile } from "./profiles";
 import type { Env } from "./types";
@@ -19,8 +20,9 @@ export type GalleryCardJson = {
   previews: GalleryPreviewJson[];
 };
 
-/** Enough thumbs to fill a gallery card across the library panel. */
-const PREVIEW_COUNT = 24;
+/** Thumbs on each gallery card. Same count as a history page. */
+export const GALLERY_LISTING_PREVIEW_COUNT = DEFAULT_HISTORY_PAGE_SIZE;
+const PREVIEW_COUNT = GALLERY_LISTING_PREVIEW_COUNT;
 const THUMB_CHUNK = 40;
 
 async function thumbKeyByResult(

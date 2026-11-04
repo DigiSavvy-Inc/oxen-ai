@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { libraryCountSql, libraryListSql, parseLibraryPage } from "../worker/library-page";
 
 describe("parseLibraryPage", () => {
-  it("defaults to 24 history groups on page 1", () => {
+  it("defaults to 36 history groups on page 1", () => {
     expect(parseLibraryPage(undefined, undefined, undefined)).toEqual({
       page: 1,
-      pageSize: 24,
+      pageSize: 36,
       tag: "",
       media: "",
     });
@@ -14,7 +14,7 @@ describe("parseLibraryPage", () => {
   it("rejects page sizes outside the allowed steps", () => {
     expect(parseLibraryPage("2", "100", "#Campaign")).toEqual({
       page: 2,
-      pageSize: 24,
+      pageSize: 36,
       tag: "Campaign",
       media: "",
     });

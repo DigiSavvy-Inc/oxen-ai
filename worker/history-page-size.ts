@@ -1,6 +1,6 @@
 /** History groups per library page. Kept on a 3-column grid. */
-export const HISTORY_PAGE_SIZES = [12, 24, 48, 96] as const;
-export const DEFAULT_HISTORY_PAGE_SIZE = 24;
+export const HISTORY_PAGE_SIZES = [12, 24, 36, 48, 96] as const;
+export const DEFAULT_HISTORY_PAGE_SIZE = 36;
 
 export function clampHistoryPageSize(value: unknown): number {
   const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
