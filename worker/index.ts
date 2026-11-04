@@ -26,6 +26,7 @@ import {
   userHasAccess,
 } from "./auth";
 import { creditBalanceResponse, fetchOxenCredits, OXEN_BILLING_URL } from "./credits";
+import { ensureHistoryPageSize36 } from "./history-page-bump";
 import {
   buildReferenceMediaUrl,
   displayStoredMediaUrl,
@@ -2540,8 +2541,11 @@ export async function pollActiveGenerations(env: Env): Promise<{ polled: number 
 export { app };
 
 export default {
-  fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    await ensureHistoryPageSize36(env.DB);
+    return app.fetch(request, env, ctx);
+  },
   scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(pollActiveGenerations(env));
+    ctx.waitUntil(ensureHistoryPageSize36(env.DB).then(() => pollActiveGenerations(env)));
   },
 };
