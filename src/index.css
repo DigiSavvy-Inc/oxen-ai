@@ -2054,11 +2054,28 @@ button.history-expand-preview {
   }
 
   .main-top {
+    position: sticky;
+    top: 0;
+    z-index: 48;
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
     gap: 8px;
-    width: calc(100% - 24px);
+    width: 100%;
+    margin: 0;
+    padding: max(10px, env(safe-area-inset-top)) 12px 8px;
+    background: var(--bg);
+  }
+
+  /* A grid row is only as tall as the header, so sticky has nothing to hold.
+     A column lets the header stay in flow and pin to the top of the scroll. */
+  .main-column {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .main-column > .workspace {
+    flex: 1 0 auto;
   }
 
   .nav-brand {

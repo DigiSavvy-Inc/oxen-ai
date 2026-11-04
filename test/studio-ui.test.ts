@@ -1453,6 +1453,9 @@ describe("account profile switch", () => {
     expect(css).toMatch(/\.phone-nav\s*\{[^}]*display:\s*none/);
     expect(css).toMatch(/\.main-top-nav \.nav-phone-hide/);
     expect(css).toMatch(/\.phone-nav-drawer\s*\{[^}]*left:\s*0/);
+    expect(css).toMatch(
+      /@media \(max-width: 860px\) \{[\s\S]*?\.main-top\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0/,
+    );
     expect(css).toMatch(/\.gallery-card-mosaic\s*\{[^}]*max-height:\s*calc\(64px \* 5 \+ 4px \* 4\)/);
     expect(css).toMatch(/\.sidebar,\s*\n\s*\.project-slide,\s*\n\s*\.modal-backdrop\.is-drawer\s*\{[^}]*top:\s*0/);
     expect(css).toMatch(/\.sidebar,\s*\n\s*\.project-slide,\s*\n\s*\.modal-backdrop\.is-drawer\s*\{[^}]*z-index:\s*52/);
