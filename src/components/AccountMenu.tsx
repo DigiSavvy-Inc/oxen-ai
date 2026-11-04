@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import type { StudioProfile } from "../lib/api";
+import { ProfileSwitch } from "./ProfileSwitch";
 
 export function AccountMenu({
   userLogin,
@@ -7,6 +9,12 @@ export function AccountMenu({
   hasOxenKey,
   onOpenSettings,
   onLogout,
+  profiles,
+  activeProfileId,
+  onActivateProfile,
+  onCreateProfile,
+  onRenameProfile,
+  onDeleteProfile,
 }: {
   userLogin: string;
   avatarUrl: string | null;
@@ -14,9 +22,16 @@ export function AccountMenu({
   hasOxenKey: boolean;
   onOpenSettings: () => void;
   onLogout: () => void;
+  profiles: StudioProfile[];
+  activeProfileId: string | null;
+  onActivateProfile: (id: string) => void;
+  onCreateProfile: (name: string) => void;
+  onRenameProfile: (id: string, name: string) => void;
+  onDeleteProfile: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0] ?? null;
 
   useEffect(() => {
     if (!open) return;
@@ -24,7 +39,8 @@ export function AccountMenu({
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     }
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      setOpen(false);
     }
     window.addEventListener("mousedown", onPointer);
     window.addEventListener("keydown", onKey);
@@ -41,7 +57,11 @@ export function AccountMenu({
         className="account-menu-hit"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Account menu for @${userLogin}`}
+        aria-label={
+          activeProfile
+            ? `Account menu for @${userLogin}, profile ${activeProfile.name}`
+            : `Account menu for @${userLogin}`
+        }
         aria-keyshortcuts="Meta+Shift+Comma"
         title="Settings (⌘⇧,)"
         onClick={() => setOpen((value) => !value)}
@@ -53,10 +73,20 @@ export function AccountMenu({
           <div className="account-menu-meta">
             <div className="name">@{userLogin}</div>
             <div className="role">
+              {activeProfile ? `${activeProfile.name} · ` : ""}
               {hasOxenKey ? "Oxen key ready" : "Add Oxen key in Settings"}
               {isAdmin ? " · admin" : ""}
             </div>
           </div>
+          <ProfileSwitch
+            profiles={profiles}
+            activeId={activeProfileId}
+            onActivate={onActivateProfile}
+            onCreate={onCreateProfile}
+            onRename={onRenameProfile}
+            onDelete={onDeleteProfile}
+            onDismiss={() => setOpen(false)}
+          />
           <button
             type="button"
             role="menuitem"

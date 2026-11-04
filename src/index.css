@@ -809,11 +809,12 @@ a {
   border-color: var(--border-strong);
 }
 
-.main-top-left {
+.main-top-nav {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .nav-brand {
@@ -886,7 +887,7 @@ a {
   z-index: 48;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   width: min(920px, calc(100% - 36px));
   margin: 10px auto 0;
@@ -897,6 +898,8 @@ a {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-left: auto;
+  flex: 0 0 auto;
 }
 
 .account-menu {
@@ -935,7 +938,10 @@ a {
   top: calc(100% + 6px);
   right: 0;
   z-index: 50;
-  min-width: 196px;
+  min-width: 240px;
+  max-width: min(320px, calc(100vw - 24px));
+  max-height: min(70dvh, 480px);
+  overflow: auto;
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -958,7 +964,7 @@ a {
   color: var(--text-muted);
 }
 
-.account-menu-pop button {
+.account-menu-pop > button {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -972,7 +978,7 @@ a {
   font-size: 13px;
 }
 
-.account-menu-pop button:hover {
+.account-menu-pop > button:hover {
   background: var(--bg-hover);
 }
 
@@ -2061,20 +2067,60 @@ button.history-expand-preview {
     display: none;
   }
 
+  .main-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand tools"
+      "nav nav";
+    align-items: center;
+    row-gap: 8px;
+    column-gap: 8px;
+    width: calc(100% - 24px);
+  }
+
+  .nav-brand {
+    grid-area: brand;
+    margin-right: 0;
+    overflow: hidden;
+  }
+
   .nav-brand strong {
-    max-width: 6.5rem;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .main-top-right {
+    grid-area: tools;
+    margin-left: 0;
+  }
+
+  .main-top-nav {
+    grid-area: nav;
+    flex-wrap: nowrap;
+    gap: 6px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .main-top-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .main-top-nav .ghost-btn {
+    flex: 0 0 auto;
+  }
+
+  .credit-meter {
+    max-width: 7.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .app-shell.library-open {
     overflow: hidden;
-  }
-
-  .sidebar,
-  .library-peek,
-  .project-slide,
-  .slide-backdrop,
-  .modal-backdrop.is-drawer {
-    top: 0;
   }
 
   .sidebar {
@@ -3734,8 +3780,23 @@ button.history-expand-preview {
   pointer-events: auto;
 }
 
-.profile-switch {
-  position: relative;
+.account-profiles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 4px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.account-profiles-label {
+  padding: 4px 10px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 .profile-row,
@@ -3750,6 +3811,9 @@ button.history-expand-preview {
   width: auto;
   flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-align: left;
 }
 
@@ -3766,42 +3830,6 @@ button.history-expand-preview {
   min-width: 0;
   font-size: 13px;
   padding: 4px 6px;
-}
-
-.profile-switch-btn {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--bg-elevated);
-  color: var(--text-muted);
-}
-
-.profile-switch-btn:hover,
-.profile-switch-btn.is-open {
-  color: var(--text);
-  border-color: var(--border-strong);
-  background: var(--bg-hover);
-}
-
-.profile-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  left: auto;
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 240px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-l);
-  background: var(--neutral-1);
-  box-shadow: var(--shadow);
 }
 
 .profile-option {
@@ -3831,7 +3859,8 @@ button.history-expand-preview {
 
 @media (max-width: 860px) {
   .create-gallery .gallery-name,
-  .profile-name-editor .field {
+  .profile-name-editor .field,
+  .account-profiles .field {
     font-size: 16px;
   }
 }
@@ -5287,6 +5316,15 @@ select.attach-role {
   border-radius: 8px;
   background: var(--bg-hover);
   font-size: 13px;
+}
+
+@media (max-width: 860px) {
+  .sidebar,
+  .project-slide,
+  .slide-backdrop,
+  .modal-backdrop.is-drawer {
+    top: 88px;
+  }
 }
 
 @media (max-width: 760px) {

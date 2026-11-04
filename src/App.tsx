@@ -13,7 +13,6 @@ import { LoginPage } from "./components/LoginPage";
 import { Loader } from "./components/Loader";
 import { SettingsModal } from "./components/SettingsModal";
 import { Sidebar } from "./components/Sidebar";
-import { ProfileSwitch } from "./components/ProfileSwitch";
 import { ProjectEditor, ProjectRail } from "./components/ProjectRail";
 import {
   api,
@@ -2375,11 +2374,11 @@ export default function App() {
       <main className="main">
         <div className="main-column">
           <div className="main-top">
-            <div className="main-top-left">
-              <div className="nav-brand">
-                <img className={brandMarkClass(branding.logoUrl)} src={branding.logoUrl} alt="" />
-                <strong>{branding.name}</strong>
-              </div>
+            <div className="nav-brand">
+              <img className={brandMarkClass(branding.logoUrl)} src={branding.logoUrl} alt="" />
+              <strong>{branding.name}</strong>
+            </div>
+            <nav className="main-top-nav" aria-label="Studio">
               <button
                 type="button"
                 className={`ghost-btn${libraryOpen ? " active" : ""}`}
@@ -2446,7 +2445,7 @@ export default function App() {
                   <kbd>,</kbd>
                 </span>
               </button>
-            </div>
+            </nav>
             <div className="main-top-right">
               <CreditMeter credits={credits} />
               <AccountMenu
@@ -2460,14 +2459,12 @@ export default function App() {
                   setShowSettings(true);
                 }}
                 onLogout={() => void logout()}
-              />
-              <ProfileSwitch
                 profiles={profiles}
-                activeId={activeProfileId}
-                onActivate={(id) => void onActivateProfile(id)}
-                onCreate={(name) => void onCreateProfile(name)}
-                onRename={(id, name) => void onRenameProfile(id, name)}
-                onDelete={(id) => void onDeleteProfile(id)}
+                activeProfileId={activeProfileId}
+                onActivateProfile={(id) => void onActivateProfile(id)}
+                onCreateProfile={(name) => void onCreateProfile(name)}
+                onRenameProfile={(id, name) => void onRenameProfile(id, name)}
+                onDeleteProfile={(id) => void onDeleteProfile(id)}
               />
             </div>
           </div>
