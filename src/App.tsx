@@ -2381,7 +2381,7 @@ export default function App() {
             <nav className="main-top-nav" aria-label="Studio">
               <button
                 type="button"
-                className={`ghost-btn${libraryOpen ? " active" : ""}`}
+                className={`ghost-btn nav-phone-hide${libraryOpen ? " active" : ""}`}
                 aria-expanded={libraryOpen}
                 aria-controls="media-library"
                 aria-keyshortcuts="Meta+Shift+L"
@@ -2407,7 +2407,7 @@ export default function App() {
               </button>
               <button
                 type="button"
-                className={`ghost-btn${projectsOpen ? " active" : ""}`}
+                className={`ghost-btn nav-phone-hide${projectsOpen ? " active" : ""}`}
                 aria-expanded={projectsOpen}
                 aria-controls="project-slide"
                 onClick={() => {
@@ -2424,7 +2424,7 @@ export default function App() {
               </button>
               <button
                 type="button"
-                className={`ghost-btn${showSettings ? " active" : ""}`}
+                className={`ghost-btn nav-phone-hide${showSettings ? " active" : ""}`}
                 aria-expanded={showSettings}
                 aria-keyshortcuts="Meta+Shift+Comma"
                 title="Settings (⌘⇧,)"
@@ -2453,9 +2453,22 @@ export default function App() {
                 avatarUrl={user.avatarUrl}
                 isAdmin={user.isAdmin}
                 hasOxenKey={user.hasOxenKey}
+                onOpenLibrary={() => {
+                  setProjectsOpen(false);
+                  setShowSettings(false);
+                  setPeekId(null);
+                  setLibraryOpen(true);
+                }}
+                onOpenProjects={() => {
+                  setLibraryOpen(false);
+                  setShowSettings(false);
+                  setPeekId(null);
+                  setProjectsOpen(true);
+                }}
                 onOpenSettings={() => {
                   setLibraryOpen(false);
                   setProjectsOpen(false);
+                  setPeekId(null);
                   setShowSettings(true);
                 }}
                 onLogout={() => void logout()}
