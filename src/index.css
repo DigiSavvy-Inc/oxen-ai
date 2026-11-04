@@ -964,6 +964,10 @@ a {
   color: var(--text-muted);
 }
 
+.account-menu-pop > button.account-menu-phone {
+  display: none;
+}
+
 .account-menu-pop > button {
   display: flex;
   align-items: center;
@@ -2068,19 +2072,16 @@ button.history-expand-preview {
   }
 
   .main-top {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "brand tools"
-      "nav nav";
+    display: flex;
+    flex-wrap: nowrap;
     align-items: center;
-    row-gap: 8px;
-    column-gap: 8px;
+    gap: 8px;
     width: calc(100% - 24px);
   }
 
   .nav-brand {
-    grid-area: brand;
+    flex: 0 1 auto;
+    min-width: 0;
     margin-right: 0;
     overflow: hidden;
   }
@@ -2090,26 +2091,22 @@ button.history-expand-preview {
     min-width: 0;
   }
 
-  .main-top-right {
-    grid-area: tools;
-    margin-left: 0;
-  }
-
   .main-top-nav {
-    grid-area: nav;
-    flex-wrap: nowrap;
-    gap: 6px;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
+    flex: 0 0 auto;
+    overflow: visible;
   }
 
-  .main-top-nav::-webkit-scrollbar {
+  .main-top-nav .nav-phone-hide,
+  .menu-shortcut {
     display: none;
   }
 
-  .main-top-nav .ghost-btn {
-    flex: 0 0 auto;
+  .main-top-right {
+    margin-left: auto;
+  }
+
+  .account-menu-pop > button.account-menu-phone {
+    display: flex;
   }
 
   .credit-meter {
@@ -2141,7 +2138,17 @@ button.history-expand-preview {
   }
 
   .sidebar-header {
+    align-items: flex-start;
     padding: 10px 12px;
+  }
+
+  .sidebar-header-actions {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .sidebar-header-actions .sidebar-close {
+    margin-left: auto;
   }
 
   .sidebar-close {
@@ -5321,9 +5328,13 @@ select.attach-role {
 @media (max-width: 860px) {
   .sidebar,
   .project-slide,
-  .slide-backdrop,
   .modal-backdrop.is-drawer {
-    top: 88px;
+    top: 0;
+    z-index: 52;
+  }
+
+  .slide-backdrop {
+    display: none;
   }
 }
 

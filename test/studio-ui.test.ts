@@ -1433,19 +1433,21 @@ describe("app column", () => {
 });
 
 describe("account profile switch", () => {
-  it("keeps profile switching in the account menu and the phone nav on two rows", () => {
+  it("keeps profile switching in the account menu and opens the phone library over the nav", () => {
     const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
     const menu = readFileSync(new URL("../src/components/AccountMenu.tsx", import.meta.url), "utf8");
     const profiles = readFileSync(new URL("../src/components/ProfileSwitch.tsx", import.meta.url), "utf8");
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
-    expect(app).toContain('className="main-top-nav"');
+    expect(app).toContain("nav-phone-hide");
     expect(app).not.toContain("<ProfileSwitch");
     expect(menu).toContain("<ProfileSwitch");
+    expect(menu).toContain("onOpenLibrary");
+    expect(menu).toContain("account-menu-phone");
     expect(profiles).toContain("Switch profile");
     expect(profiles).not.toContain("profile-switch-btn");
-    expect(css).toMatch(/\.main-top-nav\s*\{[^}]*display:\s*flex/);
-    expect(css).toMatch(/grid-template-areas:\s*"brand tools"\s*"nav nav"/);
-    expect(css).toMatch(/\.sidebar,\s*\n\s*\.project-slide,\s*\n\s*\.slide-backdrop,\s*\n\s*\.modal-backdrop\.is-drawer\s*\{[^}]*top:\s*88px/);
+    expect(css).toMatch(/\.main-top-nav \.nav-phone-hide/);
+    expect(css).toMatch(/\.sidebar,\s*\n\s*\.project-slide,\s*\n\s*\.modal-backdrop\.is-drawer\s*\{[^}]*top:\s*0/);
+    expect(css).toMatch(/\.sidebar,\s*\n\s*\.project-slide,\s*\n\s*\.modal-backdrop\.is-drawer\s*\{[^}]*z-index:\s*52/);
   });
 });
 

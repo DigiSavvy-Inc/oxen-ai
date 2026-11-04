@@ -7,6 +7,8 @@ export function AccountMenu({
   avatarUrl,
   isAdmin,
   hasOxenKey,
+  onOpenLibrary,
+  onOpenProjects,
   onOpenSettings,
   onLogout,
   profiles,
@@ -20,6 +22,8 @@ export function AccountMenu({
   avatarUrl: string | null;
   isAdmin: boolean;
   hasOxenKey: boolean;
+  onOpenLibrary: () => void;
+  onOpenProjects: () => void;
   onOpenSettings: () => void;
   onLogout: () => void;
   profiles: StudioProfile[];
@@ -78,6 +82,33 @@ export function AccountMenu({
               {isAdmin ? " · admin" : ""}
             </div>
           </div>
+          <button
+            type="button"
+            role="menuitem"
+            className="account-menu-phone"
+            onClick={() => {
+              setOpen(false);
+              onOpenLibrary();
+            }}
+          >
+            Library
+            <span className="menu-shortcut" aria-hidden>
+              <kbd>⌘</kbd>
+              <kbd>⇧</kbd>
+              <kbd>L</kbd>
+            </span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="account-menu-phone"
+            onClick={() => {
+              setOpen(false);
+              onOpenProjects();
+            }}
+          >
+            Projects
+          </button>
           <ProfileSwitch
             profiles={profiles}
             activeId={activeProfileId}
