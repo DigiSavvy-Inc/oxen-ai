@@ -7,7 +7,8 @@ describe("gallery swipe slides", () => {
       gallerySwipeSlides([
         { id: "a", kind: "image", name: "hero", url: "https://studio.example/a.png", preview: "https://studio.example/a-t.png" },
         { id: "b", kind: "audio", name: "bed", url: "https://studio.example/b.mp3" },
-        { id: "c", kind: "video", name: "walk", url: "https://studio.example/c.mp4", preview: "" },
+        { id: "c", kind: "video", name: "walk", url: "https://studio.example/c.mp4", preview: "https://studio.example/c.mp4" },
+        { id: "e", kind: "video", name: "cut", url: "https://studio.example/e.mp4", preview: "https://studio.example/e.jpg" },
         { id: "d", kind: "image", name: "empty", url: "" },
       ]),
     ).toEqual([
@@ -24,6 +25,13 @@ describe("gallery swipe slides", () => {
         alt: "walk",
         mediaType: "video",
         poster: null,
+      },
+      {
+        id: "e",
+        src: "https://studio.example/e.mp4",
+        alt: "cut",
+        mediaType: "video",
+        poster: "https://studio.example/e.jpg",
       },
     ]);
   });

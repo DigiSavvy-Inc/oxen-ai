@@ -7,7 +7,7 @@ import { parseModelControls } from "../worker/schema";
 import { modelSupportsMode } from "../worker/model-modes";
 import { Canvas } from "../src/components/Canvas";
 import { Sidebar } from "../src/components/Sidebar";
-import { StagedStill } from "../src/components/StagedStill";
+import { StagedStill, StagedVideo } from "../src/components/StagedStill";
 import { Composer } from "../src/components/Composer";
 import { LibraryPeek } from "../src/components/LibraryPeek";
 import {
@@ -1047,6 +1047,14 @@ describe("in-gallery version expand", () => {
     const plain = renderToStaticMarkup(createElement(StagedStill, { full: "only.png", alt: "Ox" }));
     expect(plain).toContain('src="only.png"');
     expect(plain).not.toContain("staged-base");
+    const player = renderToStaticMarkup(
+      createElement(StagedVideo, { src: "clip.mp4", poster: "clip.mp4", controls: true, autoPlay: true }),
+    );
+    expect(player).toContain("<video");
+    expect(player).toContain('src="clip.mp4"');
+    expect(player).toContain("controls");
+    expect(player).not.toContain("staged-base");
+    expect(player).not.toContain("poster=");
   });
 });
 

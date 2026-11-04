@@ -1,3 +1,5 @@
+import { galleryPreviewIsImage } from "./gallery-thumbs";
+
 export type GallerySwipeItem = {
   id: string;
   kind: "image" | "video" | "audio";
@@ -25,7 +27,7 @@ export function gallerySwipeSlides(items: readonly GallerySwipeItem[]): GalleryS
       src: item.url,
       alt: item.name,
       mediaType: item.kind,
-      poster: item.preview || null,
+      poster: item.preview && galleryPreviewIsImage(item.preview) ? item.preview : null,
     });
   }
   return slides;

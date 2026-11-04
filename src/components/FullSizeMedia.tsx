@@ -70,6 +70,7 @@ export function FullSizeMedia({
   activeId,
   onSlide,
   mediaType,
+  autoPlay = false,
 }: {
   src: string;
   alt: string;
@@ -78,6 +79,7 @@ export function FullSizeMedia({
   activeId?: string;
   onSlide?: (id: string) => void;
   mediaType?: FitMediaKind;
+  autoPlay?: boolean;
 }) {
   const [actualSize, setActualSize] = useState(false);
   const [phase, setPhase] = useState<GesturePhase>("idle");
@@ -333,6 +335,7 @@ export function FullSizeMedia({
           poster={poster}
           label={slide.alt}
           controls={interactive}
+          autoPlay={interactive && autoPlay}
           playsInline
           preload="metadata"
           muted={!interactive}
@@ -446,6 +449,7 @@ export function FullSizeMedia({
           poster={poster}
           label={alt}
           controls
+          autoPlay={autoPlay}
           playsInline
           preload="metadata"
           scale

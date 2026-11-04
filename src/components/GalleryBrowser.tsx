@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import type { GallerySummary } from "../lib/api";
 import { gallerySwipeSlides } from "../lib/gallery-slides";
 import { fileDragOffered, historyDragOffered, readHistoryDrag } from "../lib/history-drag";
@@ -98,6 +98,14 @@ export function GalleryBrowser(props: Props) {
     selectedItems.length > 0 &&
     !props.saving &&
     (destination === "new" ? Boolean(newName.trim()) : Boolean(destination));
+
+  function openSlide(item: GalleryDraftItem) {
+    setPlaying(null);
+    flushSync(() => setFitId(item.id));
+    if (item.kind !== "video") return;
+    const video = document.querySelector(".fullsize-backdrop video[controls]");
+    if (video instanceof HTMLVideoElement) void video.play().catch(() => {});
+  }
 
   function toggle(id: string) {
     setConfirmSelected(false);
@@ -312,10 +320,7 @@ export function GalleryBrowser(props: Props) {
                   type="button"
                   className="gallery-tile-hit"
                   aria-label={`Open ${item.name}`}
-                  onClick={() => {
-                    setPlaying(null);
-                    setFitId(item.id);
-                  }}
+                  onClick={() => openSlide(item)}
                 >
                   <GalleryThumb kind={item.kind} name={item.name} preview={item.preview} slot="tile" />
                 </button>
@@ -353,10 +358,7 @@ export function GalleryBrowser(props: Props) {
                     className="gallery-attach-one gallery-play"
                     aria-label={`Play ${item.name}`}
                     title="Play"
-                    onClick={() => {
-                      setPlaying(null);
-                      setFitId(item.id);
-                    }}
+                    onClick={() => openSlide(item)}
                   >
                     <PlayIcon />
                   </button>
@@ -407,6 +409,7 @@ export function GalleryBrowser(props: Props) {
           alt={fit.alt}
           slides={viewSlides}
           mediaType={fit.mediaType}
+          autoPlay={fit.mediaType === "video"}
           activeId={fit.id}
           onSlide={setFitId}
           onClose={() => setFitId(null)}

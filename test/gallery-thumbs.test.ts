@@ -55,6 +55,7 @@ describe("gallery slot thumbs", () => {
     expect(browser).toContain("onAttach(selectedItems)");
     expect(browser).toContain("onAttach([item])");
     expect(browser).toContain("Feature");
+    expect(browser).toContain('autoPlay={fit.mediaType === "video"}');
   });
 
   it("marks a gallery tile attached when its file is already on the composer", () => {

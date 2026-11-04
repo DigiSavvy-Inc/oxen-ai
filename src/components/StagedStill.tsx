@@ -1,4 +1,5 @@
-import { useState, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
+import { galleryPreviewIsImage } from "../lib/gallery-thumbs";
 
 const FULL_EDGE = 2048;
 
@@ -159,6 +160,12 @@ type VideoProps = {
   onClick?: (event: MouseEvent<HTMLElement>) => void;
 };
 
+/** A video file is not a poster. Using it as the stand-in image collapses the player. */
+function imagePoster(poster: string | null | undefined): string | null {
+  if (!poster || !galleryPreviewIsImage(poster)) return null;
+  return poster;
+}
+
 /** Show the frame already visible in the strip, then the new video once it has a frame of its own. */
 export function StagedVideo({
   src,
@@ -174,29 +181,42 @@ export function StagedVideo({
   scale = false,
   onClick,
 }: VideoProps) {
+  const posterImage = imagePoster(poster);
+  const videoNode = useRef<HTMLVideoElement | null>(null);
   const [forSrc, setForSrc] = useState(src);
   const [ready, setReady] = useState(false);
   const [still, setStill] = useState<{ url: string; ratio: number | null } | null>(() => {
     const frame = visibleVideoFrame(src);
     if (frame) return frame;
-    return poster ? { url: poster, ratio: cachedRatio(poster) } : null;
+    return posterImage ? { url: posterImage, ratio: cachedRatio(posterImage) } : null;
   });
   if (forSrc !== src) {
     const frame = visibleVideoFrame(src);
     setForSrc(src);
     setReady(false);
-    setStill(frame ? frame : poster ? { url: poster, ratio: cachedRatio(poster) } : null);
+    setStill(frame ? frame : posterImage ? { url: posterImage, ratio: cachedRatio(posterImage) } : null);
   }
 
   const reveal = (video: HTMLVideoElement | null) => {
+    videoNode.current = video;
     if (video && video.readyState >= 2) setReady(true);
   };
+
+  useEffect(() => {
+    const node = videoNode.current;
+    if (!node) return;
+    if (autoPlay) {
+      void node.play().catch(() => {});
+      return;
+    }
+    if (!node.paused) node.pause();
+  }, [autoPlay, src]);
   const video = (
     <video
       className={joinClass(className, still && "staged-sharp", still && ready && "is-ready")}
       src={src}
       aria-label={label}
-      poster={still?.url}
+      poster={posterImage ?? undefined}
       controls={controls}
       autoPlay={autoPlay}
       loop={loop}
