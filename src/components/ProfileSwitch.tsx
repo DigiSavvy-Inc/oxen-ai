@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { StudioProfile } from "../lib/api";
 
 type Props = {
@@ -8,45 +8,23 @@ type Props = {
   onCreate: (name: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  onDismiss?: () => void;
 };
 
 export function ProfileSwitch(props: Props) {
-  const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
   const active = props.profiles.find((profile) => profile.id === props.activeId) ?? props.profiles[0] ?? null;
-
-  useEffect(() => {
-    if (!open) return;
-    function onPointer(event: PointerEvent) {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      if (renamingId) {
-        setRenamingId(null);
-        return;
-      }
-      setOpen(false);
-    }
-    window.addEventListener("pointerdown", onPointer);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("pointerdown", onPointer);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open, renamingId]);
 
   if (!active) return null;
 
   function close() {
-    setOpen(false);
     setDraft("");
     setRenamingId(null);
     setConfirmDelete(false);
+    props.onDismiss?.();
   }
 
   function commitRename(id: string) {
@@ -61,23 +39,9 @@ export function ProfileSwitch(props: Props) {
   }
 
   return (
-    <div className="profile-switch" ref={rootRef}>
-      <button
-        type="button"
-        className={`profile-switch-btn${open ? " is-open" : ""}`}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Switch profile, ${active.name}`}
-        title={active.name}
-        onClick={() => {
-          setRenamingId(null);
-          setOpen((value) => !value);
-        }}
-      >
-        <SwitchIcon />
-      </button>
-      {open ? (
-        <div className="profile-menu" role="menu" aria-label="Profiles">
+    <div className="account-profiles">
+      <div className="account-profiles-label">Switch profile</div>
+      <div role="group" aria-label="Profiles">
           {props.profiles.map((profile) =>
             renamingId === profile.id ? (
               <form
@@ -170,8 +134,7 @@ export function ProfileSwitch(props: Props) {
               </button>
             )
           ) : null}
-        </div>
-      ) : null}
+      </div>
     </div>
   );
 }
@@ -191,17 +154,3 @@ function PencilIcon() {
   );
 }
 
-function SwitchIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-      <path
-        d="M2.5 5.2h9.2M9.4 2.8 12.2 5.2 9.4 7.6M13.5 10.8H4.3M6.6 8.4 3.8 10.8 6.6 13.2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}

@@ -208,7 +208,7 @@ export const DOC_ARTICLES: DocArticle[] = [
       },
       {
         type: "p",
-        text: "Profiles share this account and Oxen key. The switch icon sits to the right of your avatar. Hover it to see the current profile name, and open it to change, rename, or add a profile. Edit, beside each name in that list, changes the name in place. Library and galleries follow the active profile. Saved prompts stay on the account. Deleting a profile moves its media to another profile.",
+        text: "Profiles share this account and Oxen key. Open the account menu from the profile icon to switch profiles. The current name is listed there. Edit, beside each name, changes the name in place. Library and galleries follow the active profile. Saved prompts stay on the account. Deleting a profile moves its media to another profile.",
       },
     ],
   },
