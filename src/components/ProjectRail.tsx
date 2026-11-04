@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { GallerySummary, ProjectSummary, StudioProject, StudioStyle } from "../lib/api";
 
 type Props = {
@@ -12,8 +12,10 @@ type Props = {
   onNewSession: () => void;
   onEdit: (id: string) => void;
   onOpenGallery: (galleryId: string) => void;
+  onClose: () => void;
   linkedGalleries: { id: string; name: string }[];
   error?: string | null;
+  children?: ReactNode;
 };
 
 export function ProjectRail(props: Props) {
@@ -31,12 +33,22 @@ export function ProjectRail(props: Props) {
   }
 
   return (
-    <aside className={`project-rail${props.open ? " is-open" : ""}`} aria-label="Projects">
+    <aside
+      id="project-slide"
+      className={`project-slide${props.open ? " is-open" : ""}`}
+      aria-label="Projects"
+      inert={props.open ? undefined : true}
+    >
       <div className="project-rail-head">
         <strong>Projects</strong>
-        <button type="button" className="ghost-btn" onClick={() => setNaming((value) => !value)}>
-          New
-        </button>
+        <div className="project-rail-head-actions">
+          <button type="button" className="ghost-btn" onClick={() => setNaming((value) => !value)}>
+            New
+          </button>
+          <button type="button" className="gallery-close" aria-label="Close projects" onClick={props.onClose}>
+            ×
+          </button>
+        </div>
       </div>
       {naming ? (
         <form
@@ -130,6 +142,7 @@ export function ProjectRail(props: Props) {
           })}
         </ul>
       )}
+      {props.children}
     </aside>
   );
 }

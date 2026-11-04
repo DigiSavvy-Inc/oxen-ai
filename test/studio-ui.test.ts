@@ -1412,17 +1412,17 @@ describe("thumbnail frames", () => {
 });
 
 describe("app column", () => {
-  it("caps the shell, keeps the library flush left, and runs the attach peek to the right edge", () => {
+  it("caps the shell, slides the library in from the right, and runs the attach peek to the right edge", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
     expect(css).toContain("--app-max: 1440px");
     expect(css).toContain("--app-gutter:");
     expect(css).toMatch(/\.app-shell\s*\{[^}]*max-width:\s*var\(--app-max\)/);
-    expect(css).toMatch(/\.sidebar\s*\{[^}]*inset:\s*0 auto 0 0/);
+    expect(css).toMatch(/\.sidebar\s*\{[^}]*inset:\s*52px 0 0 auto/);
     expect(css).toMatch(
       /\.sidebar\s*\{[^}]*width:\s*min\(100vw,\s*calc\(var\(--app-gutter\) \+ var\(--panel-width\)\)\)/,
     );
-    expect(css).toMatch(/\.sidebar\s*\{[^}]*transform:\s*translateX\(calc\(-100% - 24px\)\)/);
-    expect(css).toMatch(/\.library-peek\s*\{[^}]*inset:\s*0 0 0 auto/);
+    expect(css).toMatch(/\.sidebar\s*\{[^}]*transform:\s*translateX\(calc\(100% \+ 24px\)\)/);
+    expect(css).toMatch(/\.library-peek\s*\{[^}]*inset:\s*52px 0 0 auto/);
     expect(css).toMatch(
       /\.library-peek\s*\{[^}]*width:\s*min\(100vw,\s*calc\(var\(--app-gutter\) \+ var\(--panel-width\)\)\)/,
     );
@@ -1667,13 +1667,15 @@ describe("mobile result stays reachable", () => {
 });
 
 describe("gallery drawer", () => {
-  it("is a side drawer on desktop and a full-screen sheet on a phone", () => {
+  it("covers the media above the prompt on desktop and fills the screen on a phone", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
-    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*position:\s*absolute/);
-    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*left:\s*calc\(100% \+ 12px\)/);
-    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*overflow:\s*hidden/);
-    expect(css).toMatch(/\.gallery-scroll\s*\{[^}]*overflow:\s*auto/);
     const drawer = readFileSync(new URL("../src/components/GalleryDrawer.tsx", import.meta.url), "utf8");
+    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*position:\s*absolute/);
+    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*top:\s*12px/);
+    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*bottom:\s*12px/);
+    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*overflow:\s*hidden/);
+    expect(drawer).toContain('document.querySelector(".workspace")');
+    expect(css).toMatch(/\.gallery-scroll\s*\{[^}]*overflow:\s*auto/);
     expect(drawer).toContain("New gallery");
     expect(css).toMatch(
       /@media \(max-width: 860px\) \{[\s\S]*\.gallery-drawer\.is-sheet\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0/,

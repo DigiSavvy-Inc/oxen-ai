@@ -970,7 +970,7 @@ export function SettingsModal({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop is-drawer" onClick={onClose}>
       <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-head">
           <h2>Settings</h2>

@@ -164,7 +164,7 @@ a {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   width: 100%;
   max-width: var(--app-max);
@@ -185,14 +185,14 @@ a {
   flex-direction: column;
   position: fixed;
   z-index: 40;
-  inset: 0 auto 0 0;
+  inset: 52px 0 0 auto;
   width: min(100vw, calc(var(--app-gutter) + var(--panel-width)));
   background: var(--bg-panel);
-  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   min-height: 0;
   overflow: hidden;
   overscroll-behavior: contain;
-  transform: translateX(calc(-100% - 24px));
+  transform: translateX(calc(100% + 24px));
   visibility: hidden;
   pointer-events: none;
   transition:
@@ -228,7 +228,7 @@ a {
 .library-peek {
   position: fixed;
   z-index: 40;
-  inset: 0 0 0 auto;
+  inset: 52px 0 0 auto;
   width: min(100vw, calc(var(--app-gutter) + var(--panel-width)));
   display: flex;
   flex-direction: column;
@@ -870,7 +870,20 @@ a {
   padding-right: var(--panel-width);
 }
 
+@media (min-width: 861px) {
+  .app-shell.library-open.has-peek .library-peek {
+    right: calc(var(--app-gutter) + var(--panel-width));
+    width: var(--panel-width);
+  }
+
+  .app-shell.library-open.has-peek .main {
+    padding-right: calc(var(--panel-width) * 2);
+  }
+}
+
 .main-top {
+  position: relative;
+  z-index: 48;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2056,14 +2069,24 @@ button.history-expand-preview {
     overflow: hidden;
   }
 
+  .sidebar,
+  .library-peek,
+  .project-slide,
+  .slide-backdrop,
+  .modal-backdrop.is-drawer {
+    top: 0;
+  }
+
   .sidebar {
     width: 100%;
+    border-left: 0;
     border-right: 0;
     padding-top: env(safe-area-inset-top);
   }
 
   .app-shell.library-open.has-peek .sidebar {
     width: 100%;
+    border-left: 0;
     border-right: 0;
   }
 
@@ -2938,12 +2961,13 @@ button.history-expand-preview {
 
 .gallery-drawer {
   position: absolute;
-  z-index: 8;
-  top: auto;
-  bottom: 0;
-  left: calc(100% + 12px);
-  width: 252px;
-  max-height: min(520px, calc(100vh - 16px));
+  z-index: 7;
+  top: 12px;
+  bottom: 12px;
+  left: max(18px, calc(50% - 460px));
+  right: max(18px, calc(50% - 460px));
+  width: auto;
+  max-height: none;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -2953,6 +2977,18 @@ button.history-expand-preview {
   border-radius: var(--radius-l);
   background: var(--neutral-1);
   box-shadow: var(--shadow);
+  animation: gallery-rise var(--motion-large-duration) var(--motion-large-easing);
+}
+
+@keyframes gallery-rise {
+  from {
+    transform: translateY(28px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
 }
 
 .gallery-drawer-head {
@@ -3702,31 +3738,6 @@ button.history-expand-preview {
   position: relative;
 }
 
-.profile-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  max-width: 100%;
-  padding: 2px 4px 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: transparent;
-}
-
-.profile-chip.is-open {
-  border-color: var(--border-strong);
-  background: var(--accent-soft);
-}
-
-.profile-name {
-  font-size: 13px;
-  font-weight: 600;
-  max-width: 8rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .profile-row,
 .profile-row-editor {
   display: flex;
@@ -3757,35 +3768,31 @@ button.history-expand-preview {
   padding: 4px 6px;
 }
 
-.profile-chip-rule {
-  color: var(--text-dim);
-  padding: 0 2px;
-  user-select: none;
-}
-
 .profile-switch-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 0;
-  background: transparent;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-elevated);
   color: var(--text-muted);
-  border-radius: 6px;
-  padding: 4px 6px;
-  font-size: 12px;
-  white-space: nowrap;
 }
 
-.profile-switch-btn:hover {
+.profile-switch-btn:hover,
+.profile-switch-btn.is-open {
   color: var(--text);
+  border-color: var(--border-strong);
   background: var(--bg-hover);
 }
 
 .profile-menu {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
-  z-index: 30;
+  right: 0;
+  left: auto;
+  z-index: 50;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -3838,6 +3845,7 @@ button.history-expand-preview {
     overflow: hidden;
     border-radius: 0;
     z-index: 80;
+    animation: none;
     padding:
       max(12px, env(safe-area-inset-top))
       12px
@@ -4529,10 +4537,6 @@ select.attach-role {
   background: var(--bg-active);
 }
 
-.app-shell.library-open .help-fab {
-  left: calc(min(100vw, calc(var(--app-gutter) + var(--panel-width))) + 12px);
-}
-
 .help-backdrop {
   z-index: 60;
 }
@@ -4670,6 +4674,35 @@ select.attach-role {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.modal-backdrop.is-drawer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  padding: 0;
+  top: 52px;
+}
+
+.modal-backdrop.is-drawer .settings-modal {
+  width: min(720px, 100%);
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  animation: settings-slide var(--motion-large-duration) var(--motion-large-easing);
+}
+
+@keyframes settings-slide {
+  from {
+    transform: translateX(32px);
+  }
+  to {
+    transform: none;
+  }
 }
 
 .settings-head {
@@ -4812,8 +4845,12 @@ select.attach-role {
 @media (prefers-reduced-motion: reduce) {
   .main,
   .sidebar,
-  .help-fab {
+  .help-fab,
+  .project-slide,
+  .gallery-drawer,
+  .modal-backdrop.is-drawer .settings-modal {
     transition: none;
+    animation: none;
   }
 }
 
@@ -4929,9 +4966,14 @@ select.attach-role {
 }
 
 @media (max-width: 860px) {
+  .modal-backdrop.is-drawer .settings-modal {
+    width: 100%;
+    animation: none;
+  }
+
   .settings-modal {
-    height: min(640px, 92vh);
-    max-height: min(640px, 92vh);
+    height: 100%;
+    max-height: none;
   }
 
   .settings-body {
@@ -5016,13 +5058,51 @@ select.attach-role {
   font-size: 13px;
 }
 
-.project-rail {
+.project-slide {
+  position: fixed;
+  z-index: 46;
+  inset: 52px 0 0 auto;
+  width: min(100vw, 420px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  border-right: 1px solid var(--border);
+  overscroll-behavior: contain;
+  border-left: 1px solid var(--border);
   background: var(--bg-panel);
-  padding: 14px 12px 24px;
+  padding: 14px 12px max(24px, env(safe-area-inset-bottom));
+  transform: translateX(calc(100% + 24px));
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform var(--motion-large-duration) var(--motion-large-easing),
+    visibility 0s linear var(--motion-large-duration);
+}
+
+.project-slide.is-open {
+  transform: none;
+  visibility: visible;
+  pointer-events: auto;
+  box-shadow: var(--shadow);
+  transition:
+    transform var(--motion-large-duration) var(--motion-large-easing),
+    visibility 0s linear 0s;
+}
+
+.slide-backdrop {
+  position: fixed;
+  inset: 52px 0 0 0;
+  z-index: 45;
+  border: 0;
+  background: color-mix(in srgb, var(--neutral-10) 18%, transparent);
+}
+
+.project-rail-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .project-rail-head,
@@ -5117,11 +5197,17 @@ select.attach-role {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin: 0 0 16px;
+  margin: 4px 0 0;
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-l);
   background: var(--neutral-1);
+}
+
+.project-editor-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .project-editor label,
@@ -5203,30 +5289,8 @@ select.attach-role {
   font-size: 13px;
 }
 
-.project-rail-toggle {
-  display: none;
-}
-
 @media (max-width: 760px) {
-  .app-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .project-rail {
-    position: fixed;
-    z-index: 46;
-    inset: 0 auto 0 0;
-    width: min(100vw, 280px);
-    transform: translateX(-105%);
-    transition: transform var(--motion-large-duration) var(--motion-large-easing);
-  }
-
-  .project-rail.is-open {
-    transform: none;
-    box-shadow: var(--shadow);
-  }
-
-  .project-rail-toggle {
-    display: inline-flex;
+  .project-slide {
+    width: 100%;
   }
 }

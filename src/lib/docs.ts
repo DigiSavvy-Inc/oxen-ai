@@ -185,7 +185,7 @@ export const DOC_ARTICLES: DocArticle[] = [
       },
       {
         type: "p",
-        text: "Gallery, on image edit and video modes, keeps a named set of references. Attach adds that set to the composer. New files sort themselves: images, video, and audio each land in their own group. An image or video starts as a character. Mark it Background, Object, or Style and it moves into backgrounds, objects, and styles. The same groups and roles are in the attachment gallery and in Library → Galleries. Library → Galleries lists every gallery before a mode is chosen. A gallery with more than four items shows its featured image larger. Edit and Delete are on each card. Inside a gallery, drop files or drag library tiles into the panel to add them. Click an image or a video to open a lightbox and move through those items with the arrows or a swipe that follows your finger, then click an image again for actual size. Play on a video opens that same lightbox. Play on audio opens a small player. Select items, then Attach, to add that set to the current generation. Select items to delete them, or copy or move them into another gallery or a new one. On a history preview, Add, Add set, and New gallery sit on the right of Click to attach. Choosing a gallery keeps the list open and says how many items were added.",
+        text: "Gallery, on image edit and video modes, keeps a named set of references. The panel covers the media above the prompt. Attach adds that set to the composer. Drag one tile onto the prompt to add just that file. New files sort themselves: images, video, and audio each land in their own group. An image or video starts as a character. Mark it Background, Object, or Style and it moves into backgrounds, objects, and styles. The same groups and roles are in the attachment gallery and in Library → Galleries. Library → Galleries lists every gallery before a mode is chosen. A gallery with more than four items shows its featured image larger. Edit and Delete are on each card. Inside a gallery, drop files or drag library tiles into the panel to add them. Click an image or a video to open a lightbox and move through those items with the arrows or a swipe that follows your finger, then click an image again for actual size. Play on a video opens that same lightbox. Play on audio opens a small player. Select items, then Attach, to add that set to the current generation. Select items to delete them, or copy or move them into another gallery or a new one. On a history preview, Add, Add set, and New gallery sit on the right of Click to attach. Choosing a gallery keeps the list open and says how many items were added.",
       },
     ],
   },
@@ -196,7 +196,7 @@ export const DOC_ARTICLES: DocArticle[] = [
     blocks: [
       {
         type: "p",
-        text: "Library is a slide-out of past work, using small thumbnails. Filter by tag. Tags apply to a generation group, not each variation.",
+        text: "Library slides in from the right. It is past work, using small thumbnails. Filter by tag. Tags apply to a generation group, not each variation. Projects and Settings use that same right edge, from buttons in the top bar.",
       },
       {
         type: "p",
@@ -208,7 +208,7 @@ export const DOC_ARTICLES: DocArticle[] = [
       },
       {
         type: "p",
-        text: "Profiles share this account and Oxen key. The top bar shows the profile name and Switch profile. Edit, beside each name in that list, changes the name in place. Library and galleries follow the active profile. Saved prompts stay on the account. Deleting a profile moves its media to another profile.",
+        text: "Profiles share this account and Oxen key. The switch icon sits to the right of your avatar. Hover it to see the current profile name, and open it to change, rename, or add a profile. Edit, beside each name in that list, changes the name in place. Library and galleries follow the active profile. Saved prompts stay on the account. Deleting a profile moves its media to another profile.",
       },
     ],
   },
@@ -239,7 +239,7 @@ export const DOC_ARTICLES: DocArticle[] = [
           "⌘⇧L opens and closes the library.",
           "⌘⇧, opens Settings. ⌘, is left for the browser.",
           "? opens this help, unless the cursor is in a text field.",
-          "Esc closes help, Settings, the library, a peek, or a full-size image.",
+          "Esc closes help, Settings, Projects, the library, a peek, or a full-size image.",
           "In the full-size view, the left and right arrow keys move between variations.",
           "While the @ mention menu is open, the arrow keys move through matches and Enter inserts one.",
         ],
@@ -253,7 +253,7 @@ export const DOC_ARTICLES: DocArticle[] = [
     blocks: [
       {
         type: "p",
-        text: "Settings lives under your avatar. The panes are API key, Models, Library, Notifications, and Cleanup.",
+        text: "Settings is in the top bar and under your avatar. It slides in from the right. The panes are API key, Models, Library, Notifications, and Cleanup.",
       },
       {
         type: "ul",

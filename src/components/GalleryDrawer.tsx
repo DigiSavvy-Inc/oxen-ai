@@ -47,7 +47,9 @@ function isFileDrag(event: DragEvent) {
 export function GalleryDrawer(props: Props) {
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [phone, setPhone] = useState(false);
+  const [phone, setPhone] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 860px)").matches,
+  );
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropInsertBefore, setDropInsertBefore] = useState<number | null>(null);
   const [fileHover, setFileHover] = useState(false);
@@ -270,6 +272,10 @@ export function GalleryDrawer(props: Props) {
     </aside>
   );
 
-  if (phone && typeof document !== "undefined") return createPortal(drawer, document.body);
+  if (typeof document !== "undefined") {
+    if (phone) return createPortal(drawer, document.body);
+    const workspace = document.querySelector(".workspace");
+    if (workspace) return createPortal(drawer, workspace);
+  }
   return drawer;
 }

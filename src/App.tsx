@@ -388,6 +388,8 @@ export default function App() {
 
   useEffect(() => {
     if (user?.oxenKeyUnreadable) {
+      setLibraryOpen(false);
+      setProjectsOpen(false);
       setShowSettings(true);
       setError(OXEN_KEY_UNREADABLE_MESSAGE);
     } else if (user?.hasOxenKey) {
@@ -629,6 +631,16 @@ export default function App() {
           cancelCreateGalleryRef.current();
           return;
         }
+        if (showSettings) {
+          event.preventDefault();
+          setShowSettings(false);
+          return;
+        }
+        if (projectsOpen) {
+          event.preventDefault();
+          setProjectsOpen(false);
+          return;
+        }
         if (peekId) {
           event.preventDefault();
           setPeekId(null);
@@ -644,17 +656,23 @@ export default function App() {
       if (event.code === "KeyL") {
         event.preventDefault();
         if (libraryOpen) closeLibrary();
-        else setLibraryOpen(true);
+        else {
+          setProjectsOpen(false);
+          setShowSettings(false);
+          setLibraryOpen(true);
+        }
         return;
       }
       if (event.code === "Comma") {
         event.preventDefault();
+        setLibraryOpen(false);
+        setProjectsOpen(false);
         setShowSettings(true);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [peekId, libraryOpen, closeLibrary]);
+  }, [peekId, libraryOpen, closeLibrary, showSettings, projectsOpen]);
 
   useEffect(() => {
     if (!user || !libraryOpen) return;
@@ -1919,6 +1937,8 @@ export default function App() {
   async function onGenerate() {
     if (!canGenerate || !mode) {
       if (!user?.hasOxenKey) {
+        setLibraryOpen(false);
+        setProjectsOpen(false);
         setShowSettings(true);
         setError("Add your Oxen API key in Settings first.");
       }
@@ -2197,13 +2217,88 @@ export default function App() {
         onOpenSession={(projectId, sessionId) => void openSession(projectId, sessionId)}
         onNewSession={newProjectSession}
         onEdit={(id) => void openProject(id).then(() => setProjectEditorOpen(true))}
+        onClose={() => setProjectsOpen(false)}
         error={projectError}
         onOpenGallery={(id) => {
           setFocusGalleryId(id);
+          setProjectsOpen(false);
+          setShowSettings(false);
           setLibraryOpen(true);
           void onGalleryLoad(id);
         }}
-      />
+      >
+        {projectEditorOpen && activeProject ? (
+          <ProjectEditor
+            key={activeProject.updatedAt}
+            project={activeProject}
+            styles={styles}
+            galleries={gallerySummaries}
+            busy={projectBusy}
+            error={projectError}
+            onClose={() => setProjectEditorOpen(false)}
+            onSave={(body) => {
+              setProjectBusy(true);
+              setProjectError(null);
+              void api
+                .saveProject(activeProject.id, body)
+                .then(({ project }) => {
+                  rememberProject(project);
+                  setPrompt(project.prompt);
+                  setLookId(project.styleId);
+                  setProjectEditorOpen(false);
+                })
+                .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t save those defaults"))
+                .finally(() => setProjectBusy(false));
+            }}
+            onCreateStyle={async (name, body) => {
+              setProjectBusy(true);
+              try {
+                const { style } = await api.createStyle(name, body);
+                setStyles((prev) => [style, ...prev.filter((item) => item.id !== style.id)]);
+                setLookId(style.id);
+                return style;
+              } catch (err) {
+                setProjectError(err instanceof Error ? err.message : "Couldn’t save that look");
+                return null;
+              } finally {
+                setProjectBusy(false);
+              }
+            }}
+            onPinComposer={pinComposerMedia}
+            onDelete={() => {
+              if (!window.confirm(`Delete ${activeProject.name}?`)) return;
+              setProjectBusy(true);
+              void api
+                .deleteProject(activeProject.id)
+                .then(() => {
+                  setProjectSummaries((prev) => prev.filter((item) => item.id !== activeProject.id));
+                  setActiveProject(null);
+                  setActiveSessionId(null);
+                  setProjectEditorOpen(false);
+                })
+                .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t delete that project"))
+                .finally(() => setProjectBusy(false));
+            }}
+            onShare={(days) => {
+              setProjectBusy(true);
+              void api
+                .createProjectShare(activeProject.id, days)
+                .then(() => api.project(activeProject.id))
+                .then(({ project }) => rememberProject(project))
+                .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t create a share link"))
+                .finally(() => setProjectBusy(false));
+            }}
+            onRevoke={(shareId) => {
+              void api.revokeProjectShare(activeProject.id, shareId).then(() =>
+                api.project(activeProject.id).then(({ project }) => rememberProject(project)),
+              );
+            }}
+          />
+        ) : null}
+      </ProjectRail>
+      {projectsOpen ? (
+        <button type="button" className="slide-backdrop" aria-label="Close projects" onClick={() => setProjectsOpen(false)} />
+      ) : null}
       <Sidebar
         logoUrl={branding.logoUrl}
         generations={libraryItems}
@@ -2294,7 +2389,11 @@ export default function App() {
                 title="Library (⌘⇧L)"
                 onClick={() => {
                   if (libraryOpen) closeLibrary();
-                  else setLibraryOpen(true);
+                  else {
+                    setProjectsOpen(false);
+                    setShowSettings(false);
+                    setLibraryOpen(true);
+                  }
                 }}
               >
                 Library
@@ -2309,12 +2408,59 @@ export default function App() {
               </button>
               <button
                 type="button"
-                className="ghost-btn project-rail-toggle"
+                className={`ghost-btn${projectsOpen ? " active" : ""}`}
                 aria-expanded={projectsOpen}
-                onClick={() => setProjectsOpen((value) => !value)}
+                aria-controls="project-slide"
+                onClick={() => {
+                  const next = !projectsOpen;
+                  setProjectsOpen(next);
+                  if (next) {
+                    setLibraryOpen(false);
+                    setShowSettings(false);
+                    setPeekId(null);
+                  }
+                }}
               >
                 Projects
               </button>
+              <button
+                type="button"
+                className={`ghost-btn${showSettings ? " active" : ""}`}
+                aria-expanded={showSettings}
+                aria-keyshortcuts="Meta+Shift+Comma"
+                title="Settings (⌘⇧,)"
+                onClick={() => {
+                  const next = !showSettings;
+                  setShowSettings(next);
+                  if (next) {
+                    setLibraryOpen(false);
+                    setProjectsOpen(false);
+                    setPeekId(null);
+                  }
+                }}
+              >
+                Settings
+                <span className="nav-shortcut" aria-hidden>
+                  <kbd>⌘</kbd>
+                  <kbd>⇧</kbd>
+                  <kbd>,</kbd>
+                </span>
+              </button>
+            </div>
+            <div className="main-top-right">
+              <CreditMeter credits={credits} />
+              <AccountMenu
+                userLogin={user.login}
+                avatarUrl={user.avatarUrl}
+                isAdmin={user.isAdmin}
+                hasOxenKey={user.hasOxenKey}
+                onOpenSettings={() => {
+                  setLibraryOpen(false);
+                  setProjectsOpen(false);
+                  setShowSettings(true);
+                }}
+                onLogout={() => void logout()}
+              />
               <ProfileSwitch
                 profiles={profiles}
                 activeId={activeProfileId}
@@ -2324,90 +2470,11 @@ export default function App() {
                 onDelete={(id) => void onDeleteProfile(id)}
               />
             </div>
-            <div className="main-top-right">
-              <CreditMeter credits={credits} />
-              <AccountMenu
-                userLogin={user.login}
-                avatarUrl={user.avatarUrl}
-                isAdmin={user.isAdmin}
-                hasOxenKey={user.hasOxenKey}
-                onOpenSettings={() => setShowSettings(true)}
-                onLogout={() => void logout()}
-              />
-            </div>
           </div>
           {shareName ? (
             <p className="share-banner">
               Using {shareName}. This run does not change the owner’s project.
             </p>
-          ) : null}
-          {projectEditorOpen && activeProject ? (
-            <ProjectEditor
-              key={activeProject.updatedAt}
-              project={activeProject}
-              styles={styles}
-              galleries={gallerySummaries}
-              busy={projectBusy}
-              error={projectError}
-              onClose={() => setProjectEditorOpen(false)}
-              onSave={(body) => {
-                setProjectBusy(true);
-                setProjectError(null);
-                void api
-                  .saveProject(activeProject.id, body)
-                  .then(({ project }) => {
-                    rememberProject(project);
-                    setPrompt(project.prompt);
-                    setLookId(project.styleId);
-                    setProjectEditorOpen(false);
-                  })
-                  .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t save those defaults"))
-                  .finally(() => setProjectBusy(false));
-              }}
-              onCreateStyle={async (name, body) => {
-                setProjectBusy(true);
-                try {
-                  const { style } = await api.createStyle(name, body);
-                  setStyles((prev) => [style, ...prev.filter((item) => item.id !== style.id)]);
-                  setLookId(style.id);
-                  return style;
-                } catch (err) {
-                  setProjectError(err instanceof Error ? err.message : "Couldn’t save that look");
-                  return null;
-                } finally {
-                  setProjectBusy(false);
-                }
-              }}
-              onPinComposer={pinComposerMedia}
-              onDelete={() => {
-                if (!window.confirm(`Delete ${activeProject.name}?`)) return;
-                setProjectBusy(true);
-                void api
-                  .deleteProject(activeProject.id)
-                  .then(() => {
-                    setProjectSummaries((prev) => prev.filter((item) => item.id !== activeProject.id));
-                    setActiveProject(null);
-                    setActiveSessionId(null);
-                    setProjectEditorOpen(false);
-                  })
-                  .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t delete that project"))
-                  .finally(() => setProjectBusy(false));
-              }}
-              onShare={(days) => {
-                setProjectBusy(true);
-                void api
-                  .createProjectShare(activeProject.id, days)
-                  .then(() => api.project(activeProject.id))
-                  .then(({ project }) => rememberProject(project))
-                  .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t create a share link"))
-                  .finally(() => setProjectBusy(false));
-              }}
-              onRevoke={(shareId) => {
-                void api.revokeProjectShare(activeProject.id, shareId).then(() =>
-                  api.project(activeProject.id).then(({ project }) => rememberProject(project)),
-                );
-              }}
-            />
           ) : null}
           <div className={`workspace${peek ? " has-peek" : ""}`}>
             {mode === "chat" ? (

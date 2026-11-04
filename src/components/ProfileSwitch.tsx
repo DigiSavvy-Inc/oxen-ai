@@ -62,25 +62,20 @@ export function ProfileSwitch(props: Props) {
 
   return (
     <div className="profile-switch" ref={rootRef}>
-      <div className={`profile-chip${open ? " is-open" : ""}`}>
-        <span className="profile-name">{active.name}</span>
-        <span className="profile-chip-rule" aria-hidden="true">
-          |
-        </span>
-        <button
-          type="button"
-          className="profile-switch-btn"
-          aria-haspopup="menu"
-          aria-expanded={open}
-          onClick={() => {
-            setRenamingId(null);
-            setOpen((value) => !value);
-          }}
-        >
-          Switch profile
-          <SwitchIcon />
-        </button>
-      </div>
+      <button
+        type="button"
+        className={`profile-switch-btn${open ? " is-open" : ""}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Switch profile, ${active.name}`}
+        title={active.name}
+        onClick={() => {
+          setRenamingId(null);
+          setOpen((value) => !value);
+        }}
+      >
+        <SwitchIcon />
+      </button>
       {open ? (
         <div className="profile-menu" role="menu" aria-label="Profiles">
           {props.profiles.map((profile) =>
