@@ -5,12 +5,10 @@ export function referenceRoleTitle(role: MediaRole): string {
   switch (role) {
     case "character":
       return "Character. A tight headshot only. A full body, a pose, or the room marked Character sends the wrong face.";
-    case "clothing":
-      return "Clothing. The outfit only. A face or a full body marked Clothing sends the wrong thing.";
     case "background":
       return "Background. The empty place. The prompt has to say this file is the room.";
     case "object":
-      return "Object. A prop, a body, or a pose. The prompt has to say which, and that it is not a face.";
+      return "Object. A prop, a body, a pose, or the outfit. The prompt has to say which, and that it is not a face.";
     case "style":
       return "Style. Light and color only. It will also copy the people and the room unless the prompt forbids that.";
     default: {
@@ -31,12 +29,10 @@ export function referenceBindingLine(
       return kind === "video"
         ? `${token} is this person's face and motion.`
         : `${token} is a face only.`;
-    case "clothing":
-      return `${token} is the clothing. Use it for the outfit only, not the face or the body.`;
     case "background":
       return `${token} is the place. Keep it fixed.`;
     case "object":
-      return `${token} is not a face. Use it only for the body, prop, or pose named in this prompt.`;
+      return `${token} is not a face. Use it only for the outfit, body, prop, or pose named in this prompt.`;
     case "style":
       return `${token} is light and color only. Do not copy the people or the room.`;
     default: {

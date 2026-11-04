@@ -1268,14 +1268,13 @@ export function resolveEnqueueAspectRatio(
   return trimmed || undefined;
 }
 
-export const REFERENCE_ROLES = ["character", "clothing", "background", "object", "style"] as const;
+export const REFERENCE_ROLES = ["character", "background", "object", "style"] as const;
 export type MediaRole = (typeof REFERENCE_ROLES)[number];
 
 /** `scene` is the previous name for a non-face reference. */
 export function normalizeMediaRole(value: string | null | undefined): MediaRole {
-  if (value === "clothing") return "clothing";
+  if (value === "clothing" || value === "object") return "object";
   if (value === "background" || value === "scene") return "background";
-  if (value === "object") return "object";
   if (value === "style") return "style";
   return "character";
 }
@@ -1289,8 +1288,6 @@ export function referenceRoleLabel(value: string | null | undefined): string {
   switch (role) {
     case "character":
       return "Character";
-    case "clothing":
-      return "Clothing";
     case "background":
       return "Background";
     case "object":
@@ -1325,7 +1322,6 @@ function slotForRole(slots: MediaSlot[], kind: MediaKind, role: MediaRole): Medi
   switch (role) {
     case "character":
       return face ?? generic;
-    case "clothing":
     case "background":
     case "object":
     case "style":

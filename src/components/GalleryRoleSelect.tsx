@@ -54,19 +54,6 @@ function RoleGlyph({ role }: { role: MediaRole }) {
           />
         </svg>
       );
-    case "clothing":
-      return (
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <path
-            d="M5.1 3.2 8 4.5 10.9 3.2 13.2 5.1 11.3 6.4V13H4.7V6.4L2.8 5.1 5.1 3.2z"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
-        </svg>
-      );
     case "background":
       return (
         <svg viewBox="0 0 16 16" aria-hidden="true">

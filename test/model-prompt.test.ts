@@ -4,13 +4,17 @@ import { shareExpiresAt, shareIsOpen } from "../worker/projects";
 
 describe("model prompt", () => {
   it("puts the look and the role lines ahead of the prompt", () => {
-    const sent = composeModelPrompt("Hold still.", "Shot on 35mm.", "@Image1 is the clothing. Use it for the outfit only, not the face or the body.");
+    const sent = composeModelPrompt(
+      "Hold still.",
+      "Shot on 35mm.",
+      "@Image1 is not a face. Use it only for the outfit, body, prop, or pose named in this prompt.",
+    );
     expect(sent).toBe(
-      "Shot on 35mm.\n\n@Image1 is the clothing. Use it for the outfit only, not the face or the body.\n\nHold still.",
+      "Shot on 35mm.\n\n@Image1 is not a face. Use it only for the outfit, body, prop, or pose named in this prompt.\n\nHold still.",
     );
   });
 
-  it("explains clothing in the prompt when the model has no role inputs", () => {
+  it("explains an outfit as an object when the model has no role inputs", () => {
     const delivery = deliveryForRun({
       prompt: "Hold still.",
       styleBody: "",
@@ -18,7 +22,8 @@ describe("model prompt", () => {
       routedKinds: [],
       faceFirst: false,
     });
-    expect(delivery.prompt).toContain("@Image1 is the clothing.");
+    expect(delivery.prompt).toContain("@Image1 is not a face.");
+    expect(delivery.prompt).toContain("outfit");
     expect(delivery.notes).toEqual([]);
   });
 
@@ -28,7 +33,7 @@ describe("model prompt", () => {
       styleBody: "",
       attachments: [
         { name: "face.png", kind: "image", role: "character" },
-        { name: "coat.png", kind: "image", role: "clothing" },
+        { name: "coat.png", kind: "image", role: "object" },
       ],
       routedKinds: ["image"],
       faceFirst: true,
@@ -36,7 +41,7 @@ describe("model prompt", () => {
     expect(delivery.prompt).toBe("Hold still.");
     expect(delivery.notes).toEqual([
       "@Image1 Character goes to the face input.",
-      "@Image2 Clothing goes to the reference input.",
+      "@Image2 Object goes to the reference input.",
     ]);
   });
 });

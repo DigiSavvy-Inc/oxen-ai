@@ -27,11 +27,11 @@ describe("reference bindings", () => {
       [
         "@Image1 is a face only.",
         "@Image2 is a face only.",
-        "@Image3 is not a face. Use it only for the body, prop, or pose named in this prompt.",
+        "@Image3 is not a face. Use it only for the outfit, body, prop, or pose named in this prompt.",
         "@Image4 is the place. Keep it fixed.",
-        "@Image5 is not a face. Use it only for the body, prop, or pose named in this prompt.",
+        "@Image5 is not a face. Use it only for the outfit, body, prop, or pose named in this prompt.",
         "@Image6 is light and color only. Do not copy the people or the room.",
-        "@Video1 is not a face. Use it only for the body, prop, or pose named in this prompt.",
+        "@Video1 is not a face. Use it only for the outfit, body, prop, or pose named in this prompt.",
         "@Audio1, @Audio2, and @Audio3 are different voices. Name who speaks on every line. A voice with no face stays off camera.",
       ].join("\n"),
     );
