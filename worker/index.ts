@@ -116,6 +116,26 @@ import {
   saveGallery,
 } from "./galleries";
 import { presentGallery, presentGalleryList } from "./gallery-present";
+import {
+  acceptProjectMedia,
+  acceptProjectName,
+  acceptProjectPrompt,
+  acceptStyleBody,
+  acceptStyleName,
+  createProject,
+  createShare,
+  createStyle,
+  deleteProject,
+  deleteStyle,
+  getProject,
+  listProjects,
+  listStyles,
+  readShare,
+  revokeShare,
+  saveSession,
+  shareExpiresAt,
+  updateProject,
+} from "./projects";
 import { parseServedThumbWidth, resizeServedImage } from "./gallery-thumbs";
 import {
   deleteSavedPrompt,
@@ -1368,6 +1388,165 @@ app.post("/api/galleries", async (c) => {
     throw new HTTPException(400, { message: "Gallery needs a name and media that belong to you" });
   }
   return c.json({ gallery: await presentGallery(c.env, user.id, gallery) });
+});
+
+app.get("/api/projects", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  if (!profileId) return c.json({ projects: [], styles: [] });
+  const [projects, styles] = await Promise.all([
+    listProjects(c.env.DB, user.id, profileId),
+    listStyles(c.env.DB, user.id, profileId),
+  ]);
+  return c.json({ projects, styles });
+});
+
+app.post("/api/projects", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ name?: unknown }>();
+  const name = acceptProjectName(body.name);
+  if (!name) throw new HTTPException(400, { message: "Project needs a name" });
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  if (!profileId) throw new HTTPException(400, { message: "Project needs a profile" });
+  const id = await createProject(c.env.DB, user.id, profileId, name);
+  const project = await getProject(c.env, user.id, id);
+  return c.json({ project });
+});
+
+app.get("/api/projects/:id", async (c) => {
+  const user = await requireUser(c);
+  const project = await getProject(c.env, user.id, c.req.param("id"));
+  if (!project) throw new HTTPException(404, { message: "Project not found" });
+  return c.json({ project });
+});
+
+app.put("/api/projects/:id", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{
+    name?: unknown;
+    prompt?: unknown;
+    styleId?: unknown;
+    media?: unknown;
+    galleryIds?: unknown;
+  }>();
+  const name = acceptProjectName(body.name);
+  const prompt = acceptProjectPrompt(body.prompt);
+  const media = acceptProjectMedia(user.id, body.media);
+  const galleryIds = Array.isArray(body.galleryIds)
+    ? body.galleryIds.filter((item): item is string => typeof item === "string")
+    : null;
+  if (!name || prompt == null || !media || !galleryIds) {
+    throw new HTTPException(400, { message: "Project defaults need a name, prompt, and your own media" });
+  }
+  const styleId = typeof body.styleId === "string" && body.styleId.trim() ? body.styleId.trim() : null;
+  const saved = await updateProject(c.env.DB, user.id, c.req.param("id"), {
+    name,
+    prompt,
+    styleId,
+    media,
+    galleryIds,
+  });
+  if (!saved) throw new HTTPException(404, { message: "Project not found" });
+  return c.json({ project: await getProject(c.env, user.id, c.req.param("id")) });
+});
+
+app.delete("/api/projects/:id", async (c) => {
+  const user = await requireUser(c);
+  const removed = await deleteProject(c.env.DB, user.id, c.req.param("id"));
+  if (!removed) throw new HTTPException(404, { message: "Project not found" });
+  return c.json({ ok: true });
+});
+
+app.post("/api/styles", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ name?: unknown; body?: unknown }>();
+  const name = acceptStyleName(body.name);
+  const text = acceptStyleBody(body.body);
+  if (!name || !text) throw new HTTPException(400, { message: "A look needs a name and a description" });
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  if (!profileId) throw new HTTPException(400, { message: "A look needs a profile" });
+  const style = await createStyle(c.env.DB, user.id, profileId, name, text);
+  return c.json({ style });
+});
+
+app.delete("/api/styles/:id", async (c) => {
+  const user = await requireUser(c);
+  const removed = await deleteStyle(c.env.DB, user.id, c.req.param("id"));
+  if (!removed) throw new HTTPException(404, { message: "Look not found" });
+  return c.json({ ok: true });
+});
+
+app.post("/api/projects/:id/sessions", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{
+    id?: unknown;
+    name?: unknown;
+    prompt?: unknown;
+    styleId?: unknown;
+    mode?: unknown;
+    model?: unknown;
+    params?: unknown;
+    attachments?: unknown;
+    generationIds?: unknown;
+  }>();
+  const prompt = acceptProjectPrompt(body.prompt);
+  const attachments = acceptProjectMedia(user.id, body.attachments);
+  if (prompt == null || !attachments) {
+    throw new HTTPException(400, { message: "Session needs a prompt and media that belong to you" });
+  }
+  const params =
+    body.params && typeof body.params === "object" && !Array.isArray(body.params)
+      ? (body.params as Record<string, unknown>)
+      : {};
+  const generationIds = Array.isArray(body.generationIds)
+    ? body.generationIds.filter((item): item is string => typeof item === "string")
+    : [];
+  const id = await saveSession(c.env.DB, user.id, c.req.param("id"), {
+    id: typeof body.id === "string" ? body.id : null,
+    name: body.name,
+    prompt,
+    styleId: typeof body.styleId === "string" && body.styleId.trim() ? body.styleId.trim() : null,
+    mode: typeof body.mode === "string" ? body.mode : null,
+    model: typeof body.model === "string" ? body.model : "",
+    params,
+    attachments,
+    generationIds,
+  });
+  if (!id) throw new HTTPException(404, { message: "Project not found" });
+  const project = await getProject(c.env, user.id, c.req.param("id"));
+  const session = project?.sessions.find((item) => item.id === id) ?? null;
+  return c.json({ session });
+});
+
+app.post("/api/projects/:id/shares", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ days?: unknown }>();
+  const days = body.days == null || body.days === "" ? null : Number(body.days);
+  if (days != null && (!Number.isFinite(days) || days < 1 || days > 90)) {
+    throw new HTTPException(400, { message: "Share expiry is 1 to 90 days, or open until you revoke it" });
+  }
+  const share = await createShare(
+    c.env.DB,
+    user.id,
+    c.req.param("id"),
+    shareExpiresAt(Math.floor(Date.now() / 1000), days),
+  );
+  if (!share) throw new HTTPException(404, { message: "Project not found" });
+  return c.json({ share });
+});
+
+app.delete("/api/projects/:id/shares/:shareId", async (c) => {
+  const user = await requireUser(c);
+  const removed = await revokeShare(c.env.DB, user.id, c.req.param("id"), c.req.param("shareId"));
+  if (!removed) throw new HTTPException(404, { message: "Share link not found" });
+  return c.json({ ok: true });
+});
+
+app.get("/api/shares/:token", async (c) => {
+  await requireUser(c);
+  const share = await readShare(c.env, c.req.param("token"));
+  if (!share) throw new HTTPException(404, { message: "That share link is closed" });
+  return c.json({ share });
 });
 
 app.get("/api/models/favorites", async (c) => {

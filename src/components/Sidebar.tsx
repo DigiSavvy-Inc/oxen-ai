@@ -265,6 +265,7 @@ export function Sidebar({
   onGalleryPlace,
   onHistoryAddToGallery,
   onHistoryCreateGallery,
+  focusGalleryId = null,
 }: {
   logoUrl: string;
   generations: Generation[];
@@ -319,6 +320,7 @@ export function Sidebar({
   onGalleryPlace: (input: GalleryPlace) => Promise<boolean>;
   onHistoryAddToGallery: (galleryId: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
   onHistoryCreateGallery: (name: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
+  focusGalleryId?: string | null;
 }) {
   const pagingKey = `${page}\0${appliedTag}\0${media}`;
   const [pageDraft, setPageDraft] = useState(String(page));
@@ -341,6 +343,12 @@ export function Sidebar({
   const [bulkNote, setBulkNote] = useState<string | null>(null);
   const [confirmBulk, setConfirmBulk] = useState<null | "studio" | "oxen">(null);
   const [downloadingPicked, setDownloadingPicked] = useState(false);
+
+  useEffect(() => {
+    if (!focusGalleryId) return;
+    setGalleriesOpen(true);
+    setManagingGallery(true);
+  }, [focusGalleryId]);
 
   function leaveGalleries() {
     setGalleriesOpen(false);

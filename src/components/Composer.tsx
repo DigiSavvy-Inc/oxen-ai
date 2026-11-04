@@ -232,6 +232,11 @@ type Props = {
   error: string | null;
   onGenerate: () => void;
   canGenerate: boolean;
+  looks?: { id: string; name: string }[];
+  lookId?: string | null;
+  onLookChange?: (id: string | null) => void;
+  modelDelivery?: string;
+  deliveryNotes?: string[];
 };
 
 const PROMPT_HEIGHT_BASE = 96;
@@ -985,6 +990,38 @@ export function Composer(props: Props) {
             </span>
           </div>
           </div>
+          {(props.looks ?? []).length > 0 ? (
+            <label className="project-look">
+              Look
+              <select
+                className="field"
+                aria-label="Look"
+                value={props.lookId ?? ""}
+                onChange={(event) => props.onLookChange?.(event.target.value || null)}
+              >
+                <option value="">None</option>
+                {(props.looks ?? []).map((look) => (
+                  <option key={look.id} value={look.id}>
+                    {look.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {props.modelDelivery &&
+          (props.modelDelivery !== props.prompt.trim() || (props.deliveryNotes ?? []).length > 0) ? (
+            <details className="model-delivery">
+              <summary>What the model receives</summary>
+              {props.modelDelivery !== props.prompt.trim() ? <pre>{props.modelDelivery}</pre> : null}
+              {(props.deliveryNotes ?? []).length > 0 ? (
+                <ul>
+                  {(props.deliveryNotes ?? []).map((note) => (
+                    <li key={note}>{note}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </details>
+          ) : null}
           {showMentions ? (
             <div className="mention-menu" id="mention-menu" role="listbox" ref={mentionMenuRef}>
               {mentionItems.map((item, index) => (

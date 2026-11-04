@@ -14,6 +14,7 @@ import { Loader } from "./components/Loader";
 import { SettingsModal } from "./components/SettingsModal";
 import { Sidebar } from "./components/Sidebar";
 import { ProfileSwitch } from "./components/ProfileSwitch";
+import { ProjectEditor, ProjectRail } from "./components/ProjectRail";
 import {
   api,
   firstSupportedMode,
@@ -32,6 +33,10 @@ import {
   type SavedPrompt,
   type StudioProfile,
   type StudioSettings,
+  type ProjectMedia,
+  type ProjectSummary,
+  type StudioProject,
+  type StudioStyle,
 } from "./lib/api";
 import { groupGenerationBatches, isActiveGeneration, mergeGenerations, siblingAfterRemoval } from "./lib/batches";
 import { brandMarkClass, useInstanceBranding } from "./lib/branding";
@@ -80,6 +85,7 @@ import {
 import { GALLERY_MAX_ITEMS as GALLERY_ITEM_CAP } from "../worker/gallery-limits";
 import { DEFAULT_HISTORY_PAGE_SIZE } from "../worker/history-page-size";
 import { DEFAULT_VIDEO_THUMB_SECONDS } from "../worker/video-thumb";
+import { deliveryForRun } from "./lib/model-prompt";
 
 type StagedMedia = {
   file?: File;
@@ -144,6 +150,18 @@ export default function App() {
   const [moderation, setModeration] = useState("");
   const [getLastFrame, setGetLastFrame] = useState(false);
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
+  const [projectSummaries, setProjectSummaries] = useState<ProjectSummary[]>([]);
+  const [styles, setStyles] = useState<StudioStyle[]>([]);
+  const [activeProject, setActiveProject] = useState<StudioProject | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [lookId, setLookId] = useState<string | null>(null);
+  const [shareName, setShareName] = useState<string | null>(null);
+  const [shareStyleBody, setShareStyleBody] = useState("");
+  const [projectEditorOpen, setProjectEditorOpen] = useState(false);
+  const [projectBusy, setProjectBusy] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [focusGalleryId, setFocusGalleryId] = useState<string | null>(null);
   const [gallerySummaries, setGallerySummaries] = useState<GallerySummary[]>([]);
   const [galleryId, setGalleryId] = useState<string | null>(null);
   const [galleryName, setGalleryName] = useState("");
@@ -510,6 +528,75 @@ export default function App() {
           setProfiles([]);
           setActiveProfileId(null);
         }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setProjectSummaries([]);
+      setStyles([]);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .projects()
+      .then((data) => {
+        if (cancelled) return;
+        setProjectSummaries(data.projects);
+        setStyles(data.styles);
+        setActiveProject((current) => {
+          if (!current) return current;
+          return data.projects.some((item) => item.id === current.id) ? current : null;
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setProjectError("Projects are not available yet.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, activeProfileId]);
+
+  useEffect(() => {
+    if (!user) return;
+    const token = new URLSearchParams(window.location.search).get("share");
+    if (!token) return;
+    let cancelled = false;
+    void api
+      .sharedProject(token)
+      .then(({ share }) => {
+        if (cancelled) return;
+        setShareName(share.name);
+        setShareStyleBody(share.styleBody);
+        setActiveProject(null);
+        setActiveSessionId(null);
+        setLookId(null);
+        setPrompt(share.prompt);
+        setStaged((prev) => {
+          for (const item of prev) releasePreview(item.preview);
+          return share.media.flatMap((item) =>
+            item.url
+              ? [
+                  {
+                    kind: item.kind,
+                    name: item.name,
+                    key: item.key,
+                    url: item.url ?? undefined,
+                    preview: item.url,
+                    role: item.role ? normalizeMediaRole(item.role) : undefined,
+                  },
+                ]
+              : [],
+          );
+        });
+        setSelectedId(null);
+        setKeepCanvasClear(true);
+      })
+      .catch((err) => {
+        if (!cancelled) setProjectError(err instanceof Error ? err.message : "That share link is closed");
       });
     return () => {
       cancelled = true;
@@ -1684,6 +1771,151 @@ export default function App() {
     }
   }
 
+  function replaceStaged(next: StagedMedia[]) {
+    setStaged((prev) => {
+      for (const item of prev) releasePreview(item.preview);
+      return next;
+    });
+  }
+
+  function mediaFromProject(items: ProjectMedia[]): StagedMedia[] {
+    return items.flatMap((item) =>
+      item.url
+        ? [
+            {
+              kind: item.kind,
+              name: item.name,
+              key: item.key,
+              url: item.url,
+              preview: item.url,
+              role: item.role ? normalizeMediaRole(item.role) : undefined,
+            },
+          ]
+        : [],
+    );
+  }
+
+  function rememberProject(project: StudioProject) {
+    setActiveProject(project);
+    setProjectSummaries((prev) => {
+      const summary: ProjectSummary = {
+        id: project.id,
+        name: project.name,
+        updatedAt: project.updatedAt,
+        sessions: project.sessions.map((session) => ({
+          id: session.id,
+          name: session.name,
+          updatedAt: session.updatedAt,
+        })),
+      };
+      return [summary, ...prev.filter((item) => item.id !== project.id)];
+    });
+  }
+
+  function applyProjectDefaults(project: StudioProject) {
+    setLookId(project.styleId);
+    setPrompt(project.prompt);
+    replaceStaged(mediaFromProject(project.media));
+    setSelectedId(null);
+    setKeepCanvasClear(true);
+  }
+
+  async function openProject(id: string) {
+    setProjectError(null);
+    setShareName(null);
+    setShareStyleBody("");
+    const { project } = await api.project(id);
+    setActiveSessionId(null);
+    setProjectEditorOpen(false);
+    rememberProject(project);
+    applyProjectDefaults(project);
+  }
+
+  async function openSession(projectId: string, sessionId: string) {
+    setProjectError(null);
+    setShareName(null);
+    setShareStyleBody("");
+    const { project } = await api.project(projectId);
+    const session = project.sessions.find((item) => item.id === sessionId);
+    if (!session) return;
+    rememberProject(project);
+    setActiveSessionId(session.id);
+    setLookId(session.styleId);
+    setPrompt(session.prompt);
+    replaceStaged(mediaFromProject(session.attachments));
+    if (session.mode === "text-to-image" || session.mode === "image-to-image" || session.mode === "text-to-video" || session.mode === "reference-to-video" || session.mode === "video-to-video" || session.mode === "text-to-audio" || session.mode === "chat") {
+      setMode(session.mode);
+    }
+    if (session.model) setModel(session.model);
+    if (typeof session.params.aspectRatio === "string") setAspectRatio(session.params.aspectRatio);
+    if (typeof session.params.duration === "string") setDuration(session.params.duration);
+    if (typeof session.params.seed === "string") setSeed(session.params.seed);
+    if (typeof session.params.numGenerations === "number") setNumGenerations(session.params.numGenerations);
+    const loaded: Generation[] = [];
+    for (const generationId of session.generationIds) {
+      try {
+        const { generation } = await api.getGeneration(generationId);
+        loaded.push(generation);
+      } catch {
+        /* a deleted result stays out of the session */
+      }
+    }
+    if (loaded.length > 0) setGenerations((prev) => mergeGenerations(prev, loaded));
+    setSelectedId(session.generationIds.at(-1) ?? null);
+    setKeepCanvasClear(false);
+  }
+
+  function newProjectSession() {
+    if (!activeProject) return;
+    setActiveSessionId(null);
+    applyProjectDefaults(activeProject);
+  }
+
+  async function pinComposerMedia(): Promise<ProjectMedia[]> {
+    const next: ProjectMedia[] = [];
+    for (const item of staged) {
+      let key = item.key;
+      let url = item.url ?? null;
+      if (!key && item.file) {
+        const uploaded = await api.upload(item.file);
+        key = uploaded.key;
+        url = uploaded.url;
+      }
+      if (!key) continue;
+      next.push({
+        kind: item.kind,
+        name: item.name,
+        key,
+        role: item.kind === "audio" ? null : normalizeMediaRole(item.role),
+        url,
+      });
+    }
+    return next;
+  }
+
+  const imageRouted = Boolean(
+    controls?.slots.some((slot) => slot.field === "input_face_images") &&
+      controls.slots.some((slot) => slot.kind === "image" && !slot.field.includes("face")),
+  );
+  const videoRouted = Boolean(
+    controls?.slots.some((slot) => slot.field === "input_face_videos") &&
+      controls.slots.some((slot) => slot.kind === "video" && !slot.field.includes("face")),
+  );
+  const delivery = useMemo(() => {
+    const styleBody = shareStyleBody || styles.find((style) => style.id === lookId)?.body || "";
+    const routedKinds = [
+      ...(imageRouted ? (["image"] as const) : []),
+      ...(videoRouted ? (["video"] as const) : []),
+    ];
+    return deliveryForRun({
+      prompt,
+      styleBody,
+      attachments: staged.map((item) => ({ name: item.name, kind: item.kind, role: item.role })),
+      routedKinds,
+      faceFirst: imageRouted || videoRouted,
+    });
+  }, [imageRouted, lookId, prompt, shareStyleBody, staged, styles, videoRouted]);
+
   async function onGenerate() {
     if (!canGenerate || !mode) {
       if (!user?.hasOxenKey) {
@@ -1730,15 +1962,31 @@ export default function App() {
       const audios: string[] = [];
       const imageRoles: MediaRole[] = [];
       const videoRoles: MediaRole[] = [];
+      const sessionAttachments: ProjectMedia[] = [];
       const sendable = [
         ...takeStagedOfKind(staged, "image", capForKind("image")),
         ...takeStagedOfKind(staged, "video", capForKind("video")),
         ...takeStagedOfKind(staged, "audio", capForKind("audio")),
       ];
       for (const item of sendable) {
-        const url = item.url ?? (item.file ? (await api.upload(item.file)).url : "");
+        let url = item.url ?? "";
+        let key = item.key;
+        if (!url && item.file) {
+          const uploaded = await api.upload(item.file);
+          url = uploaded.url;
+          key = uploaded.key;
+        }
         if (!url) continue;
         const role = normalizeMediaRole(item.role);
+        if (key) {
+          sessionAttachments.push({
+            kind: item.kind,
+            name: item.name,
+            key,
+            role: item.kind === "audio" ? null : role,
+            url,
+          });
+        }
         if (item.kind === "image") {
           images.push(url);
           imageRoles.push(role);
@@ -1768,8 +2016,11 @@ export default function App() {
         model,
         num_generations: numGenerations,
       };
-      if (multiPrompt) payload.multi_prompt = multiPrompt;
-      else payload.prompt = prompt.trim();
+      if (multiPrompt) {
+        payload.multi_prompt = prompt.trim()
+          ? [{ ...multiPrompt[0], prompt: delivery.prompt }, ...multiPrompt.slice(1)]
+          : multiPrompt;
+      } else payload.prompt = delivery.prompt;
       const sendAspect =
         mode !== "text-to-audio" ||
         Boolean(controls?.aspectRatios && controls.aspectRatios.length > 0);
@@ -1830,6 +2081,45 @@ export default function App() {
       setPeekId(null);
       setGenerations((prev) => mergeGenerations(prev, created));
       setSelectedId(created[0]?.id ?? null);
+      if (activeProject && !shareName) {
+        const current = activeProject.sessions.find((session) => session.id === activeSessionId);
+        const saved = await api.saveProjectSession(activeProject.id, {
+          id: activeSessionId,
+          name: current?.name,
+          prompt,
+          styleId: lookId,
+          mode,
+          model,
+          params: { aspectRatio, duration, seed, numGenerations },
+          attachments: sessionAttachments,
+          generationIds: created.map((item) => item.id),
+        });
+        const session = saved.session;
+        if (session) {
+          setActiveSessionId(session.id);
+          setActiveProject((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  sessions: [session, ...prev.sessions.filter((item) => item.id !== session.id)],
+                }
+              : prev,
+          );
+          setProjectSummaries((prev) =>
+            prev.map((item) =>
+              item.id === activeProject.id
+                ? {
+                    ...item,
+                    sessions: [
+                      { id: session.id, name: session.name, updatedAt: session.updatedAt },
+                      ...item.sessions.filter((entry) => entry.id !== session.id),
+                    ],
+                  }
+                : item,
+            ),
+          );
+        }
+      }
       void refreshCredits();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Generation failed");
@@ -1888,6 +2178,32 @@ export default function App() {
   return (
     <VideoThumbSecondsProvider seconds={settings?.videoThumbSeconds ?? DEFAULT_VIDEO_THUMB_SECONDS}>
     <div className={`app-shell${libraryOpen ? " library-open" : ""}${peek ? " has-peek" : ""}`}>
+      <ProjectRail
+        open={projectsOpen}
+        projects={projectSummaries}
+        activeProjectId={activeProject?.id ?? null}
+        activeSessionId={activeSessionId}
+        linkedGalleries={(activeProject?.galleryIds ?? [])
+          .map((id) => gallerySummaries.find((gallery) => gallery.id === id))
+          .filter((gallery): gallery is GallerySummary => Boolean(gallery))}
+        onCreate={(name) => {
+          void api.createProject(name).then(({ project }) => {
+            rememberProject(project);
+            applyProjectDefaults(project);
+            setActiveSessionId(null);
+          }).catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t create that project"));
+        }}
+        onOpenProject={(id) => void openProject(id)}
+        onOpenSession={(projectId, sessionId) => void openSession(projectId, sessionId)}
+        onNewSession={newProjectSession}
+        onEdit={(id) => void openProject(id).then(() => setProjectEditorOpen(true))}
+        error={projectError}
+        onOpenGallery={(id) => {
+          setFocusGalleryId(id);
+          setLibraryOpen(true);
+          void onGalleryLoad(id);
+        }}
+      />
       <Sidebar
         logoUrl={branding.logoUrl}
         generations={libraryItems}
@@ -1951,6 +2267,7 @@ export default function App() {
         onGalleryPlace={onGalleryPlace}
         onHistoryAddToGallery={addHistoryToGallery}
         onHistoryCreateGallery={createHistoryGallery}
+        focusGalleryId={focusGalleryId}
       />
       {libraryOpen ? (
         <button
@@ -1990,6 +2307,14 @@ export default function App() {
               <button type="button" className="ghost-btn" onClick={startNew}>
                 New
               </button>
+              <button
+                type="button"
+                className="ghost-btn project-rail-toggle"
+                aria-expanded={projectsOpen}
+                onClick={() => setProjectsOpen((value) => !value)}
+              >
+                Projects
+              </button>
               <ProfileSwitch
                 profiles={profiles}
                 activeId={activeProfileId}
@@ -2011,6 +2336,79 @@ export default function App() {
               />
             </div>
           </div>
+          {shareName ? (
+            <p className="share-banner">
+              Using {shareName}. This run does not change the owner’s project.
+            </p>
+          ) : null}
+          {projectEditorOpen && activeProject ? (
+            <ProjectEditor
+              key={activeProject.updatedAt}
+              project={activeProject}
+              styles={styles}
+              galleries={gallerySummaries}
+              busy={projectBusy}
+              error={projectError}
+              onClose={() => setProjectEditorOpen(false)}
+              onSave={(body) => {
+                setProjectBusy(true);
+                setProjectError(null);
+                void api
+                  .saveProject(activeProject.id, body)
+                  .then(({ project }) => {
+                    rememberProject(project);
+                    setPrompt(project.prompt);
+                    setLookId(project.styleId);
+                    setProjectEditorOpen(false);
+                  })
+                  .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t save those defaults"))
+                  .finally(() => setProjectBusy(false));
+              }}
+              onCreateStyle={async (name, body) => {
+                setProjectBusy(true);
+                try {
+                  const { style } = await api.createStyle(name, body);
+                  setStyles((prev) => [style, ...prev.filter((item) => item.id !== style.id)]);
+                  setLookId(style.id);
+                  return style;
+                } catch (err) {
+                  setProjectError(err instanceof Error ? err.message : "Couldn’t save that look");
+                  return null;
+                } finally {
+                  setProjectBusy(false);
+                }
+              }}
+              onPinComposer={pinComposerMedia}
+              onDelete={() => {
+                if (!window.confirm(`Delete ${activeProject.name}?`)) return;
+                setProjectBusy(true);
+                void api
+                  .deleteProject(activeProject.id)
+                  .then(() => {
+                    setProjectSummaries((prev) => prev.filter((item) => item.id !== activeProject.id));
+                    setActiveProject(null);
+                    setActiveSessionId(null);
+                    setProjectEditorOpen(false);
+                  })
+                  .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t delete that project"))
+                  .finally(() => setProjectBusy(false));
+              }}
+              onShare={(days) => {
+                setProjectBusy(true);
+                void api
+                  .createProjectShare(activeProject.id, days)
+                  .then(() => api.project(activeProject.id))
+                  .then(({ project }) => rememberProject(project))
+                  .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t create a share link"))
+                  .finally(() => setProjectBusy(false));
+              }}
+              onRevoke={(shareId) => {
+                void api.revokeProjectShare(activeProject.id, shareId).then(() =>
+                  api.project(activeProject.id).then(({ project }) => rememberProject(project)),
+                );
+              }}
+            />
+          ) : null}
           <div className={`workspace${peek ? " has-peek" : ""}`}>
             {mode === "chat" ? (
               <ChatThread turns={chatTurns} busy={busy} />
@@ -2148,6 +2546,11 @@ export default function App() {
             error={error}
             onGenerate={() => void onGenerate()}
             canGenerate={canGenerate}
+            looks={styles}
+            lookId={lookId}
+            onLookChange={setLookId}
+            modelDelivery={delivery.prompt}
+            deliveryNotes={delivery.notes}
           />
         </div>
       </main>

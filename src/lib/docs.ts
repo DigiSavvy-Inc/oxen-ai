@@ -98,11 +98,11 @@ export const DOC_ARTICLES: DocArticle[] = [
       },
       {
         type: "p",
-        text: "Reference modes, including Seedance 2.5, can run with no file attached. On Seedance, each image or video can be marked Character, Background, Object, or Style. Character sends faces and people on the face input. Background, Object, and Style are normal references, and the prompt should say what each @Image or @Video does. Seedance 2.5 also has a Task control: Auto lets the prompt decide, Edit video changes a reference clip, and Extend video continues it. Edit and Extend need a reference video, keep that clip's aspect ratio, and work best with MOV. Edit keeps the length on Auto.",
+        text: "Reference modes, including Seedance 2.5, can run with no file attached. On Seedance, each image or video can be marked Character, Clothing, Background, Object, or Style. Character sends faces and people on the face input. Clothing, Background, Object, and Style are normal references, and the prompt should say what each @Image or @Video does. Seedance 2.5 also has a Task control: Auto lets the prompt decide, Edit video changes a reference clip, and Extend video continues it. Edit and Extend need a reference video, keep that clip's aspect ratio, and work best with MOV. Edit keeps the length on Auto.",
       },
       {
         type: "p",
-        text: "Character is a tight headshot only. A full body, a pose, or the room marked Character sends the wrong face. Background is the empty place. Object is a prop, a body, or a pose, and the prompt has to say which. Style is light and color, and it copies the people and the room in that frame unless the prompt forbids it. Audio has no role. Insert bindings adds one line per chip, using the chip numbers, and leaves a line that is already in the prompt. With two or more audio clips, name who speaks on every line. An offscreen voice has no face, so name it every time it speaks. Character files are numbered before the others.",
+        text: "Character is a tight headshot only. A full body, a pose, or the room marked Character sends the wrong face. Clothing is the outfit, not the face or the body. Background is the empty place. Object is a prop, a body, or a pose, and the prompt has to say which. Style is light and color, and it copies the people and the room in that frame unless the prompt forbids it. Audio has no role. Insert bindings adds one line per chip, using the chip numbers, and leaves a line that is already in the prompt. With two or more audio clips, name who speaks on every line. An offscreen voice has no face, so name it every time it speaks. Character files are numbered before the others.",
       },
     ],
   },

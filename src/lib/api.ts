@@ -213,6 +213,70 @@ export type ProfileState = {
   activeId: string | null;
 };
 
+export type StudioStyle = {
+  id: string;
+  name: string;
+  body: string;
+};
+
+export type ProjectMedia = {
+  kind: "image" | "video" | "audio";
+  name: string;
+  key: string;
+  role: string | null;
+  url: string | null;
+};
+
+export type ProjectSessionSummary = {
+  id: string;
+  name: string;
+  updatedAt: number;
+};
+
+export type ProjectSummary = {
+  id: string;
+  name: string;
+  updatedAt: number;
+  sessions: ProjectSessionSummary[];
+};
+
+export type ProjectSession = ProjectSessionSummary & {
+  prompt: string;
+  styleId: string | null;
+  mode: string | null;
+  model: string;
+  params: Record<string, unknown>;
+  attachments: ProjectMedia[];
+  generationIds: string[];
+};
+
+export type ProjectShare = {
+  id: string;
+  token: string;
+  expiresAt: number | null;
+  revokedAt: number | null;
+  createdAt: number;
+};
+
+export type StudioProject = {
+  id: string;
+  name: string;
+  prompt: string;
+  styleId: string | null;
+  updatedAt: number;
+  media: ProjectMedia[];
+  galleryIds: string[];
+  sessions: ProjectSession[];
+  shares: ProjectShare[];
+};
+
+export type SharedProject = {
+  name: string;
+  prompt: string;
+  styleBody: string;
+  media: ProjectMedia[];
+};
+
 export type CreditBalance = {
   remaining: number | null;
   currency: string;
@@ -506,6 +570,82 @@ export const api = {
   deleteGallery: (id: string) =>
     fetch(`/api/galleries/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
       parseJson<{ ok: boolean }>(r),
+    ),
+  projects: () =>
+    fetch("/api/projects").then((r) =>
+      parseJson<{ projects: ProjectSummary[]; styles: StudioStyle[] }>(r),
+    ),
+  project: (id: string) =>
+    fetch(`/api/projects/${encodeURIComponent(id)}`).then((r) =>
+      parseJson<{ project: StudioProject }>(r),
+    ),
+  createProject: (name: string) =>
+    fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }).then((r) => parseJson<{ project: StudioProject }>(r)),
+  saveProject: (
+    id: string,
+    body: {
+      name: string;
+      prompt: string;
+      styleId: string | null;
+      media: { kind: ProjectMedia["kind"]; name: string; key: string; role: string | null }[];
+      galleryIds: string[];
+    },
+  ) =>
+    fetch(`/api/projects/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => parseJson<{ project: StudioProject }>(r)),
+  deleteProject: (id: string) =>
+    fetch(`/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
+      parseJson<{ ok: boolean }>(r),
+    ),
+  createStyle: (name: string, body: string) =>
+    fetch("/api/styles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, body }),
+    }).then((r) => parseJson<{ style: StudioStyle }>(r)),
+  deleteStyle: (id: string) =>
+    fetch(`/api/styles/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
+      parseJson<{ ok: boolean }>(r),
+    ),
+  saveProjectSession: (
+    projectId: string,
+    body: {
+      id?: string | null;
+      name?: string;
+      prompt: string;
+      styleId: string | null;
+      mode: string | null;
+      model: string;
+      params: Record<string, unknown>;
+      attachments: { kind: ProjectMedia["kind"]; name: string; key: string; role: string | null }[];
+      generationIds: string[];
+    },
+  ) =>
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => parseJson<{ session: ProjectSession | null }>(r)),
+  createProjectShare: (projectId: string, days: number | null) =>
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/shares`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days }),
+    }).then((r) => parseJson<{ share: ProjectShare }>(r)),
+  revokeProjectShare: (projectId: string, shareId: string) =>
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/shares/${encodeURIComponent(shareId)}`, {
+      method: "DELETE",
+    }).then((r) => parseJson<{ ok: boolean }>(r)),
+  sharedProject: (token: string) =>
+    fetch(`/api/shares/${encodeURIComponent(token)}`).then((r) =>
+      parseJson<{ share: SharedProject }>(r),
     ),
   profiles: () => fetch("/api/profiles").then((r) => parseJson<ProfileState>(r)),
   createProfile: (name: string) =>

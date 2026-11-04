@@ -164,7 +164,7 @@ a {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 220px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   width: 100%;
   max-width: var(--app-max);
@@ -3249,6 +3249,10 @@ button.history-expand-preview {
   background: #321b46;
 }
 
+.gallery-role-chip.is-clothing {
+  background: #7a3e56;
+}
+
 .gallery-role-chip.is-background {
   background: #2f6284;
 }
@@ -5014,4 +5018,219 @@ select.attach-role {
 .chat-waiting {
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.project-rail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+  padding: 14px 12px 24px;
+}
+
+.project-rail-head,
+.project-editor-head,
+.project-editor-share-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.project-rail-head {
+  margin-bottom: 10px;
+}
+
+.project-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.project-rail-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-rail-row.is-active .project-rail-title {
+  font-weight: 650;
+}
+
+.project-rail-expand,
+.project-rail-title,
+.project-session {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-rail-title,
+.project-session {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-rail-title {
+  flex: 1;
+  padding: 4px 2px;
+  font-size: 13px;
+}
+
+.project-rail-sessions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 0 8px 18px;
+}
+
+.project-session {
+  padding: 3px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.project-session.is-active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.project-rail-empty {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.project-rail-name {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.project-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--neutral-1);
+}
+
+.project-editor label,
+.project-editor-galleries label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.project-editor-galleries {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.project-editor-galleries label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-editor-look,
+.project-editor-media ul,
+.project-editor-share ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-editor-media li,
+.project-editor-share li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.project-look {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.project-look select {
+  flex: 1;
+}
+
+.model-delivery {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.model-delivery pre,
+.model-delivery ul {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  color: var(--text);
+  font: inherit;
+}
+
+.share-banner {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-hover);
+  font-size: 13px;
+}
+
+.project-rail-toggle {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .project-rail {
+    position: fixed;
+    z-index: 46;
+    inset: 0 auto 0 0;
+    width: min(100vw, 280px);
+    transform: translateX(-105%);
+    transition: transform var(--motion-large-duration) var(--motion-large-easing);
+  }
+
+  .project-rail.is-open {
+    transform: none;
+    box-shadow: var(--shadow);
+  }
+
+  .project-rail-toggle {
+    display: inline-flex;
+  }
 }
