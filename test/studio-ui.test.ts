@@ -1436,16 +1436,25 @@ describe("account profile switch", () => {
   it("keeps profile switching in the account menu and opens the phone library over the nav", () => {
     const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
     const menu = readFileSync(new URL("../src/components/AccountMenu.tsx", import.meta.url), "utf8");
+    const phone = readFileSync(new URL("../src/components/PhoneNav.tsx", import.meta.url), "utf8");
     const profiles = readFileSync(new URL("../src/components/ProfileSwitch.tsx", import.meta.url), "utf8");
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
     expect(app).toContain("nav-phone-hide");
+    expect(app).toContain("<PhoneNav");
     expect(app).not.toContain("<ProfileSwitch");
     expect(menu).toContain("<ProfileSwitch");
-    expect(menu).toContain("onOpenLibrary");
-    expect(menu).toContain("account-menu-phone");
+    expect(menu).not.toContain("onOpenLibrary");
+    expect(menu).not.toContain("account-menu-phone");
+    expect(phone).toContain("Library");
+    expect(phone).toContain("Projects");
+    expect(phone).toContain("Galleries");
+    expect(phone).toContain('aria-label="Library, projects, and galleries"');
     expect(profiles).toContain("Switch profile");
     expect(profiles).not.toContain("profile-switch-btn");
+    expect(css).toMatch(/\.phone-nav\s*\{[^}]*display:\s*none/);
     expect(css).toMatch(/\.main-top-nav \.nav-phone-hide/);
+    expect(css).toMatch(/\.phone-nav-drawer\s*\{[^}]*left:\s*0/);
+    expect(css).toMatch(/\.gallery-card-mosaic\s*\{[^}]*max-height:\s*calc\(64px \* 5 \+ 4px \* 4\)/);
     expect(css).toMatch(/\.sidebar,\s*\n\s*\.project-slide,\s*\n\s*\.modal-backdrop\.is-drawer\s*\{[^}]*top:\s*0/);
     expect(css).toMatch(/\.sidebar,\s*\n\s*\.project-slide,\s*\n\s*\.modal-backdrop\.is-drawer\s*\{[^}]*z-index:\s*52/);
   });

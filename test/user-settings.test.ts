@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { GALLERY_LISTING_PREVIEW_COUNT } from "../worker/gallery-present";
+import { DEFAULT_HISTORY_PAGE_SIZE } from "../worker/history-page-size";
 import { parseStudioSettings } from "../worker/user-settings";
 
 describe("parseStudioSettings", () => {
@@ -23,14 +25,17 @@ describe("parseStudioSettings", () => {
       generate_audio: true,
       omni_reference_task_type: "extend",
     });
-    expect(settings.historyPageSize).toBe(24);
+    expect(settings.historyPageSize).toBe(36);
     expect(settings.videoThumbSeconds).toBe(1);
   });
 
   it("keeps history page size on the allowed steps", () => {
     expect(parseStudioSettings("{}", "{}", 48).historyPageSize).toBe(48);
-    expect(parseStudioSettings("{}", "{}", 13).historyPageSize).toBe(24);
-    expect(parseStudioSettings("{}", "{}", null).historyPageSize).toBe(24);
+    expect(parseStudioSettings("{}", "{}", 36).historyPageSize).toBe(36);
+    expect(parseStudioSettings("{}", "{}", 13).historyPageSize).toBe(36);
+    expect(parseStudioSettings("{}", "{}", null).historyPageSize).toBe(36);
+    expect(DEFAULT_HISTORY_PAGE_SIZE).toBe(36);
+    expect(GALLERY_LISTING_PREVIEW_COUNT).toBe(DEFAULT_HISTORY_PAGE_SIZE);
   });
 
   it("reads the gallery video still as seconds", () => {

@@ -196,11 +196,11 @@ export const DOC_ARTICLES: DocArticle[] = [
     blocks: [
       {
         type: "p",
-        text: "Library slides in from the right. It is past work, using small thumbnails. Filter by tag. Tags apply to a generation group, not each variation. Projects and Settings use that same right edge, from buttons in the top bar. On a phone, Library, Projects, and Settings open from the profile icon, and each one fills the screen.",
+        text: "Library slides in from the right. It is past work, using small thumbnails. Filter by tag. Tags apply to a generation group, not each variation. Projects and Settings use that same right edge, from buttons in the top bar. On a phone, Library, Projects, and Galleries open together from the menu on the left, and each one fills the screen. Settings stays on the profile icon.",
       },
       {
         type: "p",
-        text: "Settings → Library sets how many groups appear on a page: 12, 24, 48, or 96. The default is 24. A group of variations counts as one item. Older work is on later pages. Type a page number in the pager and press Enter to jump there. Download page saves the current page when there is more than one.",
+        text: "Settings → Library sets how many groups appear on a page: 12, 24, 36, 48, or 96. The default is 36. A gallery card shows that same number of items. A group of variations counts as one item. Older work is on later pages. Type a page number in the pager and press Enter to jump there. Download page saves the current page when there is more than one.",
       },
       {
         type: "p",

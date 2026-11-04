@@ -10,6 +10,7 @@ import { VideoThumbSecondsProvider } from "./components/GalleryThumb";
 import { CreditMeter } from "./components/CreditMeter";
 import { LibraryPeek } from "./components/LibraryPeek";
 import { LoginPage } from "./components/LoginPage";
+import { PhoneNav } from "./components/PhoneNav";
 import { Loader } from "./components/Loader";
 import { SettingsModal } from "./components/SettingsModal";
 import { Sidebar } from "./components/Sidebar";
@@ -188,6 +189,7 @@ export default function App() {
   const [credits, setCredits] = useState<CreditBalance | null>(null);
   const [keepCanvasClear, setKeepCanvasClear] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(initialLibraryOpen);
+  const [libraryPane, setLibraryPane] = useState<"history" | "galleries">("history");
   const [peekId, setPeekId] = useState<string | null>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryItems, setLibraryItems] = useState<Generation[]>([]);
@@ -261,9 +263,38 @@ export default function App() {
 
   const closeLibrary = useCallback(() => {
     setLibraryOpen(false);
+    setLibraryPane("history");
     cancelCreateGalleryRef.current();
     if (window.matchMedia("(max-width: 860px)").matches) setPeekId(null);
   }, []);
+
+  const chooseLibraryPane = useCallback((pane: "history" | "galleries") => {
+    setLibraryPane(pane);
+  }, []);
+
+  function openLibraryPane(pane: "history" | "galleries") {
+    if (libraryOpen && libraryPane === pane) {
+      closeLibrary();
+      return;
+    }
+    setProjectsOpen(false);
+    setShowSettings(false);
+    setPeekId(null);
+    setLibraryPane(pane);
+    setLibraryOpen(true);
+  }
+
+  function openProjectsPane() {
+    if (projectsOpen) {
+      setProjectsOpen(false);
+      return;
+    }
+    setLibraryOpen(false);
+    setLibraryPane("history");
+    setShowSettings(false);
+    setPeekId(null);
+    setProjectsOpen(true);
+  }
 
   const favoriteIds = useMemo(
     () => new Set(favorites.map((item) => item.id)),
@@ -388,6 +419,7 @@ export default function App() {
   useEffect(() => {
     if (user?.oxenKeyUnreadable) {
       setLibraryOpen(false);
+      setLibraryPane("history");
       setProjectsOpen(false);
       setShowSettings(true);
       setError(OXEN_KEY_UNREADABLE_MESSAGE);
@@ -658,6 +690,7 @@ export default function App() {
         else {
           setProjectsOpen(false);
           setShowSettings(false);
+          setLibraryPane("history");
           setLibraryOpen(true);
         }
         return;
@@ -1937,6 +1970,7 @@ export default function App() {
     if (!canGenerate || !mode) {
       if (!user?.hasOxenKey) {
         setLibraryOpen(false);
+        setLibraryPane("history");
         setProjectsOpen(false);
         setShowSettings(true);
         setError("Add your Oxen API key in Settings first.");
@@ -2220,6 +2254,7 @@ export default function App() {
         error={projectError}
         onOpenGallery={(id) => {
           setFocusGalleryId(id);
+          setLibraryPane("galleries");
           setProjectsOpen(false);
           setShowSettings(false);
           setLibraryOpen(true);
@@ -2362,6 +2397,8 @@ export default function App() {
         onHistoryAddToGallery={addHistoryToGallery}
         onHistoryCreateGallery={createHistoryGallery}
         focusGalleryId={focusGalleryId}
+        pane={libraryPane}
+        onPaneChange={chooseLibraryPane}
       />
       {libraryOpen ? (
         <button
@@ -2374,6 +2411,14 @@ export default function App() {
       <main className="main">
         <div className="main-column">
           <div className="main-top">
+            <PhoneNav
+              libraryActive={libraryOpen && libraryPane === "history"}
+              projectsActive={projectsOpen}
+              galleriesActive={libraryOpen && libraryPane === "galleries"}
+              onOpenLibrary={() => openLibraryPane("history")}
+              onOpenProjects={openProjectsPane}
+              onOpenGalleries={() => openLibraryPane("galleries")}
+            />
             <div className="nav-brand">
               <img className={brandMarkClass(branding.logoUrl)} src={branding.logoUrl} alt="" />
               <strong>{branding.name}</strong>
@@ -2391,6 +2436,7 @@ export default function App() {
                   else {
                     setProjectsOpen(false);
                     setShowSettings(false);
+                    setLibraryPane("history");
                     setLibraryOpen(true);
                   }
                 }}
@@ -2415,6 +2461,7 @@ export default function App() {
                   setProjectsOpen(next);
                   if (next) {
                     setLibraryOpen(false);
+                    setLibraryPane("history");
                     setShowSettings(false);
                     setPeekId(null);
                   }
@@ -2433,6 +2480,7 @@ export default function App() {
                   setShowSettings(next);
                   if (next) {
                     setLibraryOpen(false);
+                    setLibraryPane("history");
                     setProjectsOpen(false);
                     setPeekId(null);
                   }
@@ -2453,20 +2501,9 @@ export default function App() {
                 avatarUrl={user.avatarUrl}
                 isAdmin={user.isAdmin}
                 hasOxenKey={user.hasOxenKey}
-                onOpenLibrary={() => {
-                  setProjectsOpen(false);
-                  setShowSettings(false);
-                  setPeekId(null);
-                  setLibraryOpen(true);
-                }}
-                onOpenProjects={() => {
-                  setLibraryOpen(false);
-                  setShowSettings(false);
-                  setPeekId(null);
-                  setProjectsOpen(true);
-                }}
                 onOpenSettings={() => {
                   setLibraryOpen(false);
+                  setLibraryPane("history");
                   setProjectsOpen(false);
                   setPeekId(null);
                   setShowSettings(true);

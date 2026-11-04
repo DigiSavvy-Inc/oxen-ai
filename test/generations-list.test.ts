@@ -60,7 +60,7 @@ describe("GET /api/generations", () => {
     expect(await res.json()).toEqual({
       generations: [],
       page: 1,
-      pageSize: 24,
+      pageSize: 36,
       total: 0,
       tags: [],
     });

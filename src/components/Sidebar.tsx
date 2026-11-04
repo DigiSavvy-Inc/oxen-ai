@@ -266,6 +266,8 @@ export function Sidebar({
   onHistoryAddToGallery,
   onHistoryCreateGallery,
   focusGalleryId = null,
+  pane,
+  onPaneChange,
 }: {
   logoUrl: string;
   generations: Generation[];
@@ -321,11 +323,13 @@ export function Sidebar({
   onHistoryAddToGallery: (galleryId: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
   onHistoryCreateGallery: (name: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
   focusGalleryId?: string | null;
+  pane: "history" | "galleries";
+  onPaneChange: (pane: "history" | "galleries") => void;
 }) {
   const pagingKey = `${page}\0${appliedTag}\0${media}`;
   const [pageDraft, setPageDraft] = useState(String(page));
   const pageCommitSkip = useRef(false);
-  const [galleriesOpen, setGalleriesOpen] = useState(false);
+  const galleriesOpen = pane === "galleries";
   const [managingGallery, setManagingGallery] = useState(false);
   const [expandKey, setExpandKey] = useState(pagingKey);
   const [expand, setExpand] = useState<GalleryExpandState>(CLOSED_EXPAND);
@@ -346,18 +350,17 @@ export function Sidebar({
 
   useEffect(() => {
     if (!focusGalleryId) return;
-    setGalleriesOpen(true);
+    onPaneChange("galleries");
     setManagingGallery(true);
-  }, [focusGalleryId]);
+  }, [focusGalleryId, onPaneChange]);
 
   function leaveGalleries() {
-    setGalleriesOpen(false);
+    onPaneChange("history");
     setManagingGallery(false);
   }
 
   useEffect(() => {
     if (open !== false) return;
-    setGalleriesOpen(false);
     setManagingGallery(false);
   }, [open]);
   const expandForPage = expandKey === pagingKey ? expand : CLOSED_EXPAND;
@@ -598,7 +601,7 @@ export function Sidebar({
             onClick={() => {
               if (createGalleryOpen) onCreateGalleryClose();
               setManagingGallery(false);
-              setGalleriesOpen((open) => !open);
+              onPaneChange(galleriesOpen ? "history" : "galleries");
             }}
           >
             Galleries
@@ -609,7 +612,7 @@ export function Sidebar({
             aria-expanded={createGalleryOpen}
             aria-controls="create-gallery"
             onClick={() => {
-              setGalleriesOpen(false);
+              onPaneChange("history");
               setManagingGallery(false);
               onCreateGallery();
             }}
