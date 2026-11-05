@@ -119,7 +119,7 @@
   --mono: var(--font-data);
   --shadow: var(--shadow-m);
   --app-max: 1440px;
-  --panel-width: 360px;
+  --panel-width: min(720px, 52vw);
   --app-gutter: max(0px, calc((100vw - var(--app-max)) / 2));
   --slide-width: min(100vw, calc(var(--app-gutter) + var(--panel-width)));
 }
@@ -220,18 +220,19 @@ a {
 
 .library-peek {
   position: fixed;
-  z-index: 46;
-  inset: 52px 0 0 auto;
+  z-index: 47;
+  inset: 52px auto 0 0;
   width: var(--slide-width);
   display: flex;
   flex-direction: column;
   border: 0;
-  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
   border-radius: 0;
   background: var(--bg-panel);
   box-shadow: var(--shadow);
   overflow: hidden;
   padding-bottom: env(safe-area-inset-bottom);
+  animation: panel-in-left var(--motion-large-duration) var(--motion-large-easing);
 }
 
 .library-peek-head {
@@ -858,10 +859,6 @@ a {
   grid-template-rows: auto minmax(min-content, 1fr) auto;
   min-height: calc(100% + var(--composer-grow, 0px));
   min-width: 0;
-}
-
-.app-shell.has-peek .main {
-  padding-right: var(--panel-width);
 }
 
 .main-top {
@@ -3088,34 +3085,48 @@ button.history-expand-preview {
 }
 
 .gallery-drawer {
-  position: absolute;
-  z-index: 7;
-  top: 12px;
-  bottom: 12px;
-  left: max(18px, calc(50% - 460px));
-  right: max(18px, calc(50% - 460px));
-  width: auto;
+  position: fixed;
+  z-index: 47;
+  inset: 52px auto 0 0;
+  width: var(--slide-width);
   max-height: none;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-l);
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
   background: var(--neutral-1);
   box-shadow: var(--shadow);
-  animation: gallery-rise var(--motion-large-duration) var(--motion-large-easing);
+  animation: panel-in-left var(--motion-large-duration) var(--motion-large-easing);
 }
 
-@keyframes gallery-rise {
+@keyframes panel-in-left {
   from {
-    transform: translateY(28px);
-    opacity: 0;
+    transform: translateX(calc(-100% - 24px));
   }
   to {
     transform: none;
-    opacity: 1;
+  }
+}
+
+@keyframes panel-in-right {
+  from {
+    transform: translateX(calc(100% + 24px));
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes panel-in-bottom {
+  from {
+    transform: translateY(calc(100% + 24px));
+  }
+  to {
+    transform: none;
   }
 }
 
@@ -3123,6 +3134,20 @@ button.history-expand-preview {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.gallery-drawer-head .gallery-name {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.gallery-drawer-tools,
+.library-peek-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
 }
 
 .gallery-name,
@@ -4649,8 +4674,12 @@ select.attach-role {
 }
 
 @media (min-width: 861px) {
-  .app-shell.library-open .help-fab {
+  .app-shell.panel-place-left.library-open .help-fab {
     left: calc(var(--slide-width) + 12px);
+  }
+
+  .app-shell.panel-place-bottom.library-open .help-fab {
+    bottom: calc(min(72dvh, 760px) + 16px);
   }
 }
 
@@ -4963,6 +4992,7 @@ select.attach-role {
   .main,
   .sidebar,
   .help-fab,
+  .library-peek,
   .project-slide,
   .gallery-drawer,
   .modal-backdrop.is-drawer .settings-modal {
@@ -5178,7 +5208,7 @@ select.attach-role {
 .project-slide {
   position: fixed;
   z-index: 46;
-  inset: 52px 0 0 auto;
+  inset: 52px auto 0 0;
   width: var(--slide-width);
   display: flex;
   flex-direction: column;
@@ -5187,10 +5217,10 @@ select.attach-role {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
-  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
   background: var(--bg-panel);
   padding: 14px 12px max(24px, env(safe-area-inset-bottom));
-  transform: translateX(calc(100% + 24px));
+  transform: translateX(calc(-100% - 24px));
   visibility: hidden;
   pointer-events: none;
   transition:
@@ -5414,6 +5444,12 @@ select.attach-role {
     z-index: 52;
   }
 
+  .project-slide {
+    width: 100%;
+    border-left: 0;
+    border-right: 0;
+  }
+
   .slide-backdrop {
     display: none;
   }
@@ -5422,5 +5458,106 @@ select.attach-role {
 @media (max-width: 760px) {
   .project-slide {
     width: 100%;
+  }
+}
+
+.panel-place {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--neutral-2);
+}
+
+.panel-place button {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+}
+
+.panel-place button svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.panel-place button.is-on {
+  color: var(--text);
+  background: var(--neutral-1);
+  border-color: #3b6ef5;
+  box-shadow: 0 0 0 1px #3b6ef5;
+}
+
+.panel-place button:hover {
+  color: var(--text);
+}
+
+@media (min-width: 861px) {
+  .app-shell.panel-place-right .sidebar,
+  .app-shell.panel-place-right .project-slide {
+    inset: 52px 0 0 auto;
+    border-right: 0;
+    border-left: 1px solid var(--border);
+    transform: translateX(calc(100% + 24px));
+  }
+
+  .app-shell.panel-place-right.library-open .sidebar,
+  .app-shell.panel-place-right .project-slide.is-open {
+    transform: none;
+  }
+
+  .app-shell.panel-place-right .library-peek,
+  .app-shell.panel-place-right .gallery-drawer {
+    inset: 52px 0 0 auto;
+    border-right: 0;
+    border-left: 1px solid var(--border);
+    border-radius: 0;
+    animation-name: panel-in-right;
+  }
+
+  .app-shell.panel-place-bottom .sidebar,
+  .app-shell.panel-place-bottom .project-slide {
+    inset: auto 0 0 0;
+    top: auto;
+    width: min(100vw, var(--slide-width));
+    height: min(72dvh, 760px);
+    margin-inline: auto;
+    border: 1px solid var(--border);
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    transform: translateY(calc(100% + 24px));
+  }
+
+  .app-shell.panel-place-bottom.library-open .sidebar,
+  .app-shell.panel-place-bottom .project-slide.is-open {
+    transform: none;
+  }
+
+  .app-shell.panel-place-bottom .library-peek,
+  .app-shell.panel-place-bottom .gallery-drawer {
+    inset: auto 0 0 0;
+    top: auto;
+    width: min(100vw, var(--slide-width));
+    height: min(72dvh, 760px);
+    margin-inline: auto;
+    border: 1px solid var(--border);
+    border-bottom: 0;
+    border-radius: 18px 18px 0 0;
+    animation-name: panel-in-bottom;
+  }
+}
+
+@media (max-width: 860px) {
+  .panel-place {
+    display: none;
   }
 }

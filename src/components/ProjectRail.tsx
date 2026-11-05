@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { GallerySummary, ProjectSummary, StudioProject, StudioStyle } from "../lib/api";
+import { PanelPlaceSwitch } from "./PanelPlace";
 
 type Props = {
   open: boolean;
@@ -42,6 +43,7 @@ export function ProjectRail(props: Props) {
       <div className="project-rail-head">
         <strong>Projects</strong>
         <div className="project-rail-head-actions">
+          <PanelPlaceSwitch />
           <button type="button" className="ghost-btn" onClick={() => setNaming((value) => !value)}>
             New
           </button>

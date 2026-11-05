@@ -14,6 +14,7 @@ import { PhoneNav } from "./components/PhoneNav";
 import { Loader } from "./components/Loader";
 import { SettingsModal } from "./components/SettingsModal";
 import { Sidebar } from "./components/Sidebar";
+import { PanelPlaceProvider, readPanelPlace, storePanelPlace, type PanelPlace } from "./components/PanelPlace";
 import { ProjectEditor, ProjectRail } from "./components/ProjectRail";
 import {
   api,
@@ -160,6 +161,7 @@ export default function App() {
   const [projectBusy, setProjectBusy] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [panelPlace, setPanelPlace] = useState<PanelPlace>(readPanelPlace);
   const [focusGalleryId, setFocusGalleryId] = useState<string | null>(null);
   const [gallerySummaries, setGallerySummaries] = useState<GallerySummary[]>([]);
   const [galleryId, setGalleryId] = useState<string | null>(null);
@@ -650,6 +652,10 @@ export default function App() {
       /* ignore */
     }
   }, [libraryOpen]);
+
+  useEffect(() => {
+    storePanelPlace(panelPlace);
+  }, [panelPlace]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -2229,7 +2235,8 @@ export default function App() {
 
   return (
     <VideoThumbSecondsProvider seconds={settings?.videoThumbSeconds ?? DEFAULT_VIDEO_THUMB_SECONDS}>
-    <div className={`app-shell${libraryOpen ? " library-open" : ""}${peek ? " has-peek" : ""}`}>
+    <div className={`app-shell panel-place-${panelPlace}${libraryOpen ? " library-open" : ""}${peek ? " has-peek" : ""}`}>
+      <PanelPlaceProvider place={panelPlace} setPlace={setPanelPlace}>
       <ProjectRail
         open={projectsOpen}
         projects={projectSummaries}
@@ -2680,6 +2687,7 @@ export default function App() {
         />
       ) : null}
       <HelpDock />
+      </PanelPlaceProvider>
     </div>
     </VideoThumbSecondsProvider>
   );

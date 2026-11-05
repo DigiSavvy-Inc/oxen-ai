@@ -377,7 +377,7 @@ describe("mentions and cost", () => {
     expect(composer).toContain("input_face_images");
   });
 
-  it("numbers character chips before scene chips and hides the control without a face slot", () => {
+  it("keeps chip numbers in the order the files were added and hides the control without a face slot", () => {
     const controls: ModelControls = {
       modelId: "bytedance-seedance-2-0-fast-reference-to-video",
       aspectRatios: ["16:9"],
@@ -452,8 +452,8 @@ describe("mentions and cost", () => {
       return markup.slice(Math.max(0, at - 80), at).match(/(Image|Video|Audio) \d+/)?.[0] ?? "";
     };
     expect(html.indexOf("room.png")).toBeLessThan(html.indexOf("hero.png"));
-    expect(tokenBefore(html, "room.png")).toBe("Image 2");
-    expect(tokenBefore(html, "hero.png")).toBe("Image 1");
+    expect(tokenBefore(html, "room.png")).toBe("Image 1");
+    expect(tokenBefore(html, "hero.png")).toBe("Image 2");
     expect(tokenBefore(html, "walk.mp4")).toBe("Video 1");
     const audioName = html.indexOf('class="attach-chip-name">voice.mp3');
     expect(html.slice(audioName - 80, audioName)).toContain("Audio 1");
@@ -1412,21 +1412,29 @@ describe("thumbnail frames", () => {
 });
 
 describe("app column", () => {
-  it("caps the shell, slides the library in from the left, and runs the attach peek to the right edge", () => {
+  it("caps the shell and docks the library, peek, and projects on the left at the same width", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
     expect(css).toContain("--app-max: 1440px");
     expect(css).toContain("--app-gutter:");
+    expect(css).toContain("--panel-width: min(720px, 52vw)");
     expect(css).toContain("--slide-width: min(100vw, calc(var(--app-gutter) + var(--panel-width)))");
     expect(css).toMatch(/\.app-shell\s*\{[^}]*max-width:\s*var\(--app-max\)/);
     expect(css).toMatch(/\.sidebar\s*\{[^}]*inset:\s*52px auto 0 0/);
     expect(css).toMatch(/\.sidebar\s*\{[^}]*width:\s*var\(--slide-width\)/);
     expect(css).toMatch(/\.sidebar\s*\{[^}]*transform:\s*translateX\(calc\(-100% - 24px\)\)/);
-    expect(css).toMatch(/\.library-peek\s*\{[^}]*inset:\s*52px 0 0 auto/);
+    expect(css).toMatch(/\.library-peek\s*\{[^}]*inset:\s*52px auto 0 0/);
     expect(css).toMatch(/\.library-peek\s*\{[^}]*width:\s*var\(--slide-width\)/);
+    expect(css).toMatch(/\.project-slide\s*\{[^}]*inset:\s*52px auto 0 0/);
     expect(css).toMatch(/\.project-slide\s*\{[^}]*width:\s*var\(--slide-width\)/);
+    expect(css).toMatch(/\.project-slide\s*\{[^}]*transform:\s*translateX\(calc\(-100% - 24px\)\)/);
     expect(css).toMatch(/\.slide-backdrop\s*\{[^}]*inset:\s*52px 0 0 0/);
-    expect(css).toMatch(/\.app-shell\.has-peek \.main\s*\{[^}]*padding-right:\s*var\(--panel-width\)/);
+    expect(css).toContain(".app-shell.panel-place-right .sidebar");
+    expect(css).toContain(".app-shell.panel-place-bottom .gallery-drawer");
+    expect(css.lastIndexOf(".panel-place {\n    display: none;")).toBeGreaterThan(
+      css.indexOf(".panel-place {\n  display: inline-flex;"),
+    );
     expect(css).not.toMatch(/\.app-shell\.library-open \.main\s*\{[^}]*padding-left:\s*var\(--panel-width\)/);
+    expect(css).not.toMatch(/\.app-shell\.has-peek \.main\s*\{[^}]*padding-right:\s*var\(--panel-width\)/);
     expect(css).toMatch(/\.main-top\s*\{[^}]*width:\s*min\(920px,/);
   });
 });
@@ -1697,13 +1705,14 @@ describe("mobile result stays reachable", () => {
 });
 
 describe("gallery drawer", () => {
-  it("covers the media above the prompt on desktop and fills the screen on a phone", () => {
+  it("docks on the left with the other media panels and fills the screen on a phone", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
     const drawer = readFileSync(new URL("../src/components/GalleryDrawer.tsx", import.meta.url), "utf8");
-    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*position:\s*absolute/);
-    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*top:\s*12px/);
-    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*bottom:\s*12px/);
+    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*position:\s*fixed/);
+    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*inset:\s*52px auto 0 0/);
+    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*width:\s*var\(--slide-width\)/);
     expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*overflow:\s*hidden/);
+    expect(drawer).toContain("PanelPlaceSwitch");
     expect(drawer).toContain('document.querySelector(".workspace")');
     expect(css).toMatch(/\.gallery-scroll\s*\{[^}]*overflow:\s*auto/);
     expect(drawer).toContain("New gallery");

@@ -7,6 +7,7 @@ import type { MediaRole } from "../../worker/schema";
 import { GalleryRoleSelect } from "./GalleryRoleSelect";
 import { GallerySections } from "./GallerySections";
 import { GalleryThumb } from "./GalleryThumb";
+import { PanelPlaceSwitch } from "./PanelPlace";
 
 export type GalleryDraftItem = {
   id: string;
@@ -108,9 +109,12 @@ export function GalleryDrawer(props: Props) {
           aria-label="Gallery name"
           onChange={(event) => props.onNameChange(event.target.value)}
         />
-        <button type="button" className="gallery-close" aria-label="Close gallery" onClick={props.onClose}>
-          ×
-        </button>
+        <div className="gallery-drawer-tools">
+          <PanelPlaceSwitch />
+          <button type="button" className="gallery-close" aria-label="Close gallery" onClick={props.onClose}>
+            ×
+          </button>
+        </div>
       </div>
       <div className="gallery-search">
         <input

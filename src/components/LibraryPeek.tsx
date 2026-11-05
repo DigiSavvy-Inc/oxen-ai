@@ -7,6 +7,7 @@ import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { LastFrameStill } from "./LastFrameStill";
 import { Loader } from "./Loader";
 import { MediaDeleteGroup } from "./MediaDeleteGroup";
+import { PanelPlaceSwitch } from "./PanelPlace";
 
 function fitSlides(variants: Generation[]): FitSlide[] {
   return variants.flatMap((item) => {
@@ -100,14 +101,17 @@ export function LibraryPeek({
           <strong>{label}</strong>
           <span>{generation.model}</span>
         </div>
-        <button
-          type="button"
-          className="icon-btn"
-          aria-label="Close library item"
-          onClick={onClose}
-        >
-          ×
-        </button>
+        <div className="library-peek-tools">
+          <PanelPlaceSwitch />
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Close library item"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
       </div>
       <div className="library-peek-body">
         <div className={`library-peek-media${attached ? " is-attached" : ""}`}>

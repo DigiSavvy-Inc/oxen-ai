@@ -38,6 +38,7 @@ import { DownloadButton } from "./DownloadButton";
 import { HistoryGalleryActions } from "./HistoryGalleryActions";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
+import { PanelPlaceSwitch } from "./PanelPlace";
 import { MediaDeleteGroup } from "./MediaDeleteGroup";
 import { StagedStill, StagedVideo } from "./StagedStill";
 
@@ -635,6 +636,7 @@ export function Sidebar({
               )}
             </button>
           ) : null}
+          <PanelPlaceSwitch />
           {onClose ? (
             <button
               type="button"
