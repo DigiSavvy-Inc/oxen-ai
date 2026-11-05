@@ -1,5 +1,4 @@
 import { mentionToken, type MediaSlot } from "./api";
-import { referenceRoleUsesFace } from "../../worker/schema";
 
 export type MentionItem = {
   name: string;
@@ -7,23 +6,12 @@ export type MentionItem = {
   role?: string;
 };
 
-/** Seedance numbers face/character refs before background, object, and style refs. */
-export function mentionOrdered<T extends MentionItem>(items: T[], faceFirst: boolean): T[] {
-  if (!faceFirst) return items;
-  const kinds: MediaSlot["kind"][] = ["image", "video", "audio"];
-  const ordered: T[] = [];
-  for (const kind of kinds) {
-    const ofKind = items.filter((item) => item.kind === kind);
-    if (kind === "audio") {
-      ordered.push(...ofKind);
-      continue;
-    }
-    ordered.push(
-      ...ofKind.filter((item) => referenceRoleUsesFace(item.role)),
-      ...ofKind.filter((item) => !referenceRoleUsesFace(item.role)),
-    );
-  }
-  return ordered;
+/**
+ * Numbers follow the order the files were added.
+ * Marking one Background, Object, or Style does not move it, and a new file takes the next number.
+ */
+export function mentionOrdered<T extends MentionItem>(items: T[], _faceFirst: boolean): T[] {
+  return items;
 }
 
 export type PromptMention = {

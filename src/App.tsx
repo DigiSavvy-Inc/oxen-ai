@@ -76,7 +76,6 @@ import {
   lockedResolution,
   nearestDurationValue,
   normalizeMediaRole,
-  referenceRoleUsesFace,
   referenceTaskNeedsVideo,
   safetyCheckerRequestValue,
   safetyToleranceSelection,
@@ -999,8 +998,8 @@ export default function App() {
   }
 
   function mentionStart(kind: "image" | "video" | "audio", existing: StagedMedia[]) {
-    if (kind === "audio" || !modelHasFaceSlot(kind)) return existing.length;
-    return existing.filter((item) => referenceRoleUsesFace(item.role)).length;
+    void kind;
+    return existing.length;
   }
 
   function mentionAllowed(kind: "image" | "video" | "audio") {

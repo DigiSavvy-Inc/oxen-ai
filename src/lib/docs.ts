@@ -102,7 +102,7 @@ export const DOC_ARTICLES: DocArticle[] = [
       },
       {
         type: "p",
-        text: "Character is a tight headshot only. A full body, a pose, or the room marked Character sends the wrong face. Background is the empty place. Object is a prop, a body, a pose, or the outfit, and the prompt has to say which. Style is light and color, and it copies the people and the room in that frame unless the prompt forbids it. Audio has no role. Insert bindings adds one line per chip, using the chip numbers, and leaves a line that is already in the prompt. With two or more audio clips, name who speaks on every line. An offscreen voice has no face, so name it every time it speaks. Character files are numbered before the others.",
+        text: "Character is a tight headshot only. A full body, a pose, or the room marked Character sends the wrong face. Background is the empty place. Object is a prop, a body, a pose, or the outfit, and the prompt has to say which. Style is light and color, and it copies the people and the room in that frame unless the prompt forbids it. Audio has no role. Insert bindings adds one line per chip, using the chip numbers, and leaves a line that is already in the prompt. With two or more audio clips, name who speaks on every line. An offscreen voice has no face, so name it every time it speaks. A file keeps its number when its role changes. A new file takes the next number.",
       },
     ],
   },

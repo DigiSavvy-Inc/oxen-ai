@@ -522,24 +522,16 @@ describe("mentions and cost", () => {
     expect(tokenBefore(plain, "hero.png")).toBe("Image 2");
   });
 
-  it("numbers Seedance character refs before scene refs", () => {
-    const items = [
-      { name: "room.png", kind: "image" as const, role: "scene" as const },
-      { name: "hero.png", kind: "image" as const, role: "character" as const },
-      { name: "walk.mp4", kind: "video" as const, role: "character" as const },
-      { name: "plate.mp4", kind: "video" as const, role: "scene" as const },
-    ];
+  it("keeps a background's number when another character image is added", () => {
+    const room = { name: "room.png", kind: "image" as const, role: "background" as const };
+    const hero = { name: "hero.png", kind: "image" as const, role: "character" as const };
+    const extra = { name: "extra.png", kind: "image" as const, role: "character" as const };
+    const items = [hero, room, extra];
     const ordered = mentionOrdered(items, true);
-    expect(ordered.map((item) => item.name)).toEqual([
-      "hero.png",
-      "room.png",
-      "walk.mp4",
-      "plate.mp4",
-    ]);
-    expect(attachmentForMention(ordered, { kind: "image", index: 0 })?.name).toBe("hero.png");
+    expect(ordered.map((item) => item.name)).toEqual(["hero.png", "room.png", "extra.png"]);
+    expect(tokenForItem(ordered, room, 1)).toBe("@Image2");
+    expect(tokenForItem(ordered, extra, 2)).toBe("@Image3");
     expect(attachmentForMention(ordered, { kind: "image", index: 1 })?.name).toBe("room.png");
-    expect(tokenForItem(ordered, items[0]!, 0)).toBe("@Image2");
-    expect(tokenForItem(ordered, items[1]!, 1)).toBe("@Image1");
   });
 
   it("does not require optional Seedance video refs just because the mode is Video → Video", () => {

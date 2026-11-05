@@ -292,6 +292,26 @@ describe("gallery attach", () => {
     url: "https://studio.example/bed.mp3",
   };
 
+  it("appends a new character after a background instead of taking its number", () => {
+    const plan = planGalleryAttach({
+      items: [{ ...image, name: "extra.png", key: "u/user-1/galleries/extra.png", url: "https://studio.example/extra.png" }],
+      staged: [
+        { ...image, name: "hero.png", key: "u/user-1/galleries/hero.png", role: "character" },
+        {
+          ...image,
+          name: "room.png",
+          key: "u/user-1/galleries/room.png",
+          url: "https://studio.example/room.png",
+          role: "background",
+        },
+      ],
+      caps: { image: 9, video: 0, audio: 0 },
+      prompt: "the room is @Image2",
+      faceFirst: true,
+    });
+    expect(plan.tokens).toEqual(["@Image3"]);
+  });
+
   it("keeps a background or object role on attach", () => {
     const plan = planGalleryAttach({
       items: [
