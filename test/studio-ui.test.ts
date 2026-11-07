@@ -1720,6 +1720,13 @@ describe("gallery drawer", () => {
       /@media \(max-width: 860px\) \{[\s\S]*\.gallery-drawer\.is-sheet\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0/,
     );
   });
+
+  it("keeps the selected-item bar stuck to the top of an open gallery", () => {
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    expect(css).toMatch(/\.gallery-bulk\s*\{[^}]*position:\s*sticky/);
+    expect(css).toMatch(/\.gallery-bulk\s*\{[^}]*top:\s*-12px/);
+    expect(css).toMatch(/\.gallery-bulk\s*\{[^}]*background:\s*var\(--bg-panel\)/);
+  });
 });
 
 describe("last frame beside the video", () => {

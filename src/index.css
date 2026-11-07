@@ -3545,7 +3545,8 @@ button.history-expand-preview {
 .gallery-browser {
   min-height: 0;
   flex: 1 1 auto;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior: contain;
   padding: 12px;
 }
@@ -3801,11 +3802,17 @@ button.history-expand-preview {
 }
 
 .gallery-bulk {
+  position: sticky;
+  top: -12px;
+  z-index: 5;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-bottom: 8px;
+  margin: 0 -12px 8px;
+  padding: 8px 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
 }
 
 .gallery-bulk-count {
