@@ -4,6 +4,7 @@ import {
   coverGeneration,
   groupGenerationBatches,
   isActiveGeneration,
+  isUnfinishedGeneration,
   type GenerationBatch,
 } from "../lib/batches";
 import type { GallerySummary, Generation, LibraryMediaFilter } from "../lib/api";
@@ -62,12 +63,18 @@ function VideoPlayMark() {
 function TileFace({ item, allowFull = false }: { item: Generation; allowFull?: boolean }) {
   const src = tileSrc(item, allowFull);
   if (src && item.mediaType === "image") {
-    return <img src={src} alt="" loading="lazy" draggable={false} />;
+    return <img src={src} alt="" loading="lazy" decoding="async" draggable={false} />;
   }
-  if (src && item.mediaType === "video") {
+  if (item.mediaType === "video" && (item.thumbUrl || item.lastFrameUrl)) {
     return (
       <>
-        <video src={item.resultUrl || src} muted playsInline preload="metadata" draggable={false} />
+        <img
+          src={item.thumbUrl || item.lastFrameUrl || ""}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+        />
         <VideoPlayMark />
       </>
     );
@@ -78,7 +85,15 @@ function TileFace({ item, allowFull = false }: { item: Generation; allowFull?: b
   if (isActiveGeneration(item) && !src) {
     return <Loader size="sm" />;
   }
-  return <span>{item.mediaType === "video" ? "VID" : "IMG"}</span>;
+  if (item.mediaType === "video") {
+    return (
+      <>
+        <span>VID</span>
+        <VideoPlayMark />
+      </>
+    );
+  }
+  return <span>IMG</span>;
 }
 
 function PreviewFace({ item }: { item: Generation }) {
@@ -236,6 +251,8 @@ export function Sidebar({
   attachedIds,
   attachedMediaKeys,
   onAttach,
+  onClearFailed,
+  clearingFailed = false,
   attachSupported,
   createGalleryOpen,
   galleryName,
@@ -293,6 +310,8 @@ export function Sidebar({
   attachedIds?: Set<string>;
   attachedMediaKeys?: ReadonlySet<string>;
   onAttach?: (item: Generation) => void;
+  onClearFailed?: () => void;
+  clearingFailed?: boolean;
   attachSupported?: (item: Generation) => boolean;
   createGalleryOpen: boolean;
   galleryName: string;
@@ -344,6 +363,11 @@ export function Sidebar({
   const galleryKeySet = useMemo(() => new Set(galleryItems.map((item) => item.key)), [galleryItems]);
   const galleryDetail = galleriesOpen && managingGallery && Boolean(galleryId);
   const suppressHistoryClick = useRef(false);
+  const pointerOrigin = useRef<{ x: number; y: number } | null>(null);
+  const unfinishedCount = useMemo(
+    () => generations.filter((item) => isUnfinishedGeneration(item)).length,
+    [generations],
+  );
   const [picked, setPicked] = useState<string[]>([]);
   const [bulkNote, setBulkNote] = useState<string | null>(null);
   const [confirmBulk, setConfirmBulk] = useState<null | "studio" | "oxen">(null);
@@ -457,10 +481,23 @@ export function Sidebar({
     clearPickState();
   }
 
+  function notePointer(event: { clientX: number; clientY: number }) {
+    pointerOrigin.current = { x: event.clientX, y: event.clientY };
+    suppressHistoryClick.current = false;
+  }
+
+  function dragMoved(event: { clientX: number; clientY: number }): boolean {
+    const origin = pointerOrigin.current;
+    if (!origin) return true;
+    if (event.clientX === 0 && event.clientY === 0) return false;
+    return Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 6;
+  }
+
   function rememberHistoryDrag(event: DragEvent<HTMLElement>, items: Generation[]) {
     const ids = historyItemsForGallery(items).map((item) => item.id);
-    if (ids.length === 0) {
+    if (ids.length === 0 || !dragMoved(event)) {
       event.preventDefault();
+      suppressHistoryClick.current = false;
       return;
     }
     suppressHistoryClick.current = true;
@@ -517,6 +554,7 @@ export function Sidebar({
             type="button"
             className="history-tile-hit"
             draggable={dragItems.length > 0}
+            onPointerDown={notePointer}
             onDragStart={(event) => rememberHistoryDrag(event, batch.items)}
             onDragEnd={finishHistoryDrag}
             aria-expanded={createGalleryOpen ? undefined : expanded}
@@ -556,7 +594,7 @@ export function Sidebar({
             }}
           >
             <div className="history-tile-media">
-              {cover ? <TileFace item={cover} allowFull /> : null}
+              {cover ? <TileFace item={cover} /> : null}
             </div>
           </button>
           <label className="gallery-select history-select">
@@ -729,6 +767,16 @@ export function Sidebar({
               {pageSelected ? "Clear" : "Select page"}
             </button>
           ) : null}
+          {onClearFailed && unfinishedCount > 0 ? (
+            <button
+              type="button"
+              className="ghost-btn"
+              disabled={clearingFailed}
+              onClick={onClearFailed}
+            >
+              {clearingFailed ? "Clearing…" : "Clear failed"}
+            </button>
+          ) : null}
         </div>
         <input
           className="tag-filter-input"
@@ -849,6 +897,7 @@ export function Sidebar({
                               type="button"
                               className="history-expand-preview"
                               draggable={historyItemsForGallery([preview]).length > 0}
+                              onPointerDown={notePointer}
                               onDragStart={(event) => rememberHistoryDrag(event, [preview])}
                               onDragEnd={finishHistoryDrag}
                               aria-label={createGalleryOpen ? "Add preview to gallery" : "View full size"}
@@ -940,6 +989,7 @@ export function Sidebar({
                                 <button
                                   type="button"
                                   draggable={historyItemsForGallery([item]).length > 0}
+                                  onPointerDown={notePointer}
                                   onDragStart={(event) => rememberHistoryDrag(event, [item])}
                                   onDragEnd={finishHistoryDrag}
                                   className={`history-version${
@@ -966,7 +1016,7 @@ export function Sidebar({
                                   }}
                                 >
                                   <div className="history-tile-media">
-                                    <TileFace item={item} allowFull />
+                                    <TileFace item={item} />
                                   </div>
                                 </button>
                                 <label className="gallery-select history-select">

@@ -186,13 +186,17 @@ export async function deleteAllUserMedia(
   return { deleted: rows.length, r2Deleted, oxenDeleted, oxenFailed };
 }
 
+/** Failed, cancelled, or succeeded with no stored file. In-flight jobs stay. */
+export const UNFINISHED_GENERATION_SQL =
+  "(status IN ('failed', 'cancelled') OR (status = 'succeeded' AND COALESCE(result_url, '') = '' AND COALESCE(result_key, '') = ''))";
+
 export async function deleteFailedGenerations(
   env: Env,
   userId: string,
 ): Promise<number> {
   const rows = await env.DB.prepare(
     `SELECT id, status, result_key, thumb_key, last_frame_key FROM generations
-     WHERE user_id = ? AND status IN ('failed', 'cancelled')`,
+     WHERE user_id = ? AND ${UNFINISHED_GENERATION_SQL}`,
   )
     .bind(userId)
     .all<LibraryAssetRow>();

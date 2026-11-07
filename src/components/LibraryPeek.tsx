@@ -194,11 +194,9 @@ export function LibraryPeek({
                     aria-current={isCurrent ? "true" : undefined}
                     onClick={() => onSelectVariant(item.id)}
                   >
-                    {item.thumbUrl ? (
-                      <img src={item.thumbUrl} alt="" />
-                    ) : item.resultUrl && item.mediaType === "video" ? (
-                      <video src={item.resultUrl} muted playsInline preload="metadata" />
-                    ) : item.resultUrl ? (
+                    {item.thumbUrl || item.lastFrameUrl ? (
+                      <img src={item.thumbUrl || item.lastFrameUrl || ""} alt="" />
+                    ) : item.resultUrl && item.mediaType !== "video" ? (
                       <img src={item.resultUrl} alt="" />
                     ) : (
                       <span>{index + 1}</span>

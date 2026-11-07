@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  UNFINISHED_GENERATION_SQL,
   deleteAllUserMedia,
   parseCleanupAction,
   parseFromOxenFlag,
@@ -70,6 +71,9 @@ describe("library cleanup", () => {
     expect(parseCleanupAction("thumbs")).toBe("thumbs");
     expect(parseCleanupAction("all")).toBe("all");
     expect(parseCleanupAction("wipe")).toBeNull();
+    expect(UNFINISHED_GENERATION_SQL).toContain("status IN ('failed', 'cancelled')");
+    expect(UNFINISHED_GENERATION_SQL).toContain("COALESCE(result_url, '') = ''");
+    expect(UNFINISHED_GENERATION_SQL).toContain("COALESCE(result_key, '') = ''");
   });
 
   it("parses the Oxen-delete flag", () => {

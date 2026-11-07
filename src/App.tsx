@@ -39,7 +39,15 @@ import {
   type StudioProject,
   type StudioStyle,
 } from "./lib/api";
-import { groupGenerationBatches, isActiveGeneration, mergeGenerations, siblingAfterRemoval } from "./lib/batches";
+import {
+  activeGenerationKey,
+  generationPollChanged,
+  groupGenerationBatches,
+  isActiveGeneration,
+  isUnfinishedGeneration,
+  mergeGenerations,
+  siblingAfterRemoval,
+} from "./lib/batches";
 import { brandMarkClass, useInstanceBranding } from "./lib/branding";
 import { notifyGenerationLocal } from "./lib/pwa";
 import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
@@ -202,6 +210,7 @@ export default function App() {
   const [libraryMedia, setLibraryMedia] = useState<LibraryMediaFilter>("");
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [downloadingAll, setDownloadingAll] = useState(false);
+  const [clearingFailed, setClearingFailed] = useState(false);
   const hydratedParamsUserId = useRef<string | null>(null);
   const referenceTaskRef = useRef("");
   const controlsReady = useRef(false);
@@ -209,6 +218,10 @@ export default function App() {
   const durationPinned = useRef(false);
   const promptField = useRef<PromptField | null>(null);
   const attachDraft = useRef<{ text: string; caret: number } | null>(null);
+  const stagedRef = useRef(staged);
+  stagedRef.current = staged;
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt;
   const lastFrameAttempted = useRef(new Set<string>());
   const createGalleryOpenRef = useRef(false);
   const cancelCreateGalleryRef = useRef<() => void>(() => {});
@@ -955,35 +968,59 @@ export default function App() {
     if (next !== duration) setDuration(next);
   }, [controls, duration]);
 
+  const activeKey = activeGenerationKey(generations);
+  const generationsRef = useRef(generations);
+  generationsRef.current = generations;
+
   useEffect(() => {
-    const active = generations.filter(isActiveGeneration);
-    if (active.length === 0) return;
+    if (!activeKey) return;
+    const ids = activeKey.split("\n");
+    let cancelled = false;
+
+    async function poll() {
+      const incoming = (
+        await Promise.all(
+          ids.map(async (id) => {
+            try {
+              const { generation } = await api.getGeneration(id);
+              return generation;
+            } catch {
+              return null;
+            }
+          }),
+        )
+      ).filter((item): item is Generation => item !== null);
+      if (cancelled || incoming.length === 0) return;
+      const previous = new Map(generationsRef.current.map((item) => [item.id, item]));
+      const changed = incoming.filter((item) => {
+        const before = previous.get(item.id);
+        return !before || generationPollChanged(before, item);
+      });
+      if (changed.length === 0) return;
+      setGenerations((prev) => mergeGenerations(prev, changed));
+      for (const generation of changed) {
+        const before = previous.get(generation.id);
+        if (!before || !isActiveGeneration(before)) continue;
+        if (generation.status !== "succeeded" && generation.status !== "failed") continue;
+        void refreshCredits();
+        void notifyGenerationLocal({
+          id: generation.id,
+          status: generation.status,
+          prompt: generation.prompt,
+          mediaType: generation.mediaType,
+          errorMessage: generation.errorMessage,
+        });
+      }
+    }
 
     const timer = window.setInterval(() => {
-      void (async () => {
-        for (const g of active) {
-          try {
-            const { generation } = await api.getGeneration(g.id);
-            setGenerations((prev) => mergeGenerations(prev, [generation]));
-            if (generation.status === "succeeded" || generation.status === "failed") {
-              void refreshCredits();
-              void notifyGenerationLocal({
-                id: generation.id,
-                status: generation.status,
-                prompt: generation.prompt,
-                mediaType: generation.mediaType,
-                errorMessage: generation.errorMessage,
-              });
-            }
-          } catch {
-            // ignore transient poll errors
-          }
-        }
-      })();
+      void poll();
     }, 3000);
-
-    return () => window.clearInterval(timer);
-  }, [generations, refreshCredits]);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [activeKey, refreshCredits]);
 
   function currentModel() {
     return models.find((item) => item.id === model) ?? null;
@@ -1130,50 +1167,51 @@ export default function App() {
   function addLibraryItem(generation: Generation) {
     const ref = libraryRefFromGeneration(generation);
     if (!ref) return;
+    let current = stagedRef.current;
     if (
       controls?.imageAudioExclusive &&
-      ((ref.kind === "image" && staged.some((item) => item.kind === "audio")) ||
-        (ref.kind === "audio" && staged.some((item) => item.kind === "image")))
+      ((ref.kind === "image" && current.some((item) => item.kind === "audio")) ||
+        (ref.kind === "audio" && current.some((item) => item.kind === "image")))
     ) {
       setError("This model accepts a reference image or reference audio, not both.");
       return;
     }
     if (
       controls?.imageVideoExclusive &&
-      ((ref.kind === "image" && staged.some((item) => item.kind === "video")) ||
-        (ref.kind === "video" && staged.some((item) => item.kind === "image")))
+      ((ref.kind === "image" && current.some((item) => item.kind === "video")) ||
+        (ref.kind === "video" && current.some((item) => item.kind === "image")))
     ) {
       const clearKind = ref.kind === "image" ? "video" : "image";
-      setStaged((prev) => {
-        for (const item of prev) {
-          if (item.kind === clearKind) releasePreview(item.preview);
-        }
-        return prev.filter((item) => item.kind !== clearKind);
-      });
+      for (const item of current) {
+        if (item.kind === clearKind) releasePreview(item.preview);
+      }
+      current = current.filter((item) => item.kind !== clearKind);
       setError("Keyframes and a continuation clip can’t be used together.");
     }
     const cap = capForKind(ref.kind);
     if (cap <= 0) return;
-    if (staged.some((item) => item.generationId === ref.generationId)) return;
-    const existing = staged.filter((item) => item.kind === ref.kind);
+    if (current.some((item) => item.generationId === ref.generationId)) return;
+    const existing = current.filter((item) => item.kind === ref.kind);
     const start = mentionStart(ref.kind, existing);
-    setStaged((prev) =>
-      mergeLibraryRefs(
-        prev,
-        [
-          {
-            kind: ref.kind,
-            name: ref.name,
-            preview: ref.preview,
-            url: ref.url,
-            generationId: ref.generationId,
-            role: ref.kind === "audio" ? undefined : ("character" as const),
-          },
-        ],
-        capForKind,
-      ),
+    const next = mergeLibraryRefs(
+      current,
+      [
+        {
+          kind: ref.kind,
+          name: ref.name,
+          preview: ref.preview,
+          url: ref.url,
+          generationId: ref.generationId,
+          role: ref.kind === "audio" ? undefined : ("character" as const),
+        },
+      ],
+      capForKind,
     );
-    if (existing.length < cap) appendMentionTokens(ref.kind, start, 1);
+    const added = next.filter((item) => item.kind === ref.kind).length > existing.length;
+    if (!added) return;
+    stagedRef.current = next;
+    setStaged(next);
+    appendMentionTokens(ref.kind, start, 1);
   }
 
   function startNew() {
@@ -1659,19 +1697,19 @@ export default function App() {
     );
     const plan = planGalleryAttach({
       items: items ?? galleryItems,
-      staged,
+      staged: stagedRef.current,
       caps: {
         image: capForKind("image"),
         video: capForKind("video"),
         audio: capForKind("audio"),
         document: 0,
       },
-      prompt,
+      prompt: promptRef.current,
       faceFirst,
     });
     if (plan.add.length > 0) {
-      setStaged((prev) => [
-        ...prev,
+      const next = [
+        ...stagedRef.current,
         ...plan.add.map((item) => ({
           kind: item.kind,
           name: item.name,
@@ -1680,7 +1718,9 @@ export default function App() {
           key: item.key,
           role: item.kind === "audio" ? undefined : normalizeMediaRole(item.role),
         })),
-      ]);
+      ];
+      stagedRef.current = next;
+      setStaged(next);
     }
     if (plan.tokens.length > 0) {
       const field = promptField.current;
@@ -1691,7 +1731,9 @@ export default function App() {
           : el && document.activeElement === el
             ? el.selectionStart
             : null;
-      const result = insertAttachMentions(prompt, liveCaret, plan.tokens);
+      const result = insertAttachMentions(promptRef.current, liveCaret, plan.tokens);
+      promptRef.current = result.next;
+      attachDraft.current = { text: result.next, caret: result.caret };
       setPrompt(result.next);
       field?.place(result.caret, result.next);
     }
@@ -1784,6 +1826,20 @@ export default function App() {
     }
   }
 
+  async function onClearFailed() {
+    if (clearingFailed) return;
+    setClearingFailed(true);
+    setError(null);
+    try {
+      await api.cleanupLibrary("failed");
+      onLibraryCleanup("failed");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn’t remove failed jobs");
+    } finally {
+      setClearingFailed(false);
+    }
+  }
+
   function onLibraryCleanup(action: "failed" | "thumbs" | "all") {
     switch (action) {
       case "all":
@@ -1792,9 +1848,16 @@ export default function App() {
         setPeekId(null);
         return;
       case "failed":
-        setGenerations((prev) =>
-          prev.filter((row) => row.status !== "failed" && row.status !== "cancelled"),
-        );
+        setGenerations((prev) => prev.filter((row) => !isUnfinishedGeneration(row)));
+        setLibraryItems((prev) => prev.filter((row) => !isUnfinishedGeneration(row)));
+        setPeekId((prev) => {
+          const row = libraryItems.find((item) => item.id === prev);
+          return row && isUnfinishedGeneration(row) ? null : prev;
+        });
+        setSelectedId((prev) => {
+          const row = generations.find((item) => item.id === prev);
+          return row && isUnfinishedGeneration(row) ? null : prev;
+        });
         if (libraryOpen) void refreshLibrary();
         return;
       case "thumbs":
@@ -2369,6 +2432,8 @@ export default function App() {
         attachedIds={attachedIds}
         attachedMediaKeys={attachedMediaKeys}
         onAttach={addLibraryItem}
+        onClearFailed={() => void onClearFailed()}
+        clearingFailed={clearingFailed}
         attachSupported={(item) => {
           const ref = libraryRefFromGeneration(item);
           return Boolean(ref && capForKind(ref.kind) > 0);

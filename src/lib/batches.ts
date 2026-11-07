@@ -68,6 +68,37 @@ export function isActiveGeneration(generation: Generation): boolean {
   return !TERMINAL_STATUSES.has(generation.status);
 }
 
+/** Failed, cancelled, or succeeded without a file. In-flight jobs stay. */
+export function isUnfinishedGeneration(
+  item: Pick<Generation, "status" | "resultUrl"> & { resultKey?: string | null },
+): boolean {
+  if (item.status === "failed" || item.status === "cancelled") return true;
+  if (item.status === "succeeded" && !item.resultUrl && !item.resultKey) return true;
+  return false;
+}
+
+/** Stable while a job is merely polled again with the same visible fields. */
+export function generationPollChanged(prev: Generation, next: Generation): boolean {
+  return (
+    prev.status !== next.status ||
+    prev.resultUrl !== next.resultUrl ||
+    prev.thumbUrl !== next.thumbUrl ||
+    prev.lastFrameUrl !== next.lastFrameUrl ||
+    prev.errorMessage !== next.errorMessage ||
+    prev.progress !== next.progress ||
+    prev.etaSeconds !== next.etaSeconds ||
+    prev.startedAt !== next.startedAt
+  );
+}
+
+export function activeGenerationKey(rows: readonly Generation[]): string {
+  return rows
+    .filter(isActiveGeneration)
+    .map((item) => item.id)
+    .sort()
+    .join("\n");
+}
+
 export function mergeGenerations(
   existing: Generation[],
   incoming: Generation[],

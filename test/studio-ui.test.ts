@@ -14,7 +14,9 @@ import {
   batchPreviewItems,
   coverGeneration,
   groupGenerationBatches,
+  generationPollChanged,
   isActiveGeneration,
+  isUnfinishedGeneration,
   mergeGenerations,
   siblingAfterRemoval,
 } from "../src/lib/batches";
@@ -166,6 +168,17 @@ describe("groupGenerationBatches", () => {
     expect(merged[0]?.status).toBe("succeeded");
     expect(isActiveGeneration(queued)).toBe(true);
     expect(isActiveGeneration(archive[1]!)).toBe(false);
+    expect(isUnfinishedGeneration(gen({ id: "f", status: "failed" }))).toBe(true);
+    expect(isUnfinishedGeneration(gen({ id: "c", status: "cancelled" }))).toBe(true);
+    expect(
+      isUnfinishedGeneration(gen({ id: "empty", status: "succeeded", resultUrl: null, resultKey: null })),
+    ).toBe(true);
+    expect(
+      isUnfinishedGeneration(gen({ id: "ok", status: "succeeded", resultUrl: "https://x/a.png" })),
+    ).toBe(false);
+    expect(isUnfinishedGeneration(gen({ id: "run", status: "running" }))).toBe(false);
+    expect(generationPollChanged(queued, { ...queued, updatedAt: 40 })).toBe(false);
+    expect(generationPollChanged(queued, { ...queued, status: "succeeded" })).toBe(true);
   });
 });
 
@@ -998,6 +1011,9 @@ describe("in-gallery version expand", () => {
     );
     expect(imageBranch).not.toContain("VideoPlayMark");
     expect(videoBranch).toContain("<VideoPlayMark />");
+    expect(videoBranch).not.toContain("<video");
+    expect(sidebar).toContain("onPointerDown={notePointer}");
+    expect(sidebar).toContain("!dragMoved(event)");
     expect(drawer).not.toContain("history-expand");
     const media = readFileSync(new URL("../src/components/FullSizeMedia.tsx", import.meta.url), "utf8");
     expect(media).toContain("kind === \"video\"");
@@ -1190,6 +1206,17 @@ describe("library history layout", () => {
     expect(closed).not.toContain("history-gallery-mark");
     expect(closed).not.toContain('id="create-gallery"');
     expect(closed).toContain("Open image");
+    expect(closed).not.toContain("Clear failed");
+    const failed = renderToStaticMarkup(
+      createElement(Sidebar, {
+        ...shared,
+        createGalleryOpen: false,
+        generations: [gen({ id: "bad", status: "failed", resultUrl: null })],
+        onClearFailed: () => {},
+      }),
+    );
+    expect(failed).toContain("Clear failed");
+    expect(failed).toContain(">IMG<");
     expect(closed).toContain('aria-label="Media type"');
     expect(closed).toContain("Videos");
     expect(closed).toContain('aria-label="Select image"');

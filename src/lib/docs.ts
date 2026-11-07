@@ -223,7 +223,7 @@ export const DOC_ARTICLES: DocArticle[] = [
       },
       {
         type: "p",
-        text: "Settings → Cleanup can delete failed jobs, rebuild missing thumbnails, or wipe this account’s Studio media. Also delete from Oxen removes matching playground files. Cancelling a job in the Oxen queue does not remove a file that already succeeded.",
+        text: "History → Clear failed removes failed and cancelled jobs, and succeeded jobs that never saved a file. Jobs still running stay. Settings → Cleanup can do that same cleanup, rebuild missing thumbnails, or wipe this account’s Studio media. Also delete from Oxen removes matching playground files. Cancelling a job in the Oxen queue does not remove a file that already succeeded.",
       },
     ],
   },
