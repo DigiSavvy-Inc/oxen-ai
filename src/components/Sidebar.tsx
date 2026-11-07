@@ -788,6 +788,7 @@ export function Sidebar({
               onAdd={onHistoryAddToGallery}
               onCreate={onHistoryCreateGallery}
               setLabel="Add to gallery"
+              placement="below"
             />
           ) : null}
           {onDelete ? (

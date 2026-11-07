@@ -15,6 +15,7 @@ export function HistoryGalleryActions({
   onAdd,
   onCreate,
   setLabel = "Add set",
+  placement = "above",
 }: {
   image: HistoryGalleryItem | null;
   setItems: HistoryGalleryItem[];
@@ -22,6 +23,7 @@ export function HistoryGalleryActions({
   onAdd: (galleryId: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
   onCreate: (name: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
   setLabel?: string;
+  placement?: "above" | "below";
 }) {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [name, setName] = useState("");
@@ -91,7 +93,7 @@ export function HistoryGalleryActions({
   const incoming = menu === "set" ? setItems : image ? [image] : [];
 
   return (
-    <div className="history-gallery-tools" ref={rootRef}>
+    <div className={`history-gallery-tools${placement === "below" ? " is-below" : ""}`} ref={rootRef}>
       {image ? (
         <button
           type="button"

@@ -1354,6 +1354,12 @@ button.history-expand-preview {
   color: var(--text-muted);
 }
 
+.history-gallery-tools.is-below .history-gallery-pop {
+  top: calc(100% + 4px);
+  bottom: auto;
+  z-index: 8;
+}
+
 .history-gallery-pop .field {
   font-size: 12px;
   padding: 4px 6px;
