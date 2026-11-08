@@ -1,6 +1,7 @@
 import type { AppliedLook, Look, LookGroup } from "../../worker/looks";
 import { firstSupportedMode, modelSupportsMode } from "../../worker/model-modes";
 import { estimateGenerationCost, type OxenPricing } from "../../worker/pricing";
+import type { MediaRole } from "../../worker/schema";
 
 export { firstSupportedMode, modelSupportsMode };
 export { estimateGenerationCost, type OxenPricing };
@@ -237,8 +238,60 @@ export type ProjectSummary = {
   id: string;
   name: string;
   updatedAt: number;
+  castCount: number;
+  galleryCount: number;
   sessions: ProjectSessionSummary[];
 };
+
+export type ProjectCastGalleryItem = {
+  id: string;
+  kind: "image" | "video" | "audio";
+  name: string;
+  key: string;
+  url: string | null;
+  thumbUrl: string | null;
+  galleryRole: MediaRole | null;
+  roleOverride: MediaRole | null;
+  active: boolean;
+  excluded: boolean;
+};
+
+export type ProjectCastEntry =
+  | {
+      type: "gallery";
+      id: string;
+      name: string;
+      active: boolean;
+      items: ProjectCastGalleryItem[];
+    }
+  | {
+      type: "file";
+      id: string;
+      kind: "image" | "video" | "audio";
+      name: string;
+      key: string;
+      url: string | null;
+      thumbUrl: string | null;
+      role: MediaRole | null;
+      active: boolean;
+    };
+
+export type ProjectCastRequest = Array<
+  | {
+      type: "gallery";
+      id: string;
+      active: boolean;
+      items: { key: string; active: boolean; excluded: boolean; role: MediaRole | null }[];
+    }
+  | {
+      type: "file";
+      kind: "image" | "video" | "audio";
+      name: string;
+      key: string;
+      role: MediaRole | null;
+      active: boolean;
+    }
+>;
 
 export type ProjectSession = ProjectSessionSummary & {
   prompt: string;
@@ -265,7 +318,8 @@ export type StudioProject = {
   /** Applied looks in chip order, up to five. */
   lookIds: string[];
   updatedAt: number;
-  media: ProjectMedia[];
+  budget: number;
+  cast: ProjectCastEntry[];
   galleryIds: string[];
   sessions: ProjectSession[];
   shares: ProjectShare[];
@@ -275,7 +329,8 @@ export type SharedProject = {
   name: string;
   prompt: string;
   looks: StudioLook[];
-  media: ProjectMedia[];
+  budget: number;
+  cast: ProjectCastEntry[];
 };
 
 export type CreditBalance = {
@@ -592,8 +647,8 @@ export const api = {
       name: string;
       prompt: string;
       lookIds: string[];
-      media: { kind: ProjectMedia["kind"]; name: string; key: string; role: string | null }[];
-      galleryIds: string[];
+      budget: number;
+      cast: ProjectCastRequest;
     },
   ) =>
     fetch(`/api/projects/${encodeURIComponent(id)}`, {

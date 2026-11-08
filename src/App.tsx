@@ -15,7 +15,30 @@ import { Loader } from "./components/Loader";
 import { SettingsModal } from "./components/SettingsModal";
 import { Sidebar } from "./components/Sidebar";
 import { PanelPlaceProvider, readPanelPlace, storePanelPlace, type PanelPlace } from "./components/PanelPlace";
-import { ProjectEditor, ProjectRail } from "./components/ProjectRail";
+import { ProjectRail } from "./components/ProjectRail";
+import { ProjectCast } from "./components/ProjectCast";
+import { ProjectBrief } from "./components/ProjectBrief";
+import { ProjectHeader, type ProjectPanelView } from "./components/ProjectHeader";
+import {
+  castNumberMap,
+  castRequestBody,
+  castWithEntryActive,
+  castWithEntryMoved,
+  castWithFiles,
+  castWithGallery,
+  castWithItemActive,
+  castWithItemRole,
+  castWithoutEntry,
+  castWithoutItem,
+  castSummaryLabel,
+  droppedMentionNotice,
+  flattenCast,
+  missingMention,
+  rewriteMentions,
+  selectCastAttachments,
+  type CastEntry,
+  type CastItem,
+} from "./lib/cast";
 import {
   api,
   firstSupportedMode,
@@ -105,9 +128,37 @@ type StagedMedia = {
   key?: string;
   generationId?: string;
   role?: MediaRole | "scene";
+  /** Project-owned reference number while a project is open. */
+  number?: number;
 };
 
 const LIBRARY_LOAD_TIMEOUT_MS = 20_000;
+
+function stagedFromCast(items: CastItem[]): StagedMedia[] {
+  return items.flatMap((item) =>
+    item.url
+      ? [
+          {
+            kind: item.kind,
+            name: item.name,
+            key: item.key,
+            url: item.url,
+            preview: item.preview || item.url,
+            role: item.role,
+            number: item.number,
+          },
+        ]
+      : [],
+  );
+}
+
+function phoneLayout(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(max-width: 860px)").matches;
+}
+
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
 
 function initialLibraryOpen(): boolean {
   if (typeof window === "undefined") return false;
@@ -166,9 +217,11 @@ export default function App() {
   const [lookIds, setLookIds] = useState<string[]>([]);
   const [shareName, setShareName] = useState<string | null>(null);
   const [shareLooks, setShareLooks] = useState<StudioLook[]>([]);
-  const [projectEditorOpen, setProjectEditorOpen] = useState(false);
+  const [projectView, setProjectView] = useState<ProjectPanelView>("list");
   const [projectBusy, setProjectBusy] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
+  const [castNotice, setCastNotice] = useState<string | null>(null);
+  const [briefSavedPrompt, setBriefSavedPrompt] = useState("");
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [panelPlace, setPanelPlace] = useState<PanelPlace>(readPanelPlace);
   const [focusGalleryId, setFocusGalleryId] = useState<string | null>(null);
@@ -623,22 +676,13 @@ export default function App() {
         setActiveSessionId(null);
         setLookIds([]);
         setPrompt(share.prompt);
+        const shared = selectCastAttachments(flattenCast(share.cast), {
+          budget: share.budget,
+          caps: { image: GALLERY_ITEM_CAP, video: GALLERY_ITEM_CAP, audio: GALLERY_ITEM_CAP },
+        });
         setStaged((prev) => {
           for (const item of prev) releasePreview(item.preview);
-          return share.media.flatMap((item) =>
-            item.url
-              ? [
-                  {
-                    kind: item.kind,
-                    name: item.name,
-                    key: item.key,
-                    url: item.url ?? undefined,
-                    preview: item.url,
-                    role: item.role ? normalizeMediaRole(item.role) : undefined,
-                  },
-                ]
-              : [],
-          );
+          return stagedFromCast(shared.attached);
         });
         setSelectedId(null);
         setKeepCanvasClear(true);
@@ -1041,6 +1085,33 @@ export default function App() {
     return Boolean(controls?.slots.some((slot) => slot.field === field));
   }
 
+  const castEntries: CastEntry[] = activeProject?.cast ?? [];
+  const castItems = flattenCast(castEntries);
+  const castCaps = {
+    image: capForKind("image"),
+    video: capForKind("video"),
+    audio: capForKind("audio"),
+  };
+  const castSelection = selectCastAttachments(castItems, {
+    budget: activeProject?.budget ?? 0,
+    caps: castCaps,
+  });
+  const projectStaging = Boolean(activeProject && !shareName);
+  const castStageKey = projectStaging
+    ? castSelection.attached.map((item) => `${item.id}|${item.number}|${item.role ?? ""}|${item.url ?? ""}`).join("\n")
+    : null;
+  const castAttachedRef = useRef(castSelection.attached);
+  castAttachedRef.current = castSelection.attached;
+
+  useEffect(() => {
+    if (castStageKey == null) return;
+    const attached = castAttachedRef.current;
+    setStaged((prev) => {
+      for (const item of prev) releasePreview(item.preview);
+      return stagedFromCast(attached);
+    });
+  }, [castStageKey]);
+
   function mentionStart(kind: "image" | "video" | "audio", existing: StagedMedia[]) {
     void kind;
     return existing.length;
@@ -1096,6 +1167,10 @@ export default function App() {
   function onAddFiles(list: FileList | File[] | null) {
     const incoming = filesFromList(list);
     if (incoming.length === 0) return;
+    if (projectStaging) {
+      void projectAddFiles(incoming);
+      return;
+    }
     const { accepted, rejected } = partitionMediaFiles(
       incoming,
       acceptedMediaKinds(controls, mode, currentModel()),
@@ -1168,6 +1243,14 @@ export default function App() {
   function addLibraryItem(generation: Generation) {
     const ref = libraryRefFromGeneration(generation);
     if (!ref) return;
+    if (projectStaging) {
+      if (!generation.resultKey) {
+        setError("That file has no Studio copy yet, so it can’t join the cast.");
+        return;
+      }
+      projectAddRefs([{ kind: ref.kind, name: ref.name, key: generation.resultKey, url: ref.url }]);
+      return;
+    }
     let current = stagedRef.current;
     if (
       controls?.imageAudioExclusive &&
@@ -1216,6 +1299,7 @@ export default function App() {
   }
 
   function startNew() {
+    if (activeProject) closeProject();
     setStaged((prev) => {
       for (const item of prev) releasePreview(item.preview);
       return [];
@@ -1230,7 +1314,17 @@ export default function App() {
     setShots([]);
   }
 
+  function castItemForStaged(item: StagedMedia | undefined): CastItem | null {
+    if (!item || item.number == null) return null;
+    return castItems.find((entry) => entry.kind === item.kind && entry.number === item.number) ?? null;
+  }
+
   function onClearAttachment(kind: "image" | "video" | "audio", index: number) {
+    if (projectStaging) {
+      const target = castItemForStaged(staged.filter((item) => item.kind === kind)[index]);
+      if (target) projectRemoveItem(target);
+      return;
+    }
     setStaged((prev) => {
       const ofKind = prev.filter((item) => item.kind === kind);
       const target = ofKind[index];
@@ -1246,6 +1340,11 @@ export default function App() {
   }
 
   function onAttachmentRoleChange(index: number, role: MediaRole) {
+    if (projectStaging) {
+      const target = castItemForStaged(staged[index]);
+      if (target && target.kind !== "audio") void commitCast(castWithItemRole(castEntries, target, role));
+      return;
+    }
     setStaged((prev) =>
       prev.map((item, itemIndex) => {
         if (itemIndex !== index || item.kind === "audio") return item;
@@ -1255,6 +1354,7 @@ export default function App() {
   }
 
   function onReorderAttachments(from: number, to: number) {
+    if (projectStaging) return;
     const next = moveItem(staged, from, to);
     if (next === staged) return;
     setStaged(next);
@@ -1290,6 +1390,11 @@ export default function App() {
           (!referenceTaskNeedsVideo(taskForModel) || videoCount > 0) &&
           (!slotRequired(controls, "audio", mode) || audioCount > 0)),
   );
+  const unattachedMention =
+    mode && mode !== "chat" && controls?.mentions ? missingMention(prompt, staged) : null;
+  const generateBlock = unattachedMention
+    ? `The prompt mentions ${unattachedMention}, which isn’t attached. Attach it in the cast or take it out of the prompt.`
+    : null;
 
   async function onSavePrompt(name: string, body: string) {
     try {
@@ -1691,6 +1796,20 @@ export default function App() {
   }
 
   function onGalleryAttach(items?: GalleryDraftItem[], caret?: number | null): string[] {
+    if (projectStaging) {
+      const chosen = items ?? galleryItems;
+      const withKey = chosen.filter((item): item is GalleryDraftItem & { key: string } => Boolean(item.key));
+      projectAddRefs(
+        withKey.map((item) => ({
+          kind: item.kind,
+          name: item.name,
+          key: item.key,
+          url: item.url ?? null,
+          role: item.kind === "audio" ? null : normalizeMediaRole(item.role),
+        })),
+      );
+      return chosen.filter((item) => !item.key).map((item) => item.name);
+    }
     const faceFirst = Boolean(
       controls?.slots.some(
         (slot) => slot.field === "input_face_images" || slot.field === "input_face_videos",
@@ -1897,30 +2016,16 @@ export default function App() {
     });
   }
 
-  function mediaFromProject(items: ProjectMedia[]): StagedMedia[] {
-    return items.flatMap((item) =>
-      item.url
-        ? [
-            {
-              kind: item.kind,
-              name: item.name,
-              key: item.key,
-              url: item.url,
-              preview: item.url,
-              role: item.role ? normalizeMediaRole(item.role) : undefined,
-            },
-          ]
-        : [],
-    );
-  }
-
   function rememberProject(project: StudioProject) {
     setActiveProject(project);
+    setBriefSavedPrompt(project.prompt);
     setProjectSummaries((prev) => {
       const summary: ProjectSummary = {
         id: project.id,
         name: project.name,
         updatedAt: project.updatedAt,
+        castCount: flattenCast(project.cast).length,
+        galleryCount: project.cast.filter((entry) => entry.type === "gallery").length,
         sessions: project.sessions.map((session) => ({
           id: session.id,
           name: session.name,
@@ -1934,20 +2039,169 @@ export default function App() {
   function applyProjectDefaults(project: StudioProject) {
     setLookIds(project.lookIds);
     setPrompt(project.prompt);
-    replaceStaged(mediaFromProject(project.media));
     setSelectedId(null);
     setKeepCanvasClear(true);
   }
 
   async function openProject(id: string) {
     setProjectError(null);
+    setCastNotice(null);
     setShareName(null);
     setShareLooks([]);
     const { project } = await api.project(id);
     setActiveSessionId(null);
-    setProjectEditorOpen(false);
     rememberProject(project);
     applyProjectDefaults(project);
+    setProjectView("cast");
+    if (phoneLayout()) setProjectsOpen(false);
+  }
+
+  function closeProject() {
+    setActiveProject(null);
+    setActiveSessionId(null);
+    setCastNotice(null);
+    setProjectView("list");
+    replaceStaged([]);
+  }
+
+  /** Save the cast and, when numbers moved, rewrite the prompt the composer shows and the saved brief. */
+  async function commitCast(
+    nextEntries: CastEntry[],
+    options: { renumber?: boolean; budget?: number; notice?: string | null } = {},
+  ) {
+    if (!activeProject) return;
+    setProjectBusy(true);
+    setProjectError(null);
+    let nextPrompt = promptRef.current;
+    let savedPrompt = briefSavedPrompt;
+    let notice: string | null = options.notice ?? null;
+    if (options.renumber) {
+      const map = castNumberMap(castItems, flattenCast(nextEntries));
+      const composer = rewriteMentions(nextPrompt, map);
+      const brief = rewriteMentions(savedPrompt, map);
+      nextPrompt = composer.next;
+      savedPrompt = brief.next;
+      if (composer.changed) {
+        promptRef.current = composer.next;
+        attachDraft.current = null;
+        setPrompt(composer.next);
+      }
+      const dropped = droppedMentionNotice([...composer.dropped, ...brief.dropped]);
+      if (dropped) notice = notice ? `${notice} ${dropped}` : dropped;
+    }
+    try {
+      const { project } = await api.saveProject(activeProject.id, {
+        name: activeProject.name,
+        prompt: savedPrompt,
+        lookIds: activeProject.lookIds,
+        budget: options.budget ?? activeProject.budget,
+        cast: castRequestBody(nextEntries),
+      });
+      rememberProject(project);
+      setCastNotice(notice);
+    } catch (err) {
+      setProjectError(err instanceof Error ? err.message : "Couldn’t save the cast");
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
+  async function uploadLooseFiles(
+    files: File[],
+  ): Promise<{ kind: "image" | "video" | "audio"; name: string; key: string; url: string | null }[]> {
+    const { accepted, rejected } = partitionMediaFiles(files, acceptedMediaKinds(controls, mode, currentModel()));
+    noteRejectedMedia(rejected);
+    const uploaded: { kind: "image" | "video" | "audio"; name: string; key: string; url: string | null }[] = [];
+    for (const entry of accepted) {
+      if (entry.kind === "document") continue;
+      const result = await api.upload(entry.file);
+      uploaded.push({ kind: entry.kind, name: entry.file.name, key: result.key, url: result.url });
+    }
+    return uploaded;
+  }
+
+  async function projectAddFiles(files: File[]) {
+    if (!activeProject || files.length === 0) return;
+    setProjectBusy(true);
+    try {
+      const uploaded = await uploadLooseFiles(files);
+      if (uploaded.length === 0) return;
+      const nextEntries = castWithFiles(castEntries, uploaded);
+      const before = castItems.length;
+      const added = flattenCast(nextEntries).slice(before);
+      await commitCast(nextEntries);
+      const tokens = added
+        .filter((item) => mentionAllowed(item.kind))
+        .map((item) => mentionToken(item.kind, item.number - 1));
+      if (tokens.length > 0) insertTokensAtCaret(tokens);
+    } catch (err) {
+      setProjectError(err instanceof Error ? err.message : "Couldn’t add those files");
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
+  function projectAddRefs(
+    refs: { kind: "image" | "video" | "audio"; name: string; key: string; url: string | null; role?: MediaRole | null }[],
+  ) {
+    if (!activeProject) return;
+    const nextEntries = castWithFiles(castEntries, refs);
+    if (nextEntries.length === castEntries.length) return;
+    const before = castItems.length;
+    const added = flattenCast(nextEntries).slice(before);
+    void commitCast(nextEntries).then(() => {
+      const tokens = added
+        .filter((item) => mentionAllowed(item.kind))
+        .map((item) => mentionToken(item.kind, item.number - 1));
+      if (tokens.length > 0) insertTokensAtCaret(tokens);
+    });
+  }
+
+  function insertTokensAtCaret(tokens: string[]) {
+    const field = promptField.current;
+    const el = field?.element ?? null;
+    const liveCaret = el && document.activeElement === el ? el.selectionStart : null;
+    const result = insertAttachMentions(promptRef.current, liveCaret, tokens);
+    promptRef.current = result.next;
+    attachDraft.current = { text: result.next, caret: result.caret };
+    setPrompt(result.next);
+    field?.place(result.caret, result.next);
+  }
+
+  function projectRemoveItem(item: CastItem) {
+    void commitCast(castWithoutItem(castEntries, item), { renumber: true });
+  }
+
+  function projectRemoveEntry(entryId: string) {
+    void commitCast(castWithoutEntry(castEntries, entryId), { renumber: true });
+  }
+
+  function projectMoveEntry(from: number, to: number) {
+    const next = castWithEntryMoved(castEntries, from, to);
+    const map = castNumberMap(castItems, flattenCast(next));
+    const moved = rewriteMentions(promptRef.current, map).changed || rewriteMentions(briefSavedPrompt, map).changed;
+    if (moved && !window.confirm("Update the mentions in the brief to match the new order?")) {
+      void commitCast(next);
+      return;
+    }
+    void commitCast(next, { renumber: true });
+  }
+
+  function projectSaveBrief(body: { name: string }) {
+    if (!activeProject) return;
+    setProjectBusy(true);
+    setProjectError(null);
+    void api
+      .saveProject(activeProject.id, {
+        name: body.name,
+        prompt: promptRef.current,
+        lookIds,
+        budget: activeProject.budget,
+        cast: castRequestBody(castEntries),
+      })
+      .then(({ project }) => rememberProject(project))
+      .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t save the brief"))
+      .finally(() => setProjectBusy(false));
   }
 
   async function openSession(projectId: string, sessionId: string) {
@@ -1961,7 +2215,6 @@ export default function App() {
     setActiveSessionId(session.id);
     setLookIds(session.lookIds);
     setPrompt(session.prompt);
-    replaceStaged(mediaFromProject(session.attachments));
     if (session.mode === "text-to-image" || session.mode === "image-to-image" || session.mode === "text-to-video" || session.mode === "reference-to-video" || session.mode === "video-to-video" || session.mode === "text-to-audio" || session.mode === "chat") {
       setMode(session.mode);
     }
@@ -1988,28 +2241,6 @@ export default function App() {
     if (!activeProject) return;
     setActiveSessionId(null);
     applyProjectDefaults(activeProject);
-  }
-
-  async function pinComposerMedia(): Promise<ProjectMedia[]> {
-    const next: ProjectMedia[] = [];
-    for (const item of staged) {
-      let key = item.key;
-      let url = item.url ?? null;
-      if (!key && item.file) {
-        const uploaded = await api.upload(item.file);
-        key = uploaded.key;
-        url = uploaded.url;
-      }
-      if (!key) continue;
-      next.push({
-        kind: item.kind,
-        name: item.name,
-        key,
-        role: item.kind === "audio" ? null : normalizeMediaRole(item.role),
-        url,
-      });
-    }
-    return next;
   }
 
   const imageRouted = Boolean(
@@ -2074,6 +2305,10 @@ export default function App() {
   }
 
   async function onGenerate() {
+    if (generateBlock) {
+      setError(generateBlock);
+      return;
+    }
     if (!canGenerate || !mode) {
       if (!user?.hasOxenKey) {
         setLibraryOpen(false);
@@ -2344,58 +2579,75 @@ export default function App() {
       <PanelPlaceProvider place={panelPlace} setPlace={setPanelPlace}>
       <ProjectRail
         open={projectsOpen}
+        view={projectView}
+        onView={setProjectView}
         projects={projectSummaries}
         activeProjectId={activeProject?.id ?? null}
-        activeSessionId={activeSessionId}
-        linkedGalleries={(activeProject?.galleryIds ?? [])
-          .map((id) => gallerySummaries.find((gallery) => gallery.id === id))
-          .filter((gallery): gallery is GallerySummary => Boolean(gallery))}
+        activeProjectName={activeProject?.name ?? null}
         onCreate={(name) => {
           void api.createProject(name).then(({ project }) => {
             rememberProject(project);
             applyProjectDefaults(project);
             setActiveSessionId(null);
+            setCastNotice(null);
+            setProjectView("cast");
           }).catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t create that project"));
         }}
         onOpenProject={(id) => void openProject(id)}
-        onOpenSession={(projectId, sessionId) => void openSession(projectId, sessionId)}
-        onNewSession={newProjectSession}
-        onEdit={(id) => void openProject(id).then(() => setProjectEditorOpen(true))}
         onClose={() => setProjectsOpen(false)}
         error={projectError}
-        onOpenGallery={(id) => {
-          setFocusGalleryId(id);
-          setLibraryPane("galleries");
-          setProjectsOpen(false);
-          setShowSettings(false);
-          setLibraryOpen(true);
-          void onGalleryLoad(id);
-        }}
       >
-        {projectEditorOpen && activeProject ? (
-          <ProjectEditor
-            key={activeProject.updatedAt}
-            project={activeProject}
-            looks={looks}
+        {activeProject && projectView === "cast" ? (
+          <ProjectCast
+            entries={castEntries}
+            items={castItems}
+            selection={castSelection}
+            budget={activeProject.budget}
+            modelCaps={model ? castCaps : null}
             galleries={gallerySummaries}
             busy={projectBusy}
-            error={projectError}
-            onClose={() => setProjectEditorOpen(false)}
-            onSave={(body) => {
-              setProjectBusy(true);
-              setProjectError(null);
-              void api
-                .saveProject(activeProject.id, body)
-                .then(({ project }) => {
-                  rememberProject(project);
-                  setPrompt(project.prompt);
-                  setLookIds(project.lookIds);
-                  setProjectEditorOpen(false);
-                })
-                .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t save those defaults"))
-                .finally(() => setProjectBusy(false));
+            notice={castNotice ?? projectError}
+            dropAccept={fileAcceptValue(acceptedMediaKinds(controls, mode, currentModel()))}
+            onBudgetChange={(budget) => void commitCast(castEntries, { budget })}
+            onToggleEntry={(entryId, active) => void commitCast(castWithEntryActive(castEntries, entryId, active))}
+            onRemoveEntry={projectRemoveEntry}
+            onMoveEntry={projectMoveEntry}
+            onToggleItem={(item, active) => void commitCast(castWithItemActive(castEntries, item, active))}
+            onRemoveItem={projectRemoveItem}
+            onRoleChange={(item, role) => void commitCast(castWithItemRole(castEntries, item, role))}
+            onAddGallery={(galleryId) => {
+              const gallery = gallerySummaries.find((entry) => entry.id === galleryId);
+              if (gallery) void commitCast(castWithGallery(castEntries, gallery));
             }}
-            onPinComposer={pinComposerMedia}
+            onAddFiles={(files) => void projectAddFiles(files)}
+            onOpenLibrary={() => {
+              setProjectsOpen(false);
+              setShowSettings(false);
+              setLibraryPane("history");
+              setLibraryOpen(true);
+            }}
+            onOpenGallery={(id) => {
+              setFocusGalleryId(id);
+              setLibraryPane("galleries");
+              setProjectsOpen(false);
+              setShowSettings(false);
+              setLibraryOpen(true);
+              void onGalleryLoad(id);
+            }}
+          />
+        ) : null}
+        {activeProject && projectView === "brief" ? (
+          <ProjectBrief
+            project={activeProject}
+            looks={looks}
+            lookIds={lookIds}
+            onToggleLook={toggleLook}
+            prompt={prompt}
+            onPromptChange={setPrompt}
+            busy={projectBusy}
+            error={projectError}
+            dirty={prompt !== briefSavedPrompt || !sameIds(lookIds, activeProject.lookIds)}
+            onSave={projectSaveBrief}
             onDelete={() => {
               if (!window.confirm(`Delete ${activeProject.name}?`)) return;
               setProjectBusy(true);
@@ -2403,9 +2655,7 @@ export default function App() {
                 .deleteProject(activeProject.id)
                 .then(() => {
                   setProjectSummaries((prev) => prev.filter((item) => item.id !== activeProject.id));
-                  setActiveProject(null);
-                  setActiveSessionId(null);
-                  setProjectEditorOpen(false);
+                  closeProject();
                 })
                 .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t delete that project"))
                 .finally(() => setProjectBusy(false));
@@ -2424,6 +2674,9 @@ export default function App() {
                 api.project(activeProject.id).then(({ project }) => rememberProject(project)),
               );
             }}
+            activeSessionId={activeSessionId}
+            onOpenSession={(sessionId) => void openSession(activeProject.id, sessionId)}
+            onNewSession={newProjectSession}
           />
         ) : null}
       </ProjectRail>
@@ -2656,6 +2909,23 @@ export default function App() {
               />
             ) : null}
           </div>
+          {activeProject && !shareName ? (
+            <ProjectHeader
+              project={activeProject}
+              selection={castSelection}
+              galleryCount={castEntries.filter((entry) => entry.type === "gallery").length}
+              view={projectsOpen ? projectView : null}
+              onOpen={(view) => {
+                setProjectView(view);
+                setLibraryOpen(false);
+                setLibraryPane("history");
+                setShowSettings(false);
+                setPeekId(null);
+                setProjectsOpen(true);
+              }}
+              onClose={closeProject}
+            />
+          ) : null}
           <Composer
             mode={mode}
             onModeChange={handleModeChange}
@@ -2751,11 +3021,12 @@ export default function App() {
               preview: item.preview,
               kind: item.kind,
               role: item.role,
+              number: item.number,
             }))}
             onAddFiles={onAddFiles}
             onClearAttachment={onClearAttachment}
             onReorderAttachments={onReorderAttachments}
-            busy={busy}
+            busy={busy || projectBusy}
             error={error}
             onGenerate={() => void onGenerate()}
             canGenerate={canGenerate}
@@ -2765,6 +3036,23 @@ export default function App() {
             onCreateLook={shareName ? undefined : createLook}
             onStarLook={shareName ? undefined : starLook}
             onDeleteLook={shareName ? undefined : deleteLook}
+            generateBlock={generateBlock}
+            attachSummary={
+              projectStaging
+                ? {
+                    label: castSummaryLabel(castSelection),
+                    partial: castSelection.attached.length < castSelection.total,
+                    onOpen: () => {
+                      setProjectView("cast");
+                      setLibraryOpen(false);
+                      setLibraryPane("history");
+                      setShowSettings(false);
+                      setPeekId(null);
+                      setProjectsOpen(true);
+                    },
+                  }
+                : null
+            }
             modelDelivery={delivery.prompt}
             deliveryNotes={delivery.notes}
           />

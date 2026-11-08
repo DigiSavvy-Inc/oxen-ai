@@ -4,7 +4,17 @@ export type MentionItem = {
   name: string;
   kind: MediaSlot["kind"];
   role?: string;
+  /** Project-owned reference number. Without it, position within the kind is the number. */
+  number?: number;
 };
+
+/** 1-based number for an item: its project number, or its position among its kind. */
+export function mentionNumber<T extends MentionItem>(items: readonly T[], item: T): number {
+  if (item.number != null) return item.number;
+  const ofKind = items.filter((entry) => entry.kind === item.kind);
+  const index = ofKind.indexOf(item);
+  return (index >= 0 ? index : 0) + 1;
+}
 
 /**
  * Numbers follow the order the files were added.
@@ -154,7 +164,16 @@ export function attachmentForMention<T extends MentionItem>(
   attachments: T[],
   mention: Pick<PromptMention, "kind" | "index">,
 ): T | null {
-  return attachments.filter((item) => item.kind === mention.kind)[mention.index] ?? null;
+  const ofKind = attachments.filter((item) => item.kind === mention.kind);
+  if (ofKind.some((item) => item.number != null)) {
+    return ofKind.find((item) => item.number === mention.index + 1) ?? null;
+  }
+  return ofKind[mention.index] ?? null;
+}
+
+function itemByNumber<T extends MentionItem>(pool: readonly T[], n: number): T | undefined {
+  if (pool.some((item) => item.number != null)) return pool.find((item) => item.number === n);
+  return pool[n - 1];
 }
 
 export function mentionAtCaret(
@@ -193,13 +212,13 @@ export function filterMentionItems<T extends MentionItem>(query: string, items: 
     const kind = kindFromQueryPrefix(numbered[1]);
     const pool = kind ? items.filter((item) => item.kind === kind) : null;
     if (pool) {
-      const hit = pool[n - 1];
+      const hit = itemByNumber(pool, n);
       return hit ? [hit] : [];
     }
     const hits: T[] = [];
     for (const fallback of ["image", "video", "audio"] as const) {
       const ofKind = items.filter((item) => item.kind === fallback);
-      const hit = ofKind[n - 1];
+      const hit = itemByNumber(ofKind, n);
       if (hit) hits.push(hit);
     }
     return hits;
@@ -219,6 +238,7 @@ export function filterMentionItems<T extends MentionItem>(query: string, items: 
 }
 
 export function tokenForItem<T extends MentionItem>(attachments: T[], item: T, index: number): string {
+  if (item.number != null) return mentionToken(item.kind, item.number - 1);
   const ofKind = attachments.filter((entry) => entry.kind === item.kind);
   const kindIndex = ofKind.findIndex((entry) => entry === item);
   return mentionToken(item.kind, kindIndex >= 0 ? kindIndex : index);

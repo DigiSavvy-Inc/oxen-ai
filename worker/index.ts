@@ -117,6 +117,7 @@ import {
   saveGallery,
 } from "./galleries";
 import { presentGallery, presentGalleryList } from "./gallery-present";
+import { acceptProjectBudget, acceptProjectCast } from "./project-cast";
 import {
   acceptProjectMedia,
   acceptProjectName,
@@ -140,6 +141,7 @@ import {
 } from "./projects";
 import { acceptAppliedLooks, acceptLookGroup, acceptLookIds, looksFromParams } from "./looks";
 import { ensureLooksSchema } from "./looks-migration";
+import { ensureCastSchema } from "./cast-migration";
 import { parseServedThumbWidth, resizeServedImage } from "./gallery-thumbs";
 import {
   deleteSavedPrompt,
@@ -256,14 +258,16 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
-// Looks, projects, and shares read the 0024 schema. Bring the live database up to it
-// before the first such request on this isolate; later calls return at once.
+// Looks, projects, and shares read the 0024 and 0025 schemas. Bring the live database
+// up to them before the first such request on this isolate; later calls return at once.
 app.use("/api/projects/*", async (c, next) => {
   await ensureLooksSchema(c.env.DB);
+  await ensureCastSchema(c.env.DB);
   await next();
 });
 app.use("/api/projects", async (c, next) => {
   await ensureLooksSchema(c.env.DB);
+  await ensureCastSchema(c.env.DB);
   await next();
 });
 app.use("/api/styles/*", async (c, next) => {
@@ -276,6 +280,7 @@ app.use("/api/styles", async (c, next) => {
 });
 app.use("/api/shares/*", async (c, next) => {
   await ensureLooksSchema(c.env.DB);
+  await ensureCastSchema(c.env.DB);
   await next();
 });
 
@@ -1455,17 +1460,15 @@ app.put("/api/projects/:id", async (c) => {
     prompt?: unknown;
     lookIds?: unknown;
     styleId?: unknown;
-    media?: unknown;
-    galleryIds?: unknown;
+    budget?: unknown;
+    cast?: unknown;
   }>();
   const name = acceptProjectName(body.name);
   const prompt = acceptProjectPrompt(body.prompt);
-  const media = acceptProjectMedia(user.id, body.media);
-  const galleryIds = Array.isArray(body.galleryIds)
-    ? body.galleryIds.filter((item): item is string => typeof item === "string")
-    : null;
-  if (!name || prompt == null || !media || !galleryIds) {
-    throw new HTTPException(400, { message: "Project defaults need a name, prompt, and your own media" });
+  const cast = acceptProjectCast(user.id, body.cast);
+  const budget = acceptProjectBudget(body.budget);
+  if (!name || prompt == null || !cast || budget == null) {
+    throw new HTTPException(400, { message: "A project needs a name, a prompt, a budget, and your own media" });
   }
   const lookIds = lookIdsFromBody(body);
   if (!lookIds) throw new HTTPException(400, { message: "A project applies up to five of your looks" });
@@ -1473,8 +1476,8 @@ app.put("/api/projects/:id", async (c) => {
     name,
     prompt,
     lookIds,
-    media,
-    galleryIds,
+    budget,
+    cast,
   });
   if (!saved) throw new HTTPException(404, { message: "Project or look not found" });
   return c.json({ project: await getProject(c.env, user.id, c.req.param("id")) });

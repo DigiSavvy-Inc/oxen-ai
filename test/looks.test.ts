@@ -174,6 +174,7 @@ describe("look storage", () => {
          VALUES ('pr1', 'u1', 'p1', 'Clip', 'Hold still.', 's1', 1, 1);`,
     );
     raw.exec(readFileSync(new URL("../migrations/0024_looks.sql", import.meta.url), "utf8"));
+    raw.exec(readFileSync(new URL("../migrations/0025_project_cast.sql", import.meta.url), "utf8"));
     const env = { DB: db } as unknown as Parameters<typeof getProject>[0];
     const migrated = await getProject(env, "u1", "pr1");
     expect(migrated?.lookIds).toEqual(["s1"]);
@@ -186,8 +187,8 @@ describe("look storage", () => {
       name: "Clip",
       prompt: "Hold still.",
       lookIds: ["s3", "s1", "s2", "s4", "s5", "s6"],
-      media: [],
-      galleryIds: [],
+      budget: 20,
+      cast: [],
     });
     expect(saved).toBe(true);
     const reordered = await getProject(env, "u1", "pr1");
@@ -206,8 +207,8 @@ describe("look storage", () => {
       name: "Clip",
       prompt: "Hold still.",
       lookIds: ["not-mine"],
-      media: [],
-      galleryIds: [],
+      budget: 20,
+      cast: [],
     });
     expect(foreign).toBe(false);
   });

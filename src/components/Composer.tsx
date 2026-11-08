@@ -71,6 +71,8 @@ type AttachItem = {
   preview: string;
   kind: "image" | "video" | "audio";
   role?: string;
+  /** Project-owned reference number. Chips without one are numbered by position. */
+  number?: number;
 };
 
 function faceFieldForKind(kind: AttachItem["kind"]): "input_face_images" | "input_face_videos" | null {
@@ -242,6 +244,10 @@ type Props = {
   onCreateLook?: (draft: LookDraft) => Promise<StudioLook | null>;
   onStarLook?: (id: string, starred: boolean) => void;
   onDeleteLook?: (id: string) => void;
+  /** Why Generate is held, e.g. a mention of a reference that is not attached. */
+  generateBlock?: string | null;
+  /** "N of M attached" for the open project, with a way to choose which are active. */
+  attachSummary?: { label: string; partial: boolean; onOpen: () => void } | null;
   modelDelivery?: string;
   deliveryNotes?: string[];
 };
@@ -937,7 +943,7 @@ export function Composer(props: Props) {
                     }
                   }
                 }
-                if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && props.canGenerate) {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && props.canGenerate && !props.generateBlock) {
                   e.preventDefault();
                   props.onGenerate();
                 }
@@ -1357,6 +1363,27 @@ export function Composer(props: Props) {
                 Audio {audioCount}/{audioMax}
               </span>
             ) : null}
+            {props.attachSummary ? (
+              <button
+                type="button"
+                className={`ghost-btn attach-summary${props.attachSummary.partial ? " is-partial" : ""}`}
+                title="Open the cast to choose which references are active"
+                onClick={props.attachSummary.onOpen}
+              >
+                {props.attachSummary.label}
+              </button>
+            ) : null}
+          </div>
+        ) : props.attachSummary ? (
+          <div className="attach-preview attach-preview-empty">
+            <button
+              type="button"
+              className={`ghost-btn attach-summary${props.attachSummary.partial ? " is-partial" : ""}`}
+              title="Open the cast to choose which references are active"
+              onClick={props.attachSummary.onOpen}
+            >
+              {props.attachSummary.label}
+            </button>
           </div>
         ) : null}
 
@@ -1756,17 +1783,19 @@ export function Composer(props: Props) {
           <button
             type="button"
             className="primary-btn"
-            disabled={!props.canGenerate || props.busy}
+            disabled={!props.canGenerate || props.busy || Boolean(props.generateBlock)}
             onClick={props.onGenerate}
-            title="⌘↵"
+            title={props.generateBlock ?? "⌘↵"}
             aria-label={
               props.mode === "chat"
                 ? "Send, Command Enter"
-                : props.busy
-                  ? "Queuing generation"
-                  : cost.amount != null
-                    ? `Generate, estimated ${cost.label}, Command Enter`
-                    : "Generate, Command Enter"
+                : props.generateBlock
+                  ? props.generateBlock
+                  : props.busy
+                    ? "Queuing generation"
+                    : cost.amount != null
+                      ? `Generate, estimated ${cost.label}, Command Enter`
+                      : "Generate, Command Enter"
             }
           >
             {props.busy ? (
@@ -1785,6 +1814,11 @@ export function Composer(props: Props) {
             )}
           </button>
         </div>
+        {props.generateBlock ? (
+          <p className="composer-hint composer-block" role="alert">
+            {props.generateBlock}
+          </p>
+        ) : null}
         {slotRequired(props.controls, "image", props.mode) ? (
           <p className="composer-hint">This model needs at least one reference image.</p>
         ) : null}
