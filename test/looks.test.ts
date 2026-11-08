@@ -16,6 +16,7 @@ import {
 } from "../worker/looks";
 import { composeModelPrompt } from "../src/lib/model-prompt";
 import { paramsJsonForStorage } from "../worker/oxen";
+import { ensureLooksSchema } from "../worker/looks-migration";
 import { deleteStyle, getProject, listStyles, updateProject, updateStyle } from "../worker/projects";
 
 function look(id: string, body: string, extra: Partial<Look> = {}): Look {
@@ -209,5 +210,52 @@ describe("look storage", () => {
       galleryIds: [],
     });
     expect(foreign).toBe(false);
+  });
+});
+
+describe("looks schema from the Worker", () => {
+  it("applies 0024 once on a database that stopped at 0023 and records it", async () => {
+    const raw = new DatabaseSync(":memory:");
+    raw.exec(readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8"));
+    raw.exec(readFileSync(new URL("../migrations/0009_galleries.sql", import.meta.url), "utf8"));
+    raw.exec(readFileSync(new URL("../migrations/0022_projects.sql", import.meta.url), "utf8"));
+    raw.exec(
+      `CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);
+       INSERT INTO styles (id, user_id, profile_id, name, body, created_at, updated_at) VALUES ('s1', 'u1', 'p1', 'Old', 'Shot on 35mm', 1, 1);
+       INSERT INTO projects (id, user_id, profile_id, name, prompt, style_id, created_at, updated_at) VALUES ('pr1', 'u1', 'p1', 'Clip', '', 's1', 1, 1);
+       INSERT INTO project_sessions (id, project_id, user_id, name, prompt, style_id, mode, model, params_json, attachments_json, created_at, updated_at)
+         VALUES ('se1', 'pr1', 'u1', 'Take', '', 's1', NULL, '', '{}', '[]', 1, 1);`,
+    );
+    const statement = (sql: string, args: unknown[]) => ({
+      async first() {
+        return raw.prepare(sql).get(...(args as (string | number | null)[])) ?? null;
+      },
+      async all() {
+        return { results: raw.prepare(sql).all(...(args as (string | number | null)[])) };
+      },
+      async run() {
+        raw.prepare(sql).run(...(args as (string | number | null)[]));
+        return { success: true, meta: { changes: 0 } };
+      },
+    });
+    const db = {
+      prepare(sql: string) {
+        return { bind: (...args: unknown[]) => statement(sql, args), ...statement(sql, []) };
+      },
+    } as unknown as D1Database;
+
+    await ensureLooksSchema(db);
+    await ensureLooksSchema(db);
+    expect(raw.prepare(`SELECT name FROM d1_migrations`).all()).toEqual([{ name: "0024_looks.sql" }]);
+    expect(raw.prepare(`SELECT project_id, style_id, position FROM project_looks`).all()).toEqual([
+      { project_id: "pr1", style_id: "s1", position: 0 },
+    ]);
+    expect(raw.prepare(`SELECT group_name, starred FROM styles WHERE id = 's1'`).get()).toEqual({
+      group_name: null,
+      starred: 0,
+    });
+    expect(raw.prepare(`SELECT look_ids_json FROM project_sessions WHERE id = 'se1'`).get()).toEqual({
+      look_ids_json: '["s1"]',
+    });
   });
 });

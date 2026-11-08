@@ -139,6 +139,7 @@ import {
   updateStyle,
 } from "./projects";
 import { acceptAppliedLooks, acceptLookGroup, acceptLookIds, looksFromParams } from "./looks";
+import { ensureLooksSchema } from "./looks-migration";
 import { parseServedThumbWidth, resizeServedImage } from "./gallery-thumbs";
 import {
   deleteSavedPrompt,
@@ -252,6 +253,29 @@ app.use("/api/*", async (c, next) => {
       throw new HTTPException(403, { message: "Cross-origin request blocked" });
     }
   }
+  await next();
+});
+
+// Looks, projects, and shares read the 0024 schema. Bring the live database up to it
+// before the first such request on this isolate; later calls return at once.
+app.use("/api/projects/*", async (c, next) => {
+  await ensureLooksSchema(c.env.DB);
+  await next();
+});
+app.use("/api/projects", async (c, next) => {
+  await ensureLooksSchema(c.env.DB);
+  await next();
+});
+app.use("/api/styles/*", async (c, next) => {
+  await ensureLooksSchema(c.env.DB);
+  await next();
+});
+app.use("/api/styles", async (c, next) => {
+  await ensureLooksSchema(c.env.DB);
+  await next();
+});
+app.use("/api/shares/*", async (c, next) => {
+  await ensureLooksSchema(c.env.DB);
   await next();
 });
 
