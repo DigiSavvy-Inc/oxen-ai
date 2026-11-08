@@ -441,7 +441,6 @@ export async function deleteProject(db: D1Database, userId: string, id: string):
     db.prepare(`DELETE FROM project_galleries WHERE project_id = ?`).bind(id),
     db.prepare(`DELETE FROM project_looks WHERE project_id = ?`).bind(id),
     db.prepare(`DELETE FROM project_cast_items WHERE project_id = ?`).bind(id),
-    db.prepare(`DELETE FROM project_sessions WHERE project_id = ? AND user_id = ?`).bind(id, userId),
     db.prepare(`DELETE FROM project_shares WHERE project_id = ? AND user_id = ?`).bind(id, userId),
     // The runs stay in the library; they just stop belonging to a project.
     db.prepare(`UPDATE generations SET project_id = NULL WHERE project_id = ? AND user_id = ?`).bind(id, userId),

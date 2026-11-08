@@ -20,7 +20,6 @@ import {
 } from "../src/lib/cast";
 import { attachmentForMention, filterMentionItems, tokenForItem } from "../src/lib/mentions";
 import { acceptProjectBudget, acceptProjectCast } from "../worker/project-cast";
-import { ensureCastSchema } from "../worker/cast-migration";
 
 function galleryItem(
   name: string,
@@ -270,54 +269,8 @@ describe("cast request and acceptance", () => {
   });
 });
 
-describe("cast schema from the Worker", () => {
-  it("applies 0025 once on a database that stopped at 0024 and moves pinned files after the galleries", async () => {
-    const raw = new DatabaseSync(":memory:");
-    for (const file of ["0001_init.sql", "0009_galleries.sql", "0022_projects.sql", "0024_looks.sql"]) {
-      raw.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
-    }
-    raw.exec(
-      `CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);
-       INSERT INTO d1_migrations (name) VALUES ('0024_looks.sql');
-       INSERT INTO projects (id, user_id, profile_id, name, prompt, style_id, created_at, updated_at) VALUES ('pr1', 'u1', 'p1', 'Clip', '', NULL, 1, 1);
-       INSERT INTO project_galleries (project_id, gallery_id, position) VALUES ('pr1', 'g1', 0), ('pr1', 'g2', 1);
-       INSERT INTO project_media (id, project_id, user_id, kind, name, media_key, role, position)
-         VALUES ('m1', 'pr1', 'u1', 'image', 'a.png', 'u/u1/a.png', NULL, 0), ('m2', 'pr1', 'u1', 'image', 'b.png', 'u/u1/b.png', NULL, 1);`,
-    );
-    const statement = (sql: string, args: unknown[]) => ({
-      async first() {
-        return raw.prepare(sql).get(...(args as (string | number | null)[])) ?? null;
-      },
-      async all() {
-        return { results: raw.prepare(sql).all(...(args as (string | number | null)[])) };
-      },
-      async run() {
-        raw.prepare(sql).run(...(args as (string | number | null)[]));
-        return { success: true, meta: { changes: 0 } };
-      },
-    });
-    const db = {
-      prepare(sql: string) {
-        return { bind: (...args: unknown[]) => statement(sql, args), ...statement(sql, []) };
-      },
-    } as unknown as D1Database;
-
-    await ensureCastSchema(db);
-    await ensureCastSchema(db);
-    expect(raw.prepare(`SELECT name FROM d1_migrations ORDER BY id`).all()).toEqual([
-      { name: "0024_looks.sql" },
-      { name: "0025_project_cast.sql" },
-    ]);
-    expect(raw.prepare(`SELECT budget FROM projects WHERE id = 'pr1'`).get()).toEqual({ budget: 20 });
-    expect(raw.prepare(`SELECT id, position, active FROM project_media ORDER BY position`).all()).toEqual([
-      { id: "m1", position: 2, active: 1 },
-      { id: "m2", position: 3, active: 1 },
-    ]);
-    expect(raw.prepare(`SELECT active FROM project_galleries WHERE gallery_id = 'g1'`).get()).toEqual({ active: 1 });
-    expect(raw.prepare(`SELECT COUNT(*) AS n FROM project_cast_items`).get()).toEqual({ n: 0 });
-  });
-
-  it("matches what the SQL migration produces", () => {
+describe("0025 migration", () => {
+  it("moves pinned files after the galleries and adds the budget", () => {
     const raw = new DatabaseSync(":memory:");
     for (const file of ["0001_init.sql", "0009_galleries.sql", "0022_projects.sql", "0024_looks.sql"]) {
       raw.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));

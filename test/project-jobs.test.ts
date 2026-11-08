@@ -10,7 +10,6 @@ import {
   type ProjectJobJson,
 } from "../worker/job-record";
 import { acceptJobRefs, jobRecordFromParams, listProjectJobs, projectJobStats } from "../worker/project-jobs";
-import { ensureJobsSchema } from "../worker/jobs-migration";
 import {
   acceptComposerDraft,
   acceptComposerSettings,
@@ -291,71 +290,41 @@ describe("composer draft acceptance", () => {
   });
 });
 
-describe("jobs schema from the Worker", () => {
-  it("applies 0026 once on a database that stopped at 0025 and folds sessions into the draft", async () => {
-    const { raw, db } = sqliteD1(BASE_FILES);
+describe("project migrations", () => {
+  it("0026 adds the job columns and the project index", () => {
+    const { raw } = sqliteD1(BASE_FILES);
     raw.exec(
-      `CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);
-       INSERT INTO d1_migrations (name) VALUES ('0025_project_cast.sql');
-       INSERT INTO projects (id, user_id, profile_id, name, prompt, style_id, created_at, updated_at) VALUES ('pr1', 'u1', 'p1', 'Clip', 'Brief', NULL, 1, 1);
-       INSERT INTO projects (id, user_id, profile_id, name, prompt, style_id, created_at, updated_at) VALUES ('pr2', 'u1', 'p1', 'Empty', 'Brief', NULL, 1, 1);
-       INSERT INTO project_sessions (id, project_id, user_id, name, prompt, mode, model, params_json, created_at, updated_at)
-         VALUES ('s1', 'pr1', 'u1', 'Old', 'Old scene', 'text-to-image', 'old/model', '{"aspectRatio":"1:1"}', 1, 1),
-                ('s2', 'pr1', 'u1', 'New', 'New scene', 'text-to-video', 'new/model', '{"aspectRatio":"16:9","duration":"5"}', 2, 2);
-       INSERT INTO generations (id, user_id, oxen_generation_id, mode, model, status, session_id, created_at, updated_at)
-         VALUES ('g1', 'u1', 'ox1', 'text-to-image', 'old/model', 'succeeded', 's1', 1, 1),
-                ('g2', 'u1', 'ox2', 'text-to-image', 'old/model', 'succeeded', NULL, 2, 2);`,
+      `INSERT INTO projects (id, user_id, profile_id, name, prompt, created_at, updated_at) VALUES ('pr1', 'u1', 'p1', 'Clip', 'Brief', 1, 1);
+       INSERT INTO generations (id, user_id, oxen_generation_id, mode, model, status, created_at, updated_at)
+         VALUES ('g1', 'u1', 'ox1', 'text-to-image', 'old/model', 'succeeded', 1, 1);`,
     );
-
-    await ensureJobsSchema(db);
-    await ensureJobsSchema(db);
-    expect(raw.prepare(`SELECT name FROM d1_migrations ORDER BY id`).all()).toEqual([
-      { name: "0025_project_cast.sql" },
-      { name: "0026_project_jobs.sql" },
-    ]);
-    expect(raw.prepare(`SELECT id, project_id FROM generations ORDER BY id`).all()).toEqual([
-      { id: "g1", project_id: "pr1" },
-      { id: "g2", project_id: null },
-    ]);
-    const migrated = raw.prepare(`SELECT draft_json, defaults_json FROM projects WHERE id = 'pr1'`).get() as {
-      draft_json: string;
-      defaults_json: string;
-    };
-    expect(draftFromJson(migrated.draft_json)).toEqual({
-      prompt: "New scene",
-      mode: "text-to-video",
-      model: "new/model",
-      settings: { aspectRatio: "16:9", duration: "5" },
-    });
-    expect(defaultsFromJson(migrated.defaults_json)).toEqual({
-      mode: "text-to-video",
-      model: "new/model",
-      settings: { aspectRatio: "16:9", duration: "5" },
-    });
-    expect(raw.prepare(`SELECT draft_json, defaults_json FROM projects WHERE id = 'pr2'`).get()).toEqual({
+    raw.exec(readFileSync(new URL("../migrations/0026_project_jobs.sql", import.meta.url), "utf8"));
+    expect(raw.prepare(`SELECT project_id FROM generations WHERE id = 'g1'`).get()).toEqual({ project_id: null });
+    expect(raw.prepare(`SELECT draft_json, defaults_json FROM projects WHERE id = 'pr1'`).get()).toEqual({
       draft_json: "{}",
       defaults_json: "{}",
     });
+    expect(raw.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'generations_project_idx'`).get()).toEqual({
+      name: "generations_project_idx",
+    });
   });
 
-  it("matches what the SQL migration produces", () => {
-    const { raw } = sqliteD1(BASE_FILES);
+  it("0027 drops the session table and its indexes, and projects keep working without them", async () => {
+    const { raw, db, env } = sqliteD1([...BASE_FILES, "0026_project_jobs.sql"]);
+    const before = raw.prepare(`SELECT name FROM sqlite_master WHERE name IN ('project_sessions', 'project_sessions_project_idx', 'generations_session_idx') ORDER BY name`).all();
+    expect(before).toHaveLength(3);
+    raw.exec(readFileSync(new URL("../migrations/0027_drop_project_sessions.sql", import.meta.url), "utf8"));
+    const after = raw.prepare(`SELECT name FROM sqlite_master WHERE name IN ('project_sessions', 'project_sessions_project_idx', 'generations_session_idx')`).all();
+    expect(after).toEqual([]);
+
     raw.exec(
-      `INSERT INTO projects (id, user_id, profile_id, name, prompt, style_id, created_at, updated_at) VALUES ('pr1', 'u1', 'p1', 'Clip', 'Brief', NULL, 1, 1);
-       INSERT INTO project_sessions (id, project_id, user_id, name, prompt, mode, model, params_json, created_at, updated_at)
-         VALUES ('s1', 'pr1', 'u1', 'Old', 'Old scene', 'text-to-image', 'old/model', '{"aspectRatio":"1:1"}', 1, 1);
-       INSERT INTO generations (id, user_id, oxen_generation_id, mode, model, status, session_id, created_at, updated_at)
-         VALUES ('g1', 'u1', 'ox1', 'text-to-image', 'old/model', 'succeeded', 's1', 1, 1);`,
+      `INSERT INTO projects (id, user_id, profile_id, name, prompt, created_at, updated_at) VALUES ('pr1', 'u1', 'p1', 'Clip', 'Brief', 1, 1);
+       INSERT INTO generations (id, user_id, oxen_generation_id, mode, model, status, project_id, created_at, updated_at)
+         VALUES ('g1', 'u1', 'ox1', 'text-to-image', 'old/model', 'succeeded', 'pr1', 1, 1);`,
     );
-    raw.exec(readFileSync(new URL("../migrations/0026_project_jobs.sql", import.meta.url), "utf8"));
-    expect(raw.prepare(`SELECT project_id FROM generations WHERE id = 'g1'`).get()).toEqual({ project_id: "pr1" });
-    const row = raw.prepare(`SELECT draft_json FROM projects WHERE id = 'pr1'`).get() as { draft_json: string };
-    expect(draftFromJson(row.draft_json)).toEqual({
-      prompt: "Old scene",
-      mode: "text-to-image",
-      model: "old/model",
-      settings: { aspectRatio: "1:1" },
-    });
+    expect((await getProject(env, USER, "pr1"))?.jobCount).toBe(1);
+    expect(await deleteProject(db, USER, "pr1")).toBe(true);
+    expect(raw.prepare(`SELECT project_id FROM generations WHERE id = 'g1'`).get()).toEqual({ project_id: null });
   });
 });
 

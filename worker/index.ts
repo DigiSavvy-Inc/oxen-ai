@@ -26,7 +26,6 @@ import {
   userHasAccess,
 } from "./auth";
 import { creditBalanceResponse, fetchOxenCredits, OXEN_BILLING_URL } from "./credits";
-import { ensureHistoryPageSize36 } from "./history-page-bump";
 import {
   buildReferenceMediaUrl,
   displayStoredMediaUrl,
@@ -141,9 +140,6 @@ import {
 import { acceptComposerDefaults, acceptComposerDraft } from "./project-draft";
 import { acceptBasePrompt, acceptJobCost, acceptJobRefs, listProjectJobs } from "./project-jobs";
 import { acceptAppliedLooks, acceptLookGroup, acceptLookIds, looksFromParams } from "./looks";
-import { ensureLooksSchema } from "./looks-migration";
-import { ensureCastSchema } from "./cast-migration";
-import { ensureJobsSchema } from "./jobs-migration";
 import { parseServedThumbWidth, resizeServedImage } from "./gallery-thumbs";
 import {
   deleteSavedPrompt,
@@ -257,39 +253,6 @@ app.use("/api/*", async (c, next) => {
       throw new HTTPException(403, { message: "Cross-origin request blocked" });
     }
   }
-  await next();
-});
-
-// Looks, projects, and shares read the 0024–0026 schemas. Bring the live database
-// up to them before the first such request on this isolate; later calls return at once.
-async function ensureProjectSchemas(db: D1Database): Promise<void> {
-  await ensureLooksSchema(db);
-  await ensureCastSchema(db);
-  await ensureJobsSchema(db);
-}
-app.use("/api/projects/*", async (c, next) => {
-  await ensureProjectSchemas(c.env.DB);
-  await next();
-});
-app.use("/api/projects", async (c, next) => {
-  await ensureProjectSchemas(c.env.DB);
-  await next();
-});
-// A run from a project stamps generations.project_id, which 0026 adds.
-app.use("/api/generate", async (c, next) => {
-  await ensureJobsSchema(c.env.DB);
-  await next();
-});
-app.use("/api/styles/*", async (c, next) => {
-  await ensureLooksSchema(c.env.DB);
-  await next();
-});
-app.use("/api/styles", async (c, next) => {
-  await ensureLooksSchema(c.env.DB);
-  await next();
-});
-app.use("/api/shares/*", async (c, next) => {
-  await ensureProjectSchemas(c.env.DB);
   await next();
 });
 
@@ -2630,11 +2593,10 @@ export async function pollActiveGenerations(env: Env): Promise<{ polled: number 
 export { app };
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    await ensureHistoryPageSize36(env.DB);
+  fetch(request: Request, env: Env, ctx: ExecutionContext) {
     return app.fetch(request, env, ctx);
   },
   scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(ensureHistoryPageSize36(env.DB).then(() => pollActiveGenerations(env)));
+    ctx.waitUntil(pollActiveGenerations(env));
   },
 };
