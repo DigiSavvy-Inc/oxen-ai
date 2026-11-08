@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
-import type { GallerySummary, ProjectSummary, StudioProject, StudioStyle } from "../lib/api";
+import type { GallerySummary, ProjectSummary, StudioLook, StudioProject } from "../lib/api";
+import { appliedLooks, PROJECT_LOOKS_MAX, sortLooks, toggleLookId } from "../../worker/looks";
 import { PanelPlaceSwitch } from "./PanelPlace";
 
 type Props = {
@@ -151,7 +152,7 @@ export function ProjectRail(props: Props) {
 
 export function ProjectEditor(props: {
   project: StudioProject;
-  styles: StudioStyle[];
+  looks: StudioLook[];
   galleries: GallerySummary[];
   busy: boolean;
   error: string | null;
@@ -159,11 +160,10 @@ export function ProjectEditor(props: {
   onSave: (body: {
     name: string;
     prompt: string;
-    styleId: string | null;
+    lookIds: string[];
     media: StudioProject["media"];
     galleryIds: string[];
   }) => void;
-  onCreateStyle: (name: string, body: string) => Promise<{ id: string } | null>;
   onPinComposer: () => Promise<StudioProject["media"]>;
   onDelete: () => void;
   onShare: (days: number | null) => void;
@@ -171,12 +171,12 @@ export function ProjectEditor(props: {
 }) {
   const [name, setName] = useState(props.project.name);
   const [prompt, setPrompt] = useState(props.project.prompt);
-  const [styleId, setStyleId] = useState(props.project.styleId ?? "");
+  const [lookIds, setLookIds] = useState(props.project.lookIds);
   const [media, setMedia] = useState(props.project.media);
   const [galleryIds, setGalleryIds] = useState(props.project.galleryIds);
-  const [lookName, setLookName] = useState("");
-  const [lookBody, setLookBody] = useState("");
   const [days, setDays] = useState("7");
+  const chosenLooks = appliedLooks(lookIds, props.looks);
+  const lookOptions = sortLooks(props.looks).filter((look) => !lookIds.includes(look.id));
 
   function toggleGallery(id: string) {
     setGalleryIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
@@ -198,47 +198,59 @@ export function ProjectEditor(props: {
         Default prompt
         <textarea className="field" rows={4} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
       </label>
-      <label>
-        Default look
-        <select className="field" value={styleId} onChange={(event) => setStyleId(event.target.value)}>
-          <option value="">None</option>
-          {props.styles.map((style) => (
-            <option key={style.id} value={style.id}>
-              {style.name}
+      <div className="project-editor-look">
+        <div className="project-editor-head">
+          <h3>Looks</h3>
+          <span className="project-rail-empty">
+            {chosenLooks.length} of {PROJECT_LOOKS_MAX}
+          </span>
+        </div>
+        {chosenLooks.length === 0 ? (
+          <p className="project-rail-empty">No looks applied. Looks go ahead of the prompt, in this order.</p>
+        ) : (
+          <ul className="look-chips" aria-label="Applied looks">
+            {chosenLooks.map((look, index) => (
+              <li key={look.id} className="look-chip" title={look.body}>
+                <span className="look-chip-index" aria-hidden>
+                  {index + 1}
+                </span>
+                <span className="look-chip-name">{look.name}</span>
+                <button
+                  type="button"
+                  className="look-chip-remove"
+                  aria-label={`Remove look ${look.name}`}
+                  onClick={() => setLookIds((prev) => prev.filter((id) => id !== look.id))}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <select
+          className="field"
+          aria-label="Add a look"
+          value=""
+          disabled={lookOptions.length === 0 || lookIds.length >= PROJECT_LOOKS_MAX}
+          onChange={(event) => {
+            if (event.target.value) setLookIds((prev) => toggleLookId(prev, event.target.value));
+          }}
+        >
+          <option value="">
+            {props.looks.length === 0
+              ? "Save a look from the composer first"
+              : lookIds.length >= PROJECT_LOOKS_MAX
+                ? `${PROJECT_LOOKS_MAX} looks is the limit`
+                : "Add a look…"}
+          </option>
+          {lookOptions.map((look) => (
+            <option key={look.id} value={look.id}>
+              {look.starred ? "★ " : ""}
+              {look.name}
+              {look.group ? ` · ${look.group}` : ""}
             </option>
           ))}
         </select>
-      </label>
-      <div className="project-editor-look">
-        <input
-          className="field"
-          value={lookName}
-          placeholder="Look name"
-          aria-label="Look name"
-          onChange={(event) => setLookName(event.target.value)}
-        />
-        <textarea
-          className="field"
-          rows={2}
-          value={lookBody}
-          placeholder="35mm, or a 2000s camcorder"
-          aria-label="Look description"
-          onChange={(event) => setLookBody(event.target.value)}
-        />
-        <button
-          type="button"
-          className="ghost-btn"
-          disabled={props.busy || !lookName.trim() || !lookBody.trim()}
-          onClick={() => {
-            void props.onCreateStyle(lookName.trim(), lookBody.trim()).then((style) => {
-              if (style) setStyleId(style.id);
-              setLookName("");
-              setLookBody("");
-            });
-          }}
-        >
-          Save look
-        </button>
       </div>
       <div className="project-editor-media">
         <div className="project-editor-head">
@@ -335,7 +347,7 @@ export function ProjectEditor(props: {
             props.onSave({
               name: name.trim(),
               prompt,
-              styleId: styleId || null,
+              lookIds,
               media,
               galleryIds,
             })

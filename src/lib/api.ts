@@ -1,8 +1,10 @@
+import type { AppliedLook, Look, LookGroup } from "../../worker/looks";
 import { firstSupportedMode, modelSupportsMode } from "../../worker/model-modes";
 import { estimateGenerationCost, type OxenPricing } from "../../worker/pricing";
 
 export { firstSupportedMode, modelSupportsMode };
 export { estimateGenerationCost, type OxenPricing };
+export type { AppliedLook, LookGroup };
 
 export type GenerationMode =
   | "text-to-image"
@@ -160,6 +162,8 @@ export type Generation = {
   draftTaskId?: string | null;
   draftExpiresAt?: string | null;
   profileId?: string | null;
+  /** Looks applied when this run was sent, ids and names. */
+  looks?: AppliedLook[];
 };
 
 export type SavedPrompt = {
@@ -213,11 +217,7 @@ export type ProfileState = {
   activeId: string | null;
 };
 
-export type StudioStyle = {
-  id: string;
-  name: string;
-  body: string;
-};
+export type StudioLook = Look;
 
 export type ProjectMedia = {
   kind: "image" | "video" | "audio";
@@ -242,7 +242,7 @@ export type ProjectSummary = {
 
 export type ProjectSession = ProjectSessionSummary & {
   prompt: string;
-  styleId: string | null;
+  lookIds: string[];
   mode: string | null;
   model: string;
   params: Record<string, unknown>;
@@ -262,7 +262,8 @@ export type StudioProject = {
   id: string;
   name: string;
   prompt: string;
-  styleId: string | null;
+  /** Applied looks in chip order, up to five. */
+  lookIds: string[];
   updatedAt: number;
   media: ProjectMedia[];
   galleryIds: string[];
@@ -273,7 +274,7 @@ export type StudioProject = {
 export type SharedProject = {
   name: string;
   prompt: string;
-  styleBody: string;
+  looks: StudioLook[];
   media: ProjectMedia[];
 };
 
@@ -573,7 +574,7 @@ export const api = {
     ),
   projects: () =>
     fetch("/api/projects").then((r) =>
-      parseJson<{ projects: ProjectSummary[]; styles: StudioStyle[] }>(r),
+      parseJson<{ projects: ProjectSummary[]; looks: StudioLook[] }>(r),
     ),
   project: (id: string) =>
     fetch(`/api/projects/${encodeURIComponent(id)}`).then((r) =>
@@ -590,7 +591,7 @@ export const api = {
     body: {
       name: string;
       prompt: string;
-      styleId: string | null;
+      lookIds: string[];
       media: { kind: ProjectMedia["kind"]; name: string; key: string; role: string | null }[];
       galleryIds: string[];
     },
@@ -604,13 +605,22 @@ export const api = {
     fetch(`/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
       parseJson<{ ok: boolean }>(r),
     ),
-  createStyle: (name: string, body: string) =>
+  createLook: (name: string, body: string, group: LookGroup | null) =>
     fetch("/api/styles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, body }),
-    }).then((r) => parseJson<{ style: StudioStyle }>(r)),
-  deleteStyle: (id: string) =>
+      body: JSON.stringify({ name, body, group }),
+    }).then((r) => parseJson<{ look: StudioLook }>(r)),
+  updateLook: (
+    id: string,
+    patch: { name?: string; body?: string; group?: LookGroup | null; starred?: boolean },
+  ) =>
+    fetch(`/api/styles/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }).then((r) => parseJson<{ look: StudioLook }>(r)),
+  deleteLook: (id: string) =>
     fetch(`/api/styles/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
       parseJson<{ ok: boolean }>(r),
     ),
@@ -620,7 +630,7 @@ export const api = {
       id?: string | null;
       name?: string;
       prompt: string;
-      styleId: string | null;
+      lookIds: string[];
       mode: string | null;
       model: string;
       params: Record<string, unknown>;

@@ -22,7 +22,9 @@ import {
   type ModelControls,
   type OxenModel,
   type SavedPrompt,
+  type StudioLook,
 } from "../lib/api";
+import { LookPicker, type LookDraft } from "./LookPicker";
 import {
   attachmentForMention,
   deleteMentionToken,
@@ -232,9 +234,14 @@ type Props = {
   error: string | null;
   onGenerate: () => void;
   canGenerate: boolean;
-  looks?: { id: string; name: string }[];
-  lookId?: string | null;
-  onLookChange?: (id: string | null) => void;
+  /** The profile's look collection. Absent when looks are not available (signed out, share). */
+  looks?: StudioLook[];
+  /** Applied looks in chip order. Toggling a chip never edits the prompt. */
+  appliedLooks?: StudioLook[];
+  onToggleLook?: (id: string) => void;
+  onCreateLook?: (draft: LookDraft) => Promise<StudioLook | null>;
+  onStarLook?: (id: string, starred: boolean) => void;
+  onDeleteLook?: (id: string) => void;
   modelDelivery?: string;
   deliveryNotes?: string[];
 };
@@ -269,6 +276,8 @@ export function Composer(props: Props) {
     null,
   );
   const [savedMark, setSavedMark] = useState<string | null>(null);
+  const [lookMenu, setLookMenu] = useState<{ draft: LookDraft | null } | null>(null);
+  const [promptSelection, setPromptSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
   const [galleryForMode, setGalleryForMode] = useState<GenerationMode | null>(null);
   const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
   const savedMenuRef = useRef<HTMLDivElement>(null);
@@ -433,6 +442,34 @@ export function Composer(props: Props) {
     setPromptDraft(null);
   }
   const showSaved = savedMark !== null && props.prompt === savedMark;
+  const looksEnabled = Boolean(props.looks && props.onToggleLook);
+  const appliedLooks = props.appliedLooks ?? [];
+  const selectedPromptText = props.prompt
+    .slice(
+      Math.min(promptSelection.start, promptSelection.end),
+      Math.max(promptSelection.start, promptSelection.end),
+    )
+    .trim();
+
+  function readPromptSelection(el: HTMLTextAreaElement) {
+    setPromptSelection({ start: el.selectionStart ?? 0, end: el.selectionEnd ?? 0 });
+  }
+
+  function openLookMenu(draft: LookDraft | null) {
+    setPromptMenu(null);
+    setPromptDraft(null);
+    setMentionOpen(false);
+    setLookMenu({ draft });
+  }
+
+  function saveSelectionAsLook() {
+    const el = promptRef.current;
+    const start = el ? Math.min(el.selectionStart, el.selectionEnd) : promptSelection.start;
+    const end = el ? Math.max(el.selectionStart, el.selectionEnd) : promptSelection.end;
+    const text = props.prompt.slice(start, end).trim() || selectedPromptText;
+    if (!text) return;
+    openLookMenu({ name: "", body: text, group: null });
+  }
 
   function loadSavedPrompt(body: string) {
     setMentionOpen(false);
@@ -818,18 +855,23 @@ export function Composer(props: Props) {
                 props.onPromptChange(e.target.value);
                 promptCaretReady.current = true;
                 setCaret(e.target.selectionStart);
+                readPromptSelection(e.target);
               }}
               onFocus={(e) => {
                 promptCaretReady.current = true;
                 setCaret(e.currentTarget.selectionStart);
+                readPromptSelection(e.currentTarget);
               }}
               onClick={(e) => {
                 promptCaretReady.current = true;
                 setCaret(e.currentTarget.selectionStart);
+                readPromptSelection(e.currentTarget);
               }}
+              onSelect={(e) => readPromptSelection(e.currentTarget)}
               onKeyUp={(e) => {
                 promptCaretReady.current = true;
                 setCaret(e.currentTarget.selectionStart);
+                readPromptSelection(e.currentTarget);
               }}
               onPointerMove={(e) => hoverMentionAtPoint(e.clientX, e.clientY)}
               onPointerLeave={() => clearMentionHover()}
@@ -975,6 +1017,50 @@ export function Composer(props: Props) {
                 ) : null}
               </div>
             ) : null}
+            {looksEnabled ? (
+              <div className="saved-prompts look-actions">
+                <button
+                  type="button"
+                  className={`prompt-action${lookMenu ? " is-open" : ""}`}
+                  data-look-trigger
+                  aria-expanded={Boolean(lookMenu)}
+                  aria-haspopup="dialog"
+                  title="Apply a look: named prompt text about film, lens, light, color, era, or motion"
+                  onClick={() => (lookMenu ? setLookMenu(null) : openLookMenu(null))}
+                >
+                  Look
+                </button>
+                <button
+                  type="button"
+                  className="prompt-action"
+                  data-look-trigger
+                  disabled={!selectedPromptText || !props.onCreateLook}
+                  title={
+                    selectedPromptText
+                      ? "Turn the selected prompt text into a new look"
+                      : "Select prompt text first"
+                  }
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={saveSelectionAsLook}
+                >
+                  Save as look
+                </button>
+                {lookMenu ? (
+                  <LookPicker
+                    key={lookMenu.draft ? "draft" : "pick"}
+                    looks={props.looks ?? []}
+                    appliedIds={appliedLooks.map((look) => look.id)}
+                    initialDraft={lookMenu.draft}
+                    busy={props.busy}
+                    onToggle={(id) => props.onToggleLook?.(id)}
+                    onCreate={(draft) => props.onCreateLook?.(draft) ?? Promise.resolve(null)}
+                    onStar={(id, starred) => props.onStarLook?.(id, starred)}
+                    onDelete={(id) => props.onDeleteLook?.(id)}
+                    onClose={() => setLookMenu(null)}
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div
             className="prompt-resize"
@@ -990,23 +1076,29 @@ export function Composer(props: Props) {
             </span>
           </div>
           </div>
-          {(props.looks ?? []).length > 0 ? (
-            <label className="project-look">
-              Look
-              <select
-                className="field"
-                aria-label="Look"
-                value={props.lookId ?? ""}
-                onChange={(event) => props.onLookChange?.(event.target.value || null)}
-              >
-                <option value="">None</option>
-                {(props.looks ?? []).map((look) => (
-                  <option key={look.id} value={look.id}>
-                    {look.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+          {appliedLooks.length > 0 ? (
+            <ul className="look-chips" aria-label="Applied looks">
+              {appliedLooks.map((look, index) => (
+                <li key={look.id} className="look-chip" title={look.body}>
+                  <span className="look-chip-index" aria-hidden>
+                    {index + 1}
+                  </span>
+                  <span className="look-chip-name">{look.name}</span>
+                  {look.group ? <span className="look-chip-group">{look.group}</span> : null}
+                  {props.onToggleLook ? (
+                    <button
+                      type="button"
+                      className="look-chip-remove"
+                      aria-label={`Remove look ${look.name}`}
+                      title="Remove this look. The prompt stays as it is."
+                      onClick={() => props.onToggleLook?.(look.id)}
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
           ) : null}
           {props.modelDelivery &&
           (props.modelDelivery !== props.prompt.trim() || (props.deliveryNotes ?? []).length > 0) ? (

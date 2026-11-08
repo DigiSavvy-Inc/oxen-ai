@@ -136,7 +136,9 @@ import {
   saveSession,
   shareExpiresAt,
   updateProject,
+  updateStyle,
 } from "./projects";
+import { acceptAppliedLooks, acceptLookGroup, acceptLookIds, looksFromParams } from "./looks";
 import { parseServedThumbWidth, resizeServedImage } from "./gallery-thumbs";
 import {
   deleteSavedPrompt,
@@ -623,6 +625,7 @@ function toGenerationJson(
     profileId: row.profile_id ?? null,
     draftTaskId: draftMetaFromParams(row.params_json)?.draftTaskId ?? null,
     draftExpiresAt: draftMetaFromParams(row.params_json)?.draftExpiresAt ?? null,
+    looks: looksFromParams(row.params_json),
   };
 }
 
@@ -1394,12 +1397,12 @@ app.post("/api/galleries", async (c) => {
 app.get("/api/projects", async (c) => {
   const user = await requireUser(c);
   const profileId = await ensureDefaultProfile(c.env.DB, user.id);
-  if (!profileId) return c.json({ projects: [], styles: [] });
-  const [projects, styles] = await Promise.all([
+  if (!profileId) return c.json({ projects: [], looks: [] });
+  const [projects, looks] = await Promise.all([
     listProjects(c.env.DB, user.id, profileId),
     listStyles(c.env.DB, user.id, profileId),
   ]);
-  return c.json({ projects, styles });
+  return c.json({ projects, looks });
 });
 
 app.post("/api/projects", async (c) => {
@@ -1426,6 +1429,7 @@ app.put("/api/projects/:id", async (c) => {
   const body = await c.req.json<{
     name?: unknown;
     prompt?: unknown;
+    lookIds?: unknown;
     styleId?: unknown;
     media?: unknown;
     galleryIds?: unknown;
@@ -1439,15 +1443,16 @@ app.put("/api/projects/:id", async (c) => {
   if (!name || prompt == null || !media || !galleryIds) {
     throw new HTTPException(400, { message: "Project defaults need a name, prompt, and your own media" });
   }
-  const styleId = typeof body.styleId === "string" && body.styleId.trim() ? body.styleId.trim() : null;
+  const lookIds = lookIdsFromBody(body);
+  if (!lookIds) throw new HTTPException(400, { message: "A project applies up to five of your looks" });
   const saved = await updateProject(c.env.DB, user.id, c.req.param("id"), {
     name,
     prompt,
-    styleId,
+    lookIds,
     media,
     galleryIds,
   });
-  if (!saved) throw new HTTPException(404, { message: "Project not found" });
+  if (!saved) throw new HTTPException(404, { message: "Project or look not found" });
   return c.json({ project: await getProject(c.env, user.id, c.req.param("id")) });
 });
 
@@ -1458,16 +1463,55 @@ app.delete("/api/projects/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+/** `lookIds` in chip order; an older client's single `styleId` becomes the first look. */
+function lookIdsFromBody(body: { lookIds?: unknown; styleId?: unknown }): string[] | null {
+  if (body.lookIds !== undefined) return acceptLookIds(body.lookIds);
+  if (typeof body.styleId === "string" && body.styleId.trim()) return [body.styleId.trim()];
+  return [];
+}
+
 app.post("/api/styles", async (c) => {
   const user = await requireUser(c);
-  const body = await c.req.json<{ name?: unknown; body?: unknown }>();
+  const body = await c.req.json<{ name?: unknown; body?: unknown; group?: unknown }>();
   const name = acceptStyleName(body.name);
   const text = acceptStyleBody(body.body);
   if (!name || !text) throw new HTTPException(400, { message: "A look needs a name and a description" });
+  if (body.group != null && body.group !== "" && !acceptLookGroup(body.group)) {
+    throw new HTTPException(400, { message: "That look group is not one of Camera, Light, Color, Era, Motion, or Other" });
+  }
   const profileId = await ensureDefaultProfile(c.env.DB, user.id);
   if (!profileId) throw new HTTPException(400, { message: "A look needs a profile" });
-  const style = await createStyle(c.env.DB, user.id, profileId, name, text);
-  return c.json({ style });
+  const look = await createStyle(c.env.DB, user.id, profileId, name, text, acceptLookGroup(body.group));
+  return c.json({ look });
+});
+
+app.patch("/api/styles/:id", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ name?: unknown; body?: unknown; group?: unknown; starred?: unknown }>();
+  const patch: Parameters<typeof updateStyle>[3] = {};
+  if (body.name !== undefined) {
+    const name = acceptStyleName(body.name);
+    if (!name) throw new HTTPException(400, { message: "A look needs a name" });
+    patch.name = name;
+  }
+  if (body.body !== undefined) {
+    const text = acceptStyleBody(body.body);
+    if (!text) throw new HTTPException(400, { message: "A look needs a description up to 2000 characters" });
+    patch.body = text;
+  }
+  if (body.group !== undefined) {
+    if (body.group != null && body.group !== "" && !acceptLookGroup(body.group)) {
+      throw new HTTPException(400, { message: "That look group is not one of Camera, Light, Color, Era, Motion, or Other" });
+    }
+    patch.group = acceptLookGroup(body.group);
+  }
+  if (body.starred !== undefined) {
+    if (typeof body.starred !== "boolean") throw new HTTPException(400, { message: "starred must be true or false" });
+    patch.starred = body.starred;
+  }
+  const look = await updateStyle(c.env.DB, user.id, c.req.param("id"), patch);
+  if (!look) throw new HTTPException(404, { message: "Look not found" });
+  return c.json({ look });
 });
 
 app.delete("/api/styles/:id", async (c) => {
@@ -1483,6 +1527,7 @@ app.post("/api/projects/:id/sessions", async (c) => {
     id?: unknown;
     name?: unknown;
     prompt?: unknown;
+    lookIds?: unknown;
     styleId?: unknown;
     mode?: unknown;
     model?: unknown;
@@ -1495,6 +1540,7 @@ app.post("/api/projects/:id/sessions", async (c) => {
   if (prompt == null || !attachments) {
     throw new HTTPException(400, { message: "Session needs a prompt and media that belong to you" });
   }
+  const lookIds = lookIdsFromBody(body) ?? [];
   const params =
     body.params && typeof body.params === "object" && !Array.isArray(body.params)
       ? (body.params as Record<string, unknown>)
@@ -1506,7 +1552,7 @@ app.post("/api/projects/:id/sessions", async (c) => {
     id: typeof body.id === "string" ? body.id : null,
     name: body.name,
     prompt,
-    styleId: typeof body.styleId === "string" && body.styleId.trim() ? body.styleId.trim() : null,
+    lookIds,
     mode: typeof body.mode === "string" ? body.mode : null,
     model: typeof body.model === "string" ? body.model : "",
     params,
@@ -1780,6 +1826,8 @@ app.post("/api/generate", async (c) => {
     audio_urls?: string[];
     draft_task_id?: string;
     multi_prompt?: { prompt?: string; duration?: number | string }[];
+    /** Looks applied for this run, ids and names only. Recorded, never sent to Oxen. */
+    looks?: unknown;
   }>();
 
   const mode = body.mode;
@@ -2074,6 +2122,9 @@ app.post("/api/generate", async (c) => {
   const now = Math.floor(Date.now() / 1000);
   const batchId = crypto.randomUUID();
   const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const appliedLooks = draftTaskId ? [] : acceptAppliedLooks(body.looks);
+  const storedPayload: Record<string, unknown> =
+    appliedLooks.length > 0 ? { ...payload, studio_looks: appliedLooks } : payload;
   const saved = [];
 
   for (const gen of generations) {
@@ -2087,7 +2138,7 @@ app.post("/api/generate", async (c) => {
       storedPrompt,
       gen.status || "queued",
       meta.mediaType,
-      generationParamsForStorage(payload, captureLastFrame),
+      generationParamsForStorage(storedPayload, captureLastFrame),
       batchId,
       now,
       now,
@@ -2116,7 +2167,10 @@ app.post("/api/generate", async (c) => {
           storedPrompt,
           gen.status || "queued",
           meta.mediaType,
-          generationParamsForStorage({}, captureLastFrame),
+          generationParamsForStorage(
+            appliedLooks.length > 0 ? { studio_looks: appliedLooks } : {},
+            captureLastFrame,
+          ),
           batchId,
           now,
           now,

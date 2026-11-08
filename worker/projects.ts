@@ -1,14 +1,26 @@
 import { galleryKeyForUser } from "./galleries";
+import {
+  acceptLookBody,
+  acceptLookName,
+  appliedLooks,
+  cappedLookIds,
+  LOOK_BODY_MAX,
+  LOOK_NAME_MAX,
+  sortLooks,
+  type Look,
+  type LookGroup,
+} from "./looks";
 import { displayStoredMediaUrl } from "./media";
 import { normalizeMediaRole, type MediaRole } from "./schema";
 import type { Env } from "./types";
 
 export const PROJECT_NAME_MAX = 80;
-export const STYLE_NAME_MAX = 80;
-export const STYLE_BODY_MAX = 2000;
+export const STYLE_NAME_MAX = LOOK_NAME_MAX;
+export const STYLE_BODY_MAX = LOOK_BODY_MAX;
 export const PROJECT_PROMPT_MAX = 8000;
 export const PROJECT_MEDIA_MAX = 24;
 export const PROJECT_MAX = 50;
+export const LOOKS_PER_PROFILE_MAX = 200;
 const SESSION_NAME_MAX = 80;
 
 export type ProjectKind = "image" | "video" | "audio";
@@ -22,11 +34,7 @@ export type ProjectMediaInput = {
 
 export type ProjectAttachment = ProjectMediaInput & { url: string | null };
 
-export type StyleRecord = {
-  id: string;
-  name: string;
-  body: string;
-};
+export type StyleRecord = Look;
 
 export type SessionSummary = {
   id: string;
@@ -51,7 +59,7 @@ export type ShareRecord = {
 
 export type SessionRecord = SessionSummary & {
   prompt: string;
-  styleId: string | null;
+  lookIds: string[];
   mode: string | null;
   model: string;
   params: Record<string, unknown>;
@@ -63,7 +71,8 @@ export type ProjectRecord = {
   id: string;
   name: string;
   prompt: string;
-  styleId: string | null;
+  /** Applied looks in chip order, at most PROJECT_LOOKS_MAX. */
+  lookIds: string[];
   updatedAt: number;
   media: ProjectAttachment[];
   galleryIds: string[];
@@ -74,11 +83,11 @@ export type ProjectRecord = {
 export type ShareSnapshot = {
   name: string;
   prompt: string;
-  styleBody: string;
+  looks: Look[];
   media: ProjectAttachment[];
 };
 
-type StyleRow = { id: string; name: string; body: string };
+type StyleRow = { id: string; name: string; body: string; group_name: string | null; starred: number };
 type ProjectRow = {
   id: string;
   name: string;
@@ -102,19 +111,8 @@ export function acceptProjectName(raw: unknown): string | null {
   return name;
 }
 
-export function acceptStyleName(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  const name = raw.trim();
-  if (!name || name.length > STYLE_NAME_MAX) return null;
-  return name;
-}
-
-export function acceptStyleBody(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  const body = raw.trim();
-  if (!body || body.length > STYLE_BODY_MAX) return null;
-  return body;
-}
+export const acceptStyleName = acceptLookName;
+export const acceptStyleBody = acceptLookBody;
 
 export function acceptProjectPrompt(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
@@ -189,6 +187,43 @@ function parseAttachments(userId: string, raw: string): ProjectMediaInput[] {
   }
 }
 
+function parseLookIds(raw: string | null | undefined, fallback: string | null): string[] {
+  try {
+    const value = JSON.parse(raw ?? "[]") as unknown;
+    if (Array.isArray(value)) {
+      const ids = cappedLookIds(value.filter((item): item is string => typeof item === "string"));
+      if (ids.length > 0) return ids;
+    }
+  } catch {
+    /* an older session only had style_id */
+  }
+  return fallback ? [fallback] : [];
+}
+
+function lookFromRow(row: StyleRow): Look {
+  return {
+    id: row.id,
+    name: row.name,
+    body: row.body,
+    group: lookGroupFromDb(row.group_name),
+    starred: row.starred === 1,
+  };
+}
+
+function lookGroupFromDb(value: string | null): LookGroup | null {
+  switch (value) {
+    case "Camera":
+    case "Light":
+    case "Color":
+    case "Era":
+    case "Motion":
+    case "Other":
+      return value;
+    default:
+      return null;
+  }
+}
+
 function sessionName(raw: unknown, prompt: string): string {
   if (typeof raw === "string" && raw.trim()) return raw.trim().slice(0, SESSION_NAME_MAX);
   const line = prompt.split("\n").map((part) => part.trim()).find(Boolean) ?? "";
@@ -207,17 +242,17 @@ async function withUrls(
   );
 }
 
-export async function listStyles(db: D1Database, userId: string, profileId: string): Promise<StyleRecord[]> {
+export async function listStyles(db: D1Database, userId: string, profileId: string): Promise<Look[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, name, body FROM styles
+      `SELECT id, name, body, group_name, starred FROM styles
        WHERE user_id = ? AND profile_id = ?
-       ORDER BY updated_at DESC
+       ORDER BY starred DESC, updated_at DESC
        LIMIT ?`,
     )
-    .bind(userId, profileId, PROJECT_MAX)
+    .bind(userId, profileId, LOOKS_PER_PROFILE_MAX)
     .all<StyleRow>();
-  return (results ?? []).map((row) => ({ id: row.id, name: row.name, body: row.body }));
+  return sortLooks((results ?? []).map(lookFromRow));
 }
 
 export async function createStyle(
@@ -226,17 +261,47 @@ export async function createStyle(
   profileId: string,
   name: string,
   body: string,
-): Promise<StyleRecord> {
+  group: LookGroup | null = null,
+): Promise<Look> {
   const now = Math.floor(Date.now() / 1000);
   const id = crypto.randomUUID();
   await db
     .prepare(
-      `INSERT INTO styles (id, user_id, profile_id, name, body, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO styles (id, user_id, profile_id, name, body, group_name, starred, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
     )
-    .bind(id, userId, profileId, name, body, now, now)
+    .bind(id, userId, profileId, name, body, group, now, now)
     .run();
-  return { id, name, body };
+  return { id, name, body, group, starred: false };
+}
+
+export async function updateStyle(
+  db: D1Database,
+  userId: string,
+  id: string,
+  patch: { name?: string; body?: string; group?: LookGroup | null; starred?: boolean },
+): Promise<Look | null> {
+  const row = await db
+    .prepare(`SELECT id, name, body, group_name, starred FROM styles WHERE id = ? AND user_id = ?`)
+    .bind(id, userId)
+    .first<StyleRow>();
+  if (!row) return null;
+  const current = lookFromRow(row);
+  const next: Look = {
+    id,
+    name: patch.name ?? current.name,
+    body: patch.body ?? current.body,
+    group: patch.group === undefined ? current.group : patch.group,
+    starred: patch.starred ?? current.starred,
+  };
+  await db
+    .prepare(
+      `UPDATE styles SET name = ?, body = ?, group_name = ?, starred = ?, updated_at = ?
+       WHERE id = ? AND user_id = ?`,
+    )
+    .bind(next.name, next.body, next.group, next.starred ? 1 : 0, Math.floor(Date.now() / 1000), id, userId)
+    .run();
+  return next;
 }
 
 export async function deleteStyle(db: D1Database, userId: string, id: string): Promise<boolean> {
@@ -244,10 +309,15 @@ export async function deleteStyle(db: D1Database, userId: string, id: string): P
     .prepare(`DELETE FROM styles WHERE id = ? AND user_id = ?`)
     .bind(id, userId)
     .run();
-  await db
-    .prepare(`UPDATE projects SET style_id = NULL WHERE user_id = ? AND style_id = ?`)
-    .bind(userId, id)
-    .run();
+  await db.batch([
+    db.prepare(`UPDATE projects SET style_id = NULL WHERE user_id = ? AND style_id = ?`).bind(userId, id),
+    db
+      .prepare(
+        `DELETE FROM project_looks WHERE style_id = ?
+         AND project_id IN (SELECT id FROM projects WHERE user_id = ?)`,
+      )
+      .bind(id, userId),
+  ]);
   return (result.meta.changes ?? 0) > 0;
 }
 
@@ -305,6 +375,19 @@ export async function createProject(
   return id;
 }
 
+/** The requested looks that belong to this user, in order. Null when one is not theirs. */
+async function ownedLookIds(db: D1Database, userId: string, ids: string[]): Promise<string[] | null> {
+  const wanted = cappedLookIds(ids);
+  if (wanted.length === 0) return [];
+  const placeholders = wanted.map(() => "?").join(", ");
+  const { results } = await db
+    .prepare(`SELECT id FROM styles WHERE user_id = ? AND id IN (${placeholders})`)
+    .bind(userId, ...wanted)
+    .all<{ id: string }>();
+  const owned = new Set((results ?? []).map((row) => row.id));
+  return wanted.every((id) => owned.has(id)) ? wanted : null;
+}
+
 async function ownedProject(db: D1Database, userId: string, id: string): Promise<ProjectRow | null> {
   return db
     .prepare(
@@ -344,6 +427,7 @@ async function presentSession(
     name: string;
     prompt: string;
     style_id: string | null;
+    look_ids_json?: string | null;
     mode: string | null;
     model: string;
     params_json: string;
@@ -357,7 +441,7 @@ async function presentSession(
     name: row.name,
     updatedAt: row.updated_at,
     prompt: row.prompt,
-    styleId: row.style_id,
+    lookIds: parseLookIds(row.look_ids_json, row.style_id),
     mode: row.mode,
     model: row.model,
     params: parseParams(row.params_json),
@@ -387,9 +471,14 @@ export async function getProject(
     )
     .bind(id)
     .all<{ gallery_id: string }>();
+  const { results: looks } = await env.DB
+    .prepare(`SELECT style_id FROM project_looks WHERE project_id = ? ORDER BY position ASC`)
+    .bind(id)
+    .all<{ style_id: string }>();
+  const lookIds = cappedLookIds((looks ?? []).map((item) => item.style_id));
   const { results: sessions } = await env.DB
     .prepare(
-      `SELECT id, name, prompt, style_id, mode, model, params_json, attachments_json, updated_at
+      `SELECT id, name, prompt, style_id, look_ids_json, mode, model, params_json, attachments_json, updated_at
        FROM project_sessions
        WHERE project_id = ? AND user_id = ?
        ORDER BY updated_at DESC`,
@@ -400,6 +489,7 @@ export async function getProject(
       name: string;
       prompt: string;
       style_id: string | null;
+      look_ids_json: string | null;
       mode: string | null;
       model: string;
       params_json: string;
@@ -430,7 +520,7 @@ export async function getProject(
     id: row.id,
     name: row.name,
     prompt: row.prompt,
-    styleId: row.style_id,
+    lookIds: lookIds.length > 0 ? lookIds : row.style_id ? [row.style_id] : [],
     updatedAt: row.updated_at,
     media: await withUrls(env, items),
     galleryIds: (galleries ?? []).map((item) => item.gallery_id),
@@ -452,20 +542,15 @@ export async function updateProject(
   patch: {
     name: string;
     prompt: string;
-    styleId: string | null;
+    lookIds: string[];
     media: ProjectMediaInput[];
     galleryIds: string[];
   },
 ): Promise<boolean> {
   const current = await ownedProject(db, userId, id);
   if (!current) return false;
-  if (patch.styleId) {
-    const style = await db
-      .prepare(`SELECT id FROM styles WHERE id = ? AND user_id = ?`)
-      .bind(patch.styleId, userId)
-      .first<{ id: string }>();
-    if (!style) return false;
-  }
+  const lookIds = await ownedLookIds(db, userId, patch.lookIds);
+  if (!lookIds) return false;
   const galleryIds: string[] = [];
   for (const galleryId of patch.galleryIds) {
     if (galleryIds.includes(galleryId)) continue;
@@ -480,12 +565,20 @@ export async function updateProject(
     .prepare(
       `UPDATE projects SET name = ?, prompt = ?, style_id = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
     )
-    .bind(patch.name, patch.prompt, patch.styleId, now, id, userId)
+    .bind(patch.name, patch.prompt, lookIds[0] ?? null, now, id, userId)
     .run();
   const statements: D1PreparedStatement[] = [
     db.prepare(`DELETE FROM project_media WHERE project_id = ? AND user_id = ?`).bind(id, userId),
     db.prepare(`DELETE FROM project_galleries WHERE project_id = ?`).bind(id),
+    db.prepare(`DELETE FROM project_looks WHERE project_id = ?`).bind(id),
   ];
+  lookIds.forEach((lookId, index) => {
+    statements.push(
+      db
+        .prepare(`INSERT INTO project_looks (project_id, style_id, position) VALUES (?, ?, ?)`)
+        .bind(id, lookId, index),
+    );
+  });
   patch.media.forEach((item, index) => {
     statements.push(
       db
@@ -515,6 +608,7 @@ export async function deleteProject(db: D1Database, userId: string, id: string):
   await db.batch([
     db.prepare(`DELETE FROM project_media WHERE project_id = ? AND user_id = ?`).bind(id, userId),
     db.prepare(`DELETE FROM project_galleries WHERE project_id = ?`).bind(id),
+    db.prepare(`DELETE FROM project_looks WHERE project_id = ?`).bind(id),
     db.prepare(`DELETE FROM project_sessions WHERE project_id = ? AND user_id = ?`).bind(id, userId),
     db.prepare(`DELETE FROM project_shares WHERE project_id = ? AND user_id = ?`).bind(id, userId),
     db.prepare(`DELETE FROM projects WHERE id = ? AND user_id = ?`).bind(id, userId),
@@ -530,7 +624,7 @@ export async function saveSession(
     id?: string | null;
     name?: unknown;
     prompt: string;
-    styleId: string | null;
+    lookIds: string[];
     mode: string | null;
     model: string;
     params: Record<string, unknown>;
@@ -544,6 +638,9 @@ export async function saveSession(
   const name = sessionName(input.name, input.prompt);
   const params = JSON.stringify(input.params);
   const attachments = JSON.stringify(input.attachments);
+  const lookIds = (await ownedLookIds(db, userId, input.lookIds)) ?? [];
+  const lookIdsJson = JSON.stringify(lookIds);
+  const styleId = lookIds[0] ?? null;
   let id = input.id?.trim() || "";
   if (id) {
     const existing = await db
@@ -557,8 +654,8 @@ export async function saveSession(
     await db
       .prepare(
         `INSERT INTO project_sessions (
-           id, project_id, user_id, name, prompt, style_id, mode, model, params_json, attachments_json, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           id, project_id, user_id, name, prompt, style_id, look_ids_json, mode, model, params_json, attachments_json, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         id,
@@ -566,7 +663,8 @@ export async function saveSession(
         userId,
         name,
         input.prompt,
-        input.styleId,
+        styleId,
+        lookIdsJson,
         input.mode,
         input.model,
         params,
@@ -579,10 +677,10 @@ export async function saveSession(
     await db
       .prepare(
         `UPDATE project_sessions
-         SET name = ?, prompt = ?, style_id = ?, mode = ?, model = ?, params_json = ?, attachments_json = ?, updated_at = ?
+         SET name = ?, prompt = ?, style_id = ?, look_ids_json = ?, mode = ?, model = ?, params_json = ?, attachments_json = ?, updated_at = ?
          WHERE id = ? AND user_id = ?`,
       )
-      .bind(name, input.prompt, input.styleId, input.mode, input.model, params, attachments, now, id, userId)
+      .bind(name, input.prompt, styleId, lookIdsJson, input.mode, input.model, params, attachments, now, id, userId)
       .run();
   }
   const ids = [...new Set(input.generationIds.filter((item) => typeof item === "string" && item))];
@@ -666,18 +764,21 @@ export async function readShare(env: Env, token: string): Promise<ShareSnapshot 
   if (!row || !shareIsOpen(row, Math.floor(Date.now() / 1000))) return null;
   const project = await getProject(env, row.user_id, row.project_id);
   if (!project) return null;
-  let styleBody = "";
-  if (project.styleId) {
-    const style = await env.DB
-      .prepare(`SELECT body FROM styles WHERE id = ? AND user_id = ?`)
-      .bind(project.styleId, row.user_id)
-      .first<{ body: string }>();
-    styleBody = style?.body ?? "";
+  let looks: Look[] = [];
+  if (project.lookIds.length > 0) {
+    const placeholders = project.lookIds.map(() => "?").join(", ");
+    const { results } = await env.DB
+      .prepare(
+        `SELECT id, name, body, group_name, starred FROM styles WHERE user_id = ? AND id IN (${placeholders})`,
+      )
+      .bind(row.user_id, ...project.lookIds)
+      .all<StyleRow>();
+    looks = appliedLooks(project.lookIds, (results ?? []).map(lookFromRow));
   }
   return {
     name: project.name,
     prompt: project.prompt,
-    styleBody,
+    looks,
     media: project.media,
   };
 }

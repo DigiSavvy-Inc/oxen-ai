@@ -5414,17 +5414,228 @@ select.attach-role {
   font-size: 13px;
 }
 
-.project-look {
+.look-chips {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--text-muted);
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
-.project-look select {
+.project-editor-look .look-chips {
+  margin-top: 0;
+}
+
+.look-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px 6px 4px 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--neutral-1);
+}
+
+.look-chip-index {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.look-chip-name {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.look-chip-group {
+  color: var(--text-dim);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.look-chip-remove {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+}
+
+.look-chip-remove:hover,
+.look-chip-remove:focus-visible {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.look-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.prompt-action.is-open {
+  color: var(--text);
+  background: var(--bg-active);
+}
+
+.saved-prompts-menu.look-menu {
+  width: min(420px, 86vw);
+  max-height: min(380px, 60vh);
+}
+
+@media (max-width: 860px) {
+  /* Anchor the picker to the actions row so it stays inside a phone screen. */
+  .prompt-actions {
+    position: relative;
+  }
+
+  .saved-prompts.look-actions {
+    position: static;
+  }
+
+  .saved-prompts-menu.look-menu {
+    left: 0;
+    right: 0;
+    width: auto;
+  }
+}
+
+.look-menu-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+}
+
+.look-menu-head .field {
   flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.look-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.look-editor-row .field {
+  width: auto;
+  flex: 1;
+}
+
+.look-count {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.look-section-label {
+  padding: 8px 8px 2px;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.look-row.is-applied .look-pick-name {
+  color: var(--text);
+}
+
+.look-star {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  padding: 0;
+}
+
+.look-star svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.look-star:hover,
+.look-star:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.look-star.is-on {
+  color: #c47b2b;
+}
+
+.look-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  white-space: normal;
+}
+
+.look-pick[aria-pressed="true"] {
+  background: var(--accent-soft);
+}
+
+.look-pick:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.look-pick-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.look-pick-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--text-dim);
+  max-width: 100%;
+}
+
+.look-applied-mark {
+  flex: none;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 2px;
 }
 
 .model-delivery {

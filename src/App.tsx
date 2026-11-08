@@ -37,7 +37,7 @@ import {
   type ProjectMedia,
   type ProjectSummary,
   type StudioProject,
-  type StudioStyle,
+  type StudioLook,
 } from "./lib/api";
 import {
   activeGenerationKey,
@@ -91,6 +91,7 @@ import {
   type MediaRole,
 } from "../worker/schema";
 import { GALLERY_MAX_ITEMS as GALLERY_ITEM_CAP } from "../worker/gallery-limits";
+import { appliedLooks, joinLooks, toggleLookId } from "../worker/looks";
 import { DEFAULT_HISTORY_PAGE_SIZE } from "../worker/history-page-size";
 import { DEFAULT_VIDEO_THUMB_SECONDS } from "../worker/video-thumb";
 import { deliveryForRun } from "./lib/model-prompt";
@@ -159,12 +160,12 @@ export default function App() {
   const [getLastFrame, setGetLastFrame] = useState(false);
   const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([]);
   const [projectSummaries, setProjectSummaries] = useState<ProjectSummary[]>([]);
-  const [styles, setStyles] = useState<StudioStyle[]>([]);
+  const [looks, setLooks] = useState<StudioLook[]>([]);
   const [activeProject, setActiveProject] = useState<StudioProject | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [lookId, setLookId] = useState<string | null>(null);
+  const [lookIds, setLookIds] = useState<string[]>([]);
   const [shareName, setShareName] = useState<string | null>(null);
-  const [shareStyleBody, setShareStyleBody] = useState("");
+  const [shareLooks, setShareLooks] = useState<StudioLook[]>([]);
   const [projectEditorOpen, setProjectEditorOpen] = useState(false);
   const [projectBusy, setProjectBusy] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
@@ -584,7 +585,7 @@ export default function App() {
   useEffect(() => {
     if (!user) {
       setProjectSummaries([]);
-      setStyles([]);
+      setLooks([]);
       return;
     }
     let cancelled = false;
@@ -593,7 +594,7 @@ export default function App() {
       .then((data) => {
         if (cancelled) return;
         setProjectSummaries(data.projects);
-        setStyles(data.styles);
+        setLooks(data.looks);
         setActiveProject((current) => {
           if (!current) return current;
           return data.projects.some((item) => item.id === current.id) ? current : null;
@@ -617,10 +618,10 @@ export default function App() {
       .then(({ share }) => {
         if (cancelled) return;
         setShareName(share.name);
-        setShareStyleBody(share.styleBody);
+        setShareLooks(share.looks);
         setActiveProject(null);
         setActiveSessionId(null);
-        setLookId(null);
+        setLookIds([]);
         setPrompt(share.prompt);
         setStaged((prev) => {
           for (const item of prev) releasePreview(item.preview);
@@ -1931,7 +1932,7 @@ export default function App() {
   }
 
   function applyProjectDefaults(project: StudioProject) {
-    setLookId(project.styleId);
+    setLookIds(project.lookIds);
     setPrompt(project.prompt);
     replaceStaged(mediaFromProject(project.media));
     setSelectedId(null);
@@ -1941,7 +1942,7 @@ export default function App() {
   async function openProject(id: string) {
     setProjectError(null);
     setShareName(null);
-    setShareStyleBody("");
+    setShareLooks([]);
     const { project } = await api.project(id);
     setActiveSessionId(null);
     setProjectEditorOpen(false);
@@ -1952,13 +1953,13 @@ export default function App() {
   async function openSession(projectId: string, sessionId: string) {
     setProjectError(null);
     setShareName(null);
-    setShareStyleBody("");
+    setShareLooks([]);
     const { project } = await api.project(projectId);
     const session = project.sessions.find((item) => item.id === sessionId);
     if (!session) return;
     rememberProject(project);
     setActiveSessionId(session.id);
-    setLookId(session.styleId);
+    setLookIds(session.lookIds);
     setPrompt(session.prompt);
     replaceStaged(mediaFromProject(session.attachments));
     if (session.mode === "text-to-image" || session.mode === "image-to-image" || session.mode === "text-to-video" || session.mode === "reference-to-video" || session.mode === "video-to-video" || session.mode === "text-to-audio" || session.mode === "chat") {
@@ -2019,20 +2020,58 @@ export default function App() {
     controls?.slots.some((slot) => slot.field === "input_face_videos") &&
       controls.slots.some((slot) => slot.kind === "video" && !slot.field.includes("face")),
   );
+  const activeLooks = useMemo(
+    () => (shareName ? shareLooks : appliedLooks(lookIds, looks)),
+    [lookIds, looks, shareLooks, shareName],
+  );
   const delivery = useMemo(() => {
-    const styleBody = shareStyleBody || styles.find((style) => style.id === lookId)?.body || "";
     const routedKinds = [
       ...(imageRouted ? (["image"] as const) : []),
       ...(videoRouted ? (["video"] as const) : []),
     ];
     return deliveryForRun({
       prompt,
-      styleBody,
+      lookBlock: joinLooks(activeLooks),
       attachments: staged.map((item) => ({ name: item.name, kind: item.kind, role: item.role })),
       routedKinds,
       faceFirst: imageRouted || videoRouted,
     });
-  }, [imageRouted, lookId, prompt, shareStyleBody, staged, styles, videoRouted]);
+  }, [activeLooks, imageRouted, prompt, staged, videoRouted]);
+
+  function toggleLook(id: string) {
+    setLookIds((prev) => toggleLookId(prev, id));
+  }
+
+  async function createLook(draft: { name: string; body: string; group: StudioLook["group"] }) {
+    setProjectError(null);
+    try {
+      const { look } = await api.createLook(draft.name, draft.body, draft.group);
+      setLooks((prev) => [...prev.filter((item) => item.id !== look.id), look]);
+      return look;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn’t save that look");
+      return null;
+    }
+  }
+
+  function starLook(id: string, starred: boolean) {
+    setLooks((prev) => prev.map((item) => (item.id === id ? { ...item, starred } : item)));
+    void api.updateLook(id, { starred }).then(
+      ({ look }) => setLooks((prev) => prev.map((item) => (item.id === look.id ? look : item))),
+      (err) => {
+        setLooks((prev) => prev.map((item) => (item.id === id ? { ...item, starred: !starred } : item)));
+        setError(err instanceof Error ? err.message : "Couldn’t update that look");
+      },
+    );
+  }
+
+  function deleteLook(id: string) {
+    setLooks((prev) => prev.filter((item) => item.id !== id));
+    setLookIds((prev) => prev.filter((item) => item !== id));
+    void api.deleteLook(id).catch((err) => {
+      setError(err instanceof Error ? err.message : "Couldn’t delete that look");
+    });
+  }
 
   async function onGenerate() {
     if (!canGenerate || !mode) {
@@ -2142,6 +2181,9 @@ export default function App() {
           ? [{ ...multiPrompt[0], prompt: delivery.prompt }, ...multiPrompt.slice(1)]
           : multiPrompt;
       } else payload.prompt = delivery.prompt;
+      if (activeLooks.length > 0) {
+        payload.looks = activeLooks.map((look) => ({ id: look.id, name: look.name }));
+      }
       const sendAspect =
         mode !== "text-to-audio" ||
         Boolean(controls?.aspectRatios && controls.aspectRatios.length > 0);
@@ -2208,7 +2250,7 @@ export default function App() {
           id: activeSessionId,
           name: current?.name,
           prompt,
-          styleId: lookId,
+          lookIds,
           mode,
           model,
           params: { aspectRatio, duration, seed, numGenerations },
@@ -2334,7 +2376,7 @@ export default function App() {
           <ProjectEditor
             key={activeProject.updatedAt}
             project={activeProject}
-            styles={styles}
+            looks={looks}
             galleries={gallerySummaries}
             busy={projectBusy}
             error={projectError}
@@ -2347,25 +2389,11 @@ export default function App() {
                 .then(({ project }) => {
                   rememberProject(project);
                   setPrompt(project.prompt);
-                  setLookId(project.styleId);
+                  setLookIds(project.lookIds);
                   setProjectEditorOpen(false);
                 })
                 .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t save those defaults"))
                 .finally(() => setProjectBusy(false));
-            }}
-            onCreateStyle={async (name, body) => {
-              setProjectBusy(true);
-              try {
-                const { style } = await api.createStyle(name, body);
-                setStyles((prev) => [style, ...prev.filter((item) => item.id !== style.id)]);
-                setLookId(style.id);
-                return style;
-              } catch (err) {
-                setProjectError(err instanceof Error ? err.message : "Couldn’t save that look");
-                return null;
-              } finally {
-                setProjectBusy(false);
-              }
             }}
             onPinComposer={pinComposerMedia}
             onDelete={() => {
@@ -2731,9 +2759,12 @@ export default function App() {
             error={error}
             onGenerate={() => void onGenerate()}
             canGenerate={canGenerate}
-            looks={styles}
-            lookId={lookId}
-            onLookChange={setLookId}
+            looks={shareName ? undefined : looks}
+            appliedLooks={activeLooks}
+            onToggleLook={shareName ? undefined : toggleLook}
+            onCreateLook={shareName ? undefined : createLook}
+            onStarLook={shareName ? undefined : starLook}
+            onDeleteLook={shareName ? undefined : deleteLook}
             modelDelivery={delivery.prompt}
             deliveryNotes={delivery.notes}
           />

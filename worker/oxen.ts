@@ -259,6 +259,7 @@ export function paramsJsonForStorage(payload: Record<string, unknown>): string {
     media_omitted: true,
   };
   if (payload.capture_last_frame === true) slimmed.capture_last_frame = true;
+  if (Array.isArray(payload.studio_looks)) slimmed.studio_looks = payload.studio_looks;
   return JSON.stringify(slimmed);
 }
 

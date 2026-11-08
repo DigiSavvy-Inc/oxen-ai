@@ -1872,6 +1872,34 @@ describe("saved prompt controls", () => {
     expect(filled).toContain("Save prompt");
     expect(filled).not.toContain(">Saved<");
   });
+
+  it("shows applied looks as numbered chips under the prompt, not in the prompt", () => {
+    const looks = [
+      { id: "l1", name: "35mm", body: "Shot on 35mm", group: "Camera" as const, starred: false },
+      { id: "l2", name: "Window light", body: "Soft window light", group: null, starred: true },
+    ];
+    const withLooks = renderToStaticMarkup(
+      createElement(Composer, {
+        ...promptProps,
+        looks,
+        appliedLooks: [looks[1]!, looks[0]!],
+        onToggleLook: () => undefined,
+        onCreateLook: async () => null,
+        modelDelivery: "Soft window light. Shot on 35mm.\n\nhold @Image1 still",
+      }),
+    );
+    expect(withLooks).toContain(">Look<");
+    expect(withLooks).toContain("Save as look");
+    expect(withLooks).toContain('aria-label="Applied looks"');
+    expect(withLooks.indexOf("Window light")).toBeLessThan(withLooks.indexOf(">35mm<"));
+    expect(withLooks).toContain('aria-label="Remove look 35mm"');
+    expect(withLooks).toContain("What the model receives");
+    expect(withLooks).toContain('>hold @Image1 still</textarea>');
+
+    const signedOut = renderToStaticMarkup(createElement(Composer, { ...promptProps }));
+    expect(signedOut).not.toContain(">Look<");
+    expect(signedOut).not.toContain("Applied looks");
+  });
 });
 
 describe("Flux 3 Video composer", () => {

@@ -17,7 +17,7 @@ describe("model prompt", () => {
   it("explains an outfit as an object when the model has no role inputs", () => {
     const delivery = deliveryForRun({
       prompt: "Hold still.",
-      styleBody: "",
+      lookBlock: "",
       attachments: [{ name: "coat.png", kind: "image", role: "clothing" }],
       routedKinds: [],
       faceFirst: false,
@@ -30,7 +30,7 @@ describe("model prompt", () => {
   it("keeps routed roles out of the prompt and lists where they go", () => {
     const delivery = deliveryForRun({
       prompt: "Hold still.",
-      styleBody: "",
+      lookBlock: "",
       attachments: [
         { name: "face.png", kind: "image", role: "character" },
         { name: "coat.png", kind: "image", role: "object" },
