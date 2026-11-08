@@ -259,7 +259,11 @@ export function paramsJsonForStorage(payload: Record<string, unknown>): string {
     media_omitted: true,
   };
   if (payload.capture_last_frame === true) slimmed.capture_last_frame = true;
-  if (Array.isArray(payload.studio_looks)) slimmed.studio_looks = payload.studio_looks;
+  // Studio bookkeeping (looks, refs, cost, base prompt) is small and never a data URI.
+  for (const [key, value] of Object.entries(stored)) {
+    if (!key.startsWith("studio_")) continue;
+    slimmed[key] = typeof value === "string" ? value.slice(0, 20_000) : value;
+  }
   return JSON.stringify(slimmed);
 }
 

@@ -1,4 +1,3 @@
-import { galleryKeyForUser } from "./galleries";
 import {
   acceptLookBody,
   acceptLookName,
@@ -10,7 +9,6 @@ import {
   type Look,
   type LookGroup,
 } from "./looks";
-import { displayStoredMediaUrl } from "./media";
 import {
   CAST_BUDGET_DEFAULT,
   castWriteStatements,
@@ -18,36 +16,23 @@ import {
   type CastEntryJson,
   type CastInput,
 } from "./project-cast";
-import { normalizeMediaRole, type MediaRole } from "./schema";
+import {
+  defaultsFromJson,
+  draftFromJson,
+  type ComposerDefaults,
+  type ComposerDraft,
+} from "./project-draft";
+import { projectJobStats } from "./project-jobs";
 import type { Env } from "./types";
 
 export const PROJECT_NAME_MAX = 80;
 export const STYLE_NAME_MAX = LOOK_NAME_MAX;
 export const STYLE_BODY_MAX = LOOK_BODY_MAX;
 export const PROJECT_PROMPT_MAX = 8000;
-export const PROJECT_MEDIA_MAX = 24;
 export const PROJECT_MAX = 50;
 export const LOOKS_PER_PROFILE_MAX = 200;
-const SESSION_NAME_MAX = 80;
-
-export type ProjectKind = "image" | "video" | "audio";
-
-export type ProjectMediaInput = {
-  kind: ProjectKind;
-  name: string;
-  key: string;
-  role: MediaRole | null;
-};
-
-export type ProjectAttachment = ProjectMediaInput & { url: string | null };
 
 export type StyleRecord = Look;
-
-export type SessionSummary = {
-  id: string;
-  name: string;
-  updatedAt: number;
-};
 
 export type ProjectSummary = {
   id: string;
@@ -55,7 +40,9 @@ export type ProjectSummary = {
   updatedAt: number;
   castCount: number;
   galleryCount: number;
-  sessions: SessionSummary[];
+  jobCount: number;
+  /** When the newest job was run, or null before the first run. */
+  lastRunAt: number | null;
 };
 
 export type ShareRecord = {
@@ -64,16 +51,6 @@ export type ShareRecord = {
   expiresAt: number | null;
   revokedAt: number | null;
   createdAt: number;
-};
-
-export type SessionRecord = SessionSummary & {
-  prompt: string;
-  lookIds: string[];
-  mode: string | null;
-  model: string;
-  params: Record<string, unknown>;
-  attachments: ProjectAttachment[];
-  generationIds: string[];
 };
 
 export type ProjectRecord = {
@@ -86,7 +63,12 @@ export type ProjectRecord = {
   budget: number;
   cast: CastEntryJson[];
   galleryIds: string[];
-  sessions: SessionRecord[];
+  /** The composer state from the last visit, or null when the project was never opened. */
+  draft: ComposerDraft | null;
+  /** Mode, model, and settings from the last run, or null before the first run. */
+  defaults: ComposerDefaults | null;
+  jobCount: number;
+  lastRunAt: number | null;
   shares: ShareRecord[];
 };
 
@@ -106,6 +88,8 @@ type ProjectRow = {
   style_id: string | null;
   updated_at: number;
   budget: number | null;
+  draft_json?: string | null;
+  defaults_json?: string | null;
 };
 
 export function acceptProjectName(raw: unknown): string | null {
@@ -140,70 +124,6 @@ export function shareIsOpen(
   return true;
 }
 
-function acceptKind(raw: unknown): ProjectKind | null {
-  switch (raw) {
-    case "image":
-    case "video":
-    case "audio":
-      return raw;
-    default:
-      return null;
-  }
-}
-
-export function acceptProjectMedia(userId: string, raw: unknown): ProjectMediaInput[] | null {
-  if (!Array.isArray(raw) || raw.length > PROJECT_MEDIA_MAX) return null;
-  const items: ProjectMediaInput[] = [];
-  for (const entry of raw) {
-    if (!entry || typeof entry !== "object") return null;
-    const record = entry as { kind?: unknown; name?: unknown; key?: unknown; role?: unknown };
-    const kind = acceptKind(record.kind);
-    const key = galleryKeyForUser(userId, record.key);
-    if (!kind || typeof record.name !== "string" || !key) return null;
-    const name = record.name.trim();
-    if (!name || name.length > 180) return null;
-    items.push({
-      kind,
-      name,
-      key,
-      role: kind === "audio" ? null : normalizeMediaRole(typeof record.role === "string" ? record.role : null),
-    });
-  }
-  return items;
-}
-
-function parseParams(raw: string): Record<string, unknown> {
-  try {
-    const value = JSON.parse(raw) as unknown;
-    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-    return value as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-function parseAttachments(userId: string, raw: string): ProjectMediaInput[] {
-  try {
-    const value = JSON.parse(raw) as unknown;
-    return acceptProjectMedia(userId, value) ?? [];
-  } catch {
-    return [];
-  }
-}
-
-function parseLookIds(raw: string | null | undefined, fallback: string | null): string[] {
-  try {
-    const value = JSON.parse(raw ?? "[]") as unknown;
-    if (Array.isArray(value)) {
-      const ids = cappedLookIds(value.filter((item): item is string => typeof item === "string"));
-      if (ids.length > 0) return ids;
-    }
-  } catch {
-    /* an older session only had style_id */
-  }
-  return fallback ? [fallback] : [];
-}
-
 function lookFromRow(row: StyleRow): Look {
   return {
     id: row.id,
@@ -226,24 +146,6 @@ function lookGroupFromDb(value: string | null): LookGroup | null {
     default:
       return null;
   }
-}
-
-function sessionName(raw: unknown, prompt: string): string {
-  if (typeof raw === "string" && raw.trim()) return raw.trim().slice(0, SESSION_NAME_MAX);
-  const line = prompt.split("\n").map((part) => part.trim()).find(Boolean) ?? "";
-  return (line || "Session").slice(0, SESSION_NAME_MAX);
-}
-
-async function withUrls(
-  env: Env,
-  items: ProjectMediaInput[],
-): Promise<ProjectAttachment[]> {
-  return Promise.all(
-    items.map(async (item) => ({
-      ...item,
-      url: await displayStoredMediaUrl(env, item.key, null),
-    })),
-  );
 }
 
 export async function listStyles(db: D1Database, userId: string, profileId: string): Promise<Look[]> {
@@ -342,25 +244,18 @@ export async function listProjects(
   const projects = results ?? [];
   if (projects.length === 0) return [];
   const ids = projects.map((row) => row.id);
-  const placeholders = ids.map(() => "?").join(", ");
-  const { results: sessions } = await db
-    .prepare(
-      `SELECT id, project_id, name, updated_at FROM project_sessions
-       WHERE user_id = ? AND project_id IN (${placeholders})
-       ORDER BY updated_at DESC`,
-    )
-    .bind(userId, ...ids)
-    .all<{ id: string; project_id: string; name: string; updated_at: number }>();
-  const counts = await castCounts(db, userId, ids);
+  const [counts, jobs] = await Promise.all([
+    castCounts(db, userId, ids),
+    projectJobStats(db, userId, ids),
+  ]);
   return projects.map((row) => ({
     id: row.id,
     name: row.name,
     updatedAt: row.updated_at,
     castCount: counts.get(row.id)?.items ?? 0,
     galleryCount: counts.get(row.id)?.galleries ?? 0,
-    sessions: (sessions ?? [])
-      .filter((session) => session.project_id === row.id)
-      .map((session) => ({ id: session.id, name: session.name, updatedAt: session.updated_at })),
+    jobCount: jobs.get(row.id)?.jobs ?? 0,
+    lastRunAt: jobs.get(row.id)?.lastRunAt || null,
   }));
 }
 
@@ -444,63 +339,11 @@ async function castCounts(
 async function ownedProject(db: D1Database, userId: string, id: string): Promise<ProjectRow | null> {
   return db
     .prepare(
-      `SELECT id, name, prompt, style_id, updated_at, budget FROM projects WHERE id = ? AND user_id = ?`,
+      `SELECT id, name, prompt, style_id, updated_at, budget, draft_json, defaults_json
+       FROM projects WHERE id = ? AND user_id = ?`,
     )
     .bind(id, userId)
     .first<ProjectRow>();
-}
-
-async function generationIdsFor(
-  db: D1Database,
-  userId: string,
-  sessionId: string,
-): Promise<string[]> {
-  try {
-    const { results } = await db
-      .prepare(
-        `SELECT id FROM generations
-         WHERE user_id = ? AND session_id = ?
-         ORDER BY created_at ASC`,
-      )
-      .bind(userId, sessionId)
-      .all<{ id: string }>();
-    return (results ?? []).map((row) => row.id);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("no such column")) return [];
-    throw err;
-  }
-}
-
-async function presentSession(
-  env: Env,
-  userId: string,
-  row: {
-    id: string;
-    name: string;
-    prompt: string;
-    style_id: string | null;
-    look_ids_json?: string | null;
-    mode: string | null;
-    model: string;
-    params_json: string;
-    attachments_json: string;
-    updated_at: number;
-  },
-): Promise<SessionRecord> {
-  const stored = parseAttachments(userId, row.attachments_json);
-  return {
-    id: row.id,
-    name: row.name,
-    updatedAt: row.updated_at,
-    prompt: row.prompt,
-    lookIds: parseLookIds(row.look_ids_json, row.style_id),
-    mode: row.mode,
-    model: row.model,
-    params: parseParams(row.params_json),
-    attachments: await withUrls(env, stored),
-    generationIds: await generationIdsFor(env.DB, userId, row.id),
-  };
 }
 
 export async function getProject(
@@ -516,26 +359,7 @@ export async function getProject(
     .all<{ style_id: string }>();
   const lookIds = cappedLookIds((looks ?? []).map((item) => item.style_id));
   const cast = await loadProjectCast(env, userId, id);
-  const { results: sessions } = await env.DB
-    .prepare(
-      `SELECT id, name, prompt, style_id, look_ids_json, mode, model, params_json, attachments_json, updated_at
-       FROM project_sessions
-       WHERE project_id = ? AND user_id = ?
-       ORDER BY updated_at DESC`,
-    )
-    .bind(id, userId)
-    .all<{
-      id: string;
-      name: string;
-      prompt: string;
-      style_id: string | null;
-      look_ids_json: string | null;
-      mode: string | null;
-      model: string;
-      params_json: string;
-      attachments_json: string;
-      updated_at: number;
-    }>();
+  const jobs = await projectJobStats(env.DB, userId, [id]);
   const { results: shares } = await env.DB
     .prepare(
       `SELECT id, token, expires_at, revoked_at, created_at FROM project_shares
@@ -559,7 +383,10 @@ export async function getProject(
     budget: row.budget ?? CAST_BUDGET_DEFAULT,
     cast,
     galleryIds: cast.flatMap((entry) => (entry.type === "gallery" ? [entry.id] : [])),
-    sessions: await Promise.all((sessions ?? []).map((session) => presentSession(env, userId, session))),
+    draft: draftFromJson(row.draft_json),
+    defaults: defaultsFromJson(row.defaults_json),
+    jobCount: jobs.get(id)?.jobs ?? 0,
+    lastRunAt: jobs.get(id)?.lastRunAt || null,
     shares: (shares ?? []).map((share) => ({
       id: share.id,
       token: share.token,
@@ -619,99 +446,47 @@ export async function deleteProject(db: D1Database, userId: string, id: string):
     db.prepare(`DELETE FROM project_cast_items WHERE project_id = ?`).bind(id),
     db.prepare(`DELETE FROM project_sessions WHERE project_id = ? AND user_id = ?`).bind(id, userId),
     db.prepare(`DELETE FROM project_shares WHERE project_id = ? AND user_id = ?`).bind(id, userId),
+    // The runs stay in the library; they just stop belonging to a project.
+    db.prepare(`UPDATE generations SET project_id = NULL WHERE project_id = ? AND user_id = ?`).bind(id, userId),
     db.prepare(`DELETE FROM projects WHERE id = ? AND user_id = ?`).bind(id, userId),
   ]);
   return true;
 }
 
-export async function saveSession(
+/**
+ * Keep the composer state for this project. The draft is what the next visit restores;
+ * the defaults, when given, are what the last run used. The project's updated_at is left
+ * alone so autosaving a draft does not reorder the list.
+ */
+export async function saveProjectDraft(
   db: D1Database,
   userId: string,
   projectId: string,
-  input: {
-    id?: string | null;
-    name?: unknown;
-    prompt: string;
-    lookIds: string[];
-    mode: string | null;
-    model: string;
-    params: Record<string, unknown>;
-    attachments: ProjectMediaInput[];
-    generationIds: string[];
-  },
-): Promise<string | null> {
+  input: { draft: ComposerDraft | null; defaults: ComposerDefaults | null },
+): Promise<boolean> {
   const project = await ownedProject(db, userId, projectId);
-  if (!project) return null;
-  const now = Math.floor(Date.now() / 1000);
-  const name = sessionName(input.name, input.prompt);
-  const params = JSON.stringify(input.params);
-  const attachments = JSON.stringify(input.attachments);
-  const lookIds = (await ownedLookIds(db, userId, input.lookIds)) ?? [];
-  const lookIdsJson = JSON.stringify(lookIds);
-  const styleId = lookIds[0] ?? null;
-  let id = input.id?.trim() || "";
-  if (id) {
-    const existing = await db
-      .prepare(`SELECT id FROM project_sessions WHERE id = ? AND project_id = ? AND user_id = ?`)
-      .bind(id, projectId, userId)
-      .first<{ id: string }>();
-    if (!existing) id = "";
+  if (!project) return false;
+  const sets: string[] = [];
+  const binds: (string | number)[] = [];
+  if (input.draft) {
+    sets.push("draft_json = ?");
+    binds.push(JSON.stringify(input.draft));
   }
-  if (!id) {
-    id = crypto.randomUUID();
-    await db
-      .prepare(
-        `INSERT INTO project_sessions (
-           id, project_id, user_id, name, prompt, style_id, look_ids_json, mode, model, params_json, attachments_json, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        id,
-        projectId,
-        userId,
-        name,
-        input.prompt,
-        styleId,
-        lookIdsJson,
-        input.mode,
-        input.model,
-        params,
-        attachments,
-        now,
-        now,
-      )
-      .run();
-  } else {
-    await db
-      .prepare(
-        `UPDATE project_sessions
-         SET name = ?, prompt = ?, style_id = ?, look_ids_json = ?, mode = ?, model = ?, params_json = ?, attachments_json = ?, updated_at = ?
-         WHERE id = ? AND user_id = ?`,
-      )
-      .bind(name, input.prompt, styleId, lookIdsJson, input.mode, input.model, params, attachments, now, id, userId)
-      .run();
+  if (input.defaults) {
+    sets.push("defaults_json = ?");
+    binds.push(JSON.stringify(input.defaults));
   }
-  const ids = [...new Set(input.generationIds.filter((item) => typeof item === "string" && item))];
-  if (ids.length > 0) {
-    try {
-      const placeholders = ids.map(() => "?").join(", ");
-      await db
-        .prepare(
-          `UPDATE generations SET session_id = ?
-           WHERE user_id = ? AND id IN (${placeholders})`,
-        )
-        .bind(id, userId, ...ids)
-        .run();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!message.includes("no such column")) throw err;
-    }
-  }
+  if (sets.length === 0) return true;
   await db
-    .prepare(`UPDATE projects SET updated_at = ? WHERE id = ? AND user_id = ?`)
-    .bind(now, projectId, userId)
+    .prepare(`UPDATE projects SET ${sets.join(", ")} WHERE id = ? AND user_id = ?`)
+    .bind(...binds, projectId, userId)
     .run();
-  return id;
+  return true;
+}
+
+/** True when the project exists and belongs to this user. */
+export async function ownsProject(db: D1Database, userId: string, projectId: string): Promise<boolean> {
+  return Boolean(await ownedProject(db, userId, projectId));
 }
 
 export async function createShare(

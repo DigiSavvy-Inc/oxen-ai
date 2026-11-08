@@ -18,9 +18,9 @@ type Props = {
   onDelete: () => void;
   onShare: (days: number | null) => void;
   onRevoke: (shareId: string) => void;
-  activeSessionId: string | null;
-  onOpenSession: (sessionId: string) => void;
-  onNewSession: () => void;
+  /** True when the composer differs from the saved brief (a draft is being kept). */
+  hasDraft: boolean;
+  onResetDraft: () => void;
 };
 
 export function ProjectBrief(props: Props) {
@@ -110,30 +110,24 @@ export function ProjectBrief(props: Props) {
           ))}
         </select>
       </div>
-      <div className="project-editor-share project-brief-sessions">
+      <div className="project-editor-share project-brief-draft">
         <div className="project-editor-head">
-          <h3>Sessions</h3>
-          <button type="button" className="ghost-btn" disabled={props.busy} onClick={props.onNewSession}>
-            New session
+          <h3>Draft</h3>
+          <button
+            type="button"
+            className="ghost-btn"
+            disabled={props.busy || !props.hasDraft}
+            title="Put the saved brief back in the composer and keep the last run’s model and settings"
+            onClick={props.onResetDraft}
+          >
+            Start from the brief
           </button>
         </div>
-        {props.project.sessions.length === 0 ? (
-          <p>Generate to save a session. Runs move to a Jobs view soon.</p>
-        ) : (
-          <ul>
-            {props.project.sessions.map((session) => (
-              <li key={session.id}>
-                <button
-                  type="button"
-                  className={`project-session${props.activeSessionId === session.id ? " is-active" : ""}`}
-                  onClick={() => props.onOpenSession(session.id)}
-                >
-                  {session.name}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <p>
+          {props.hasDraft
+            ? "The composer is keeping a draft for this project. Opening the project brings it back."
+            : "The composer shows the saved brief. Edits here are kept as this project’s draft."}
+        </p>
       </div>
       <div className="project-editor-share">
         <h3>Share link</h3>

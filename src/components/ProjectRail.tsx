@@ -14,18 +14,25 @@ type Props = {
   onOpenProject: (id: string) => void;
   onClose: () => void;
   error?: string | null;
-  /** The Cast or Brief panel for the open project. */
+  /** The Cast, Jobs, or Brief panel for the open project. */
   children?: ReactNode;
 };
 
 function lastRun(project: ProjectSummary): string {
-  const latest = project.sessions.reduce<number>((max, session) => Math.max(max, session.updatedAt), 0);
-  if (!latest) return "no runs";
-  const delta = Math.max(0, Math.floor(Date.now() / 1000) - latest);
-  if (delta < 3600) return `${Math.max(1, Math.floor(delta / 60))}m ago`;
-  if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
-  return `${Math.floor(delta / 86400)}d ago`;
+  if (!project.lastRunAt) return "no runs";
+  const runs = `${project.jobCount} ${project.jobCount === 1 ? "run" : "runs"}`;
+  const delta = Math.max(0, Math.floor(Date.now() / 1000) - project.lastRunAt);
+  if (delta < 3600) return `${runs} · ${Math.max(1, Math.floor(delta / 60))}m ago`;
+  if (delta < 86400) return `${runs} · ${Math.floor(delta / 3600)}h ago`;
+  return `${runs} · ${Math.floor(delta / 86400)}d ago`;
 }
+
+const TAB_LABELS: Record<ProjectPanelView, string> = {
+  list: "Projects",
+  cast: "Cast",
+  jobs: "Jobs",
+  brief: "Brief",
+};
 
 export function ProjectRail(props: Props) {
   const [naming, setNaming] = useState(false);
@@ -64,7 +71,7 @@ export function ProjectRail(props: Props) {
       </div>
       {hasProject ? (
         <div className="project-tabs" role="tablist" aria-label="Project panels">
-          {(["list", "cast", "brief"] as const).map((tab) => (
+          {(["list", "cast", "jobs", "brief"] as const).map((tab) => (
             <button
               key={tab}
               type="button"
@@ -73,7 +80,7 @@ export function ProjectRail(props: Props) {
               className={`project-tab${view === tab ? " is-on" : ""}`}
               onClick={() => props.onView(tab)}
             >
-              {tab === "list" ? "Projects" : tab === "cast" ? "Cast" : "Brief"}
+              {TAB_LABELS[tab]}
             </button>
           ))}
         </div>

@@ -18,7 +18,14 @@ import { PanelPlaceProvider, readPanelPlace, storePanelPlace, type PanelPlace } 
 import { ProjectRail } from "./components/ProjectRail";
 import { ProjectCast } from "./components/ProjectCast";
 import { ProjectBrief } from "./components/ProjectBrief";
+import { ProjectJobs } from "./components/ProjectJobs";
 import { ProjectHeader, type ProjectPanelView } from "./components/ProjectHeader";
+import {
+  castFilesForJob,
+  castMatchingJob,
+  composerStateForJob,
+  rerunBodyForJob,
+} from "./lib/project-jobs";
 import {
   castNumberMap,
   castRequestBody,
@@ -41,11 +48,16 @@ import {
 } from "./lib/cast";
 import {
   api,
+  estimateGenerationCost,
   firstSupportedMode,
   mentionToken,
   modeIsVideo,
   modelSupportsMode,
+  MODE_LABELS,
   slotRequired,
+  type ComposerDefaults,
+  type ComposerDraft,
+  type ComposerSettings,
   type CreditBalance,
   type Generation,
   type LibraryMediaFilter,
@@ -54,10 +66,11 @@ import {
   type OxenModel,
   type GalleryItem,
   type GallerySummary,
+  type ProjectJob,
+  type ProjectJobOutput,
   type SavedPrompt,
   type StudioProfile,
   type StudioSettings,
-  type ProjectMedia,
   type ProjectSummary,
   type StudioProject,
   type StudioLook,
@@ -160,6 +173,12 @@ function sameIds(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
+function isGenerationMode(value: string | null | undefined): value is GenerationMode {
+  return typeof value === "string" && value in MODE_LABELS;
+}
+
+const DRAFT_SAVE_DELAY_MS = 800;
+
 function initialLibraryOpen(): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -213,7 +232,10 @@ export default function App() {
   const [projectSummaries, setProjectSummaries] = useState<ProjectSummary[]>([]);
   const [looks, setLooks] = useState<StudioLook[]>([]);
   const [activeProject, setActiveProject] = useState<StudioProject | null>(null);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [projectJobs, setProjectJobs] = useState<ProjectJob[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsError, setJobsError] = useState<string | null>(null);
+  const [jobsNotice, setJobsNotice] = useState<string | null>(null);
   const [lookIds, setLookIds] = useState<string[]>([]);
   const [shareName, setShareName] = useState<string | null>(null);
   const [shareLooks, setShareLooks] = useState<StudioLook[]>([]);
@@ -272,6 +294,12 @@ export default function App() {
   const durationPinned = useRef(false);
   const promptField = useRef<PromptField | null>(null);
   const attachDraft = useRef<{ text: string; caret: number } | null>(null);
+  /** Settings to put back once the model's controls have loaded and run their resets. */
+  const pendingSettings = useRef<{ model: string; settings: ComposerSettings } | null>(null);
+  const draftSkip = useRef(false);
+  const draftTimer = useRef<number | null>(null);
+  const draftPending = useRef<{ projectId: string; draft: ComposerDraft } | null>(null);
+  const composerDraftRef = useRef<ComposerDraft>({ prompt: "", mode: null, model: "", settings: {} });
   const stagedRef = useRef(staged);
   stagedRef.current = staged;
   const promptRef = useRef(prompt);
@@ -673,7 +701,7 @@ export default function App() {
         setShareName(share.name);
         setShareLooks(share.looks);
         setActiveProject(null);
-        setActiveSessionId(null);
+        setProjectJobs([]);
         setLookIds([]);
         setPrompt(share.prompt);
         const shared = selectCastAttachments(flattenCast(share.cast), {
@@ -997,6 +1025,11 @@ export default function App() {
           setGenerateAudio(false);
         }
         setDraft(data.controls.draft ? data.controls.draftDefault === true : false);
+        const pending = pendingSettings.current;
+        if (pending && pending.model === model) {
+          pendingSettings.current = null;
+          applyComposerSettings(pending.settings, data.controls);
+        }
       })
       .catch(() => {
         if (!cancelled) setControls(null);
@@ -2026,42 +2059,183 @@ export default function App() {
         updatedAt: project.updatedAt,
         castCount: flattenCast(project.cast).length,
         galleryCount: project.cast.filter((entry) => entry.type === "gallery").length,
-        sessions: project.sessions.map((session) => ({
-          id: session.id,
-          name: session.name,
-          updatedAt: session.updatedAt,
-        })),
+        jobCount: project.jobCount,
+        lastRunAt: project.lastRunAt,
       };
       return [summary, ...prev.filter((item) => item.id !== project.id)];
     });
   }
 
+  /** The composer's settings as a project stores them. */
+  function composerSettings(): ComposerSettings {
+    const out: ComposerSettings = {
+      aspectRatio,
+      duration,
+      generateAudio,
+      draft,
+      safetyCheckerOn,
+      getLastFrame,
+    };
+    if (seed) out.seed = seed;
+    if (quality) out.quality = quality;
+    if (resolution) out.resolution = resolution;
+    if (outputFormat) out.outputFormat = outputFormat;
+    if (referenceTask) out.referenceTask = referenceTask;
+    if (safetyTolerance) out.safetyTolerance = safetyTolerance;
+    if (moderation) out.moderation = moderation;
+    if (background) out.background = background;
+    if (sampleRate) out.sampleRate = sampleRate;
+    if (speed) out.speed = speed;
+    if (volume) out.volume = volume;
+    if (pitch) out.pitch = pitch;
+    return out;
+  }
+
+  /**
+   * Put stored settings on the composer. Called twice on a model switch: once right away for the
+   * model-independent fields, and again from the controls effect once the model's own resets have run.
+   */
+  function applyComposerSettings(next: ComposerSettings, loaded: ModelControls | null) {
+    const text = (value: string | boolean | undefined) => (typeof value === "string" ? value : undefined);
+    const flag = (value: string | boolean | undefined) => (typeof value === "boolean" ? value : undefined);
+    const aspect = text(next.aspectRatio);
+    if (aspect && (!loaded?.aspectRatios || loaded.aspectRatios.includes(aspect))) setAspectRatio(aspect);
+    const length = text(next.duration);
+    if (length) {
+      durationPinned.current = true;
+      setDuration(length);
+    }
+    setSeed(text(next.seed) ?? "");
+    const nextQuality = text(next.quality);
+    if (nextQuality && (!loaded || loaded.quality?.includes(nextQuality))) setQuality(nextQuality);
+    const nextResolution = text(next.resolution);
+    if (nextResolution && (!loaded || loaded.resolution?.includes(nextResolution))) setResolution(nextResolution);
+    const nextFormat = text(next.outputFormat);
+    if (nextFormat && (!loaded || loaded.outputFormat?.includes(nextFormat))) setOutputFormat(nextFormat);
+    const nextTask = text(next.referenceTask);
+    if (nextTask && (!loaded || loaded.referenceTask?.includes(nextTask))) setReferenceTask(nextTask);
+    const nextBackground = text(next.background);
+    if (nextBackground && (!loaded || loaded.background?.includes(nextBackground))) setBackground(nextBackground);
+    const nextTolerance = text(next.safetyTolerance);
+    if (nextTolerance && (!loaded || loaded.safetyTolerance)) setSafetyTolerance(nextTolerance);
+    const nextModeration = text(next.moderation);
+    if (nextModeration && (!loaded || loaded.moderation?.values.includes(nextModeration))) {
+      setModeration(nextModeration);
+    }
+    const nextRate = text(next.sampleRate);
+    if (nextRate && (!loaded || loaded.sampleRate)) setSampleRate(nextRate);
+    const nextSpeed = text(next.speed);
+    if (nextSpeed && (!loaded || loaded.speed)) setSpeed(nextSpeed);
+    const nextVolume = text(next.volume);
+    if (nextVolume && (!loaded || loaded.volume)) setVolume(nextVolume);
+    const nextPitch = text(next.pitch);
+    if (nextPitch && (!loaded || loaded.pitch)) setPitch(nextPitch);
+    const nextAudio = flag(next.generateAudio);
+    if (nextAudio != null && (!loaded || loaded.generateAudio)) setGenerateAudio(nextAudio);
+    const nextDraft = flag(next.draft);
+    if (nextDraft != null && (!loaded || loaded.draft)) setDraft(nextDraft);
+    const nextChecker = flag(next.safetyCheckerOn);
+    if (nextChecker != null && (!loaded || loaded.safetyChecker)) setSafetyCheckerOn(nextChecker);
+    const nextLastFrame = flag(next.getLastFrame);
+    if (nextLastFrame != null) setGetLastFrame(nextLastFrame);
+  }
+
+  /** Mode, model, and settings together. The model's controls finish the settings once they load. */
+  function applyComposerDefaults(defaults: ComposerDefaults) {
+    if (isGenerationMode(defaults.mode)) setMode(defaults.mode);
+    if (defaults.model) {
+      if (defaults.model !== model) {
+        pendingSettings.current = { model: defaults.model, settings: defaults.settings };
+        setNumGenerations(1);
+        setModel(defaults.model);
+        applyComposerSettings(defaults.settings, null);
+      } else {
+        applyComposerSettings(defaults.settings, controls);
+      }
+    } else {
+      applyComposerSettings(defaults.settings, controls);
+    }
+  }
+
   function applyProjectDefaults(project: StudioProject) {
     setLookIds(project.lookIds);
     setPrompt(project.prompt);
+    if (project.defaults) applyComposerDefaults(project.defaults);
     setSelectedId(null);
     setKeepCanvasClear(true);
+  }
+
+  /** Opening a project brings its draft back, or starts from the brief with the last run's settings. */
+  function applyProjectDraft(project: StudioProject) {
+    setLookIds(project.lookIds);
+    if (project.draft) {
+      setPrompt(project.draft.prompt ?? project.prompt);
+      applyComposerDefaults(project.draft);
+    } else {
+      setPrompt(project.prompt);
+      if (project.defaults) applyComposerDefaults(project.defaults);
+    }
+    setSelectedId(null);
+    setKeepCanvasClear(true);
+  }
+
+  async function loadProjectJobs(projectId: string) {
+    setJobsLoading(true);
+    setJobsError(null);
+    try {
+      const { jobs } = await api.projectJobs(projectId);
+      setProjectJobs(jobs);
+    } catch (err) {
+      setJobsError(err instanceof Error ? err.message : "Couldn’t load the jobs");
+    } finally {
+      setJobsLoading(false);
+    }
+  }
+
+  function flushDraft() {
+    if (draftTimer.current != null) {
+      window.clearTimeout(draftTimer.current);
+      draftTimer.current = null;
+    }
+    const pending = draftPending.current;
+    draftPending.current = null;
+    if (pending) {
+      void api.saveProjectDraft(pending.projectId, { draft: pending.draft }).catch(() => {
+        /* the next edit saves again */
+      });
+    }
   }
 
   async function openProject(id: string) {
     setProjectError(null);
     setCastNotice(null);
+    setJobsNotice(null);
     setShareName(null);
     setShareLooks([]);
+    flushDraft();
     const { project } = await api.project(id);
-    setActiveSessionId(null);
+    draftSkip.current = true;
     rememberProject(project);
-    applyProjectDefaults(project);
+    applyProjectDraft(project);
+    setProjectJobs([]);
     setProjectView("cast");
     if (phoneLayout()) setProjectsOpen(false);
+    void loadProjectJobs(project.id);
   }
 
   function closeProject() {
+    flushDraft();
     setActiveProject(null);
-    setActiveSessionId(null);
+    setProjectJobs([]);
     setCastNotice(null);
+    setJobsNotice(null);
     setProjectView("list");
     replaceStaged([]);
+  }
+
+  function resetProjectDraft() {
+    if (!activeProject) return;
+    applyProjectDefaults(activeProject);
   }
 
   /** Save the cast and, when numbers moved, rewrite the prompt the composer shows and the saved brief. */
@@ -2204,44 +2378,148 @@ export default function App() {
       .finally(() => setProjectBusy(false));
   }
 
-  async function openSession(projectId: string, sessionId: string) {
-    setProjectError(null);
-    setShareName(null);
-    setShareLooks([]);
-    const { project } = await api.project(projectId);
-    const session = project.sessions.find((item) => item.id === sessionId);
-    if (!session) return;
-    rememberProject(project);
-    setActiveSessionId(session.id);
-    setLookIds(session.lookIds);
-    setPrompt(session.prompt);
-    if (session.mode === "text-to-image" || session.mode === "image-to-image" || session.mode === "text-to-video" || session.mode === "reference-to-video" || session.mode === "video-to-video" || session.mode === "text-to-audio" || session.mode === "chat") {
-      setMode(session.mode);
-    }
-    if (session.model) setModel(session.model);
-    if (typeof session.params.aspectRatio === "string") setAspectRatio(session.params.aspectRatio);
-    if (typeof session.params.duration === "string") setDuration(session.params.duration);
-    if (typeof session.params.seed === "string") setSeed(session.params.seed);
-    if (typeof session.params.numGenerations === "number") setNumGenerations(session.params.numGenerations);
-    const loaded: Generation[] = [];
-    for (const generationId of session.generationIds) {
-      try {
-        const { generation } = await api.getGeneration(generationId);
-        loaded.push(generation);
-      } catch {
-        /* a deleted result stays out of the session */
-      }
-    }
-    if (loaded.length > 0) setGenerations((prev) => mergeGenerations(prev, loaded));
-    setSelectedId(session.generationIds.at(-1) ?? null);
-    setKeepCanvasClear(false);
+  /** After a run from a project: the draft and defaults follow the request, and the jobs list refreshes. */
+  function recordProjectRun(projectId: string, draftBody: ComposerDraft) {
+    draftPending.current = null;
+    const defaults: ComposerDefaults = { mode: draftBody.mode, model: draftBody.model, settings: draftBody.settings };
+    void api.saveProjectDraft(projectId, { draft: draftBody, defaults }).catch(() => {
+      /* the jobs list still shows the run */
+    });
+    const now = Math.floor(Date.now() / 1000);
+    setActiveProject((prev) =>
+      prev && prev.id === projectId
+        ? { ...prev, draft: draftBody, defaults, jobCount: prev.jobCount + 1, lastRunAt: now }
+        : prev,
+    );
+    setProjectSummaries((prev) =>
+      prev.map((item) => (item.id === projectId ? { ...item, jobCount: item.jobCount + 1, lastRunAt: now } : item)),
+    );
+    void loadProjectJobs(projectId);
   }
 
-  function newProjectSession() {
-    if (!activeProject) return;
-    setActiveSessionId(null);
-    applyProjectDefaults(activeProject);
+  async function rerunJob(job: ProjectJob) {
+    if (!activeProject || busy) return;
+    if (!user?.hasOxenKey) {
+      setProjectsOpen(false);
+      setShowSettings(true);
+      setError("Add your Oxen API key in Settings first.");
+      return;
+    }
+    const { body, missing } = rerunBodyForJob(job);
+    setJobsNotice(null);
+    setBusy(true);
+    setError(null);
+    try {
+      const { generations: created } = await api.generate(body);
+      setKeepCanvasClear(false);
+      setPeekId(null);
+      setGenerations((prev) => mergeGenerations(prev, created));
+      setSelectedId(created[0]?.id ?? null);
+      setJobsNotice(
+        missing.length > 0
+          ? `Re-running without ${missing.length} ${missing.length === 1 ? "reference that is" : "references that are"} gone from Studio.`
+          : "Re-running, one output.",
+      );
+      recordProjectRun(
+        activeProject.id,
+        activeProject.draft ?? { prompt, mode, model, settings: composerSettings() },
+      );
+      void refreshCredits();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Re-run failed");
+    } finally {
+      setBusy(false);
+    }
   }
+
+  function loadJobIntoComposer(job: ProjectJob) {
+    if (!activeProject) return;
+    const state = composerStateForJob(job);
+    setPrompt(state.prompt);
+    setLookIds(state.lookIds.filter((id) => looks.some((look) => look.id === id)));
+    applyComposerDefaults({ mode: state.mode, model: state.model, settings: state.settings });
+    setNumGenerations(1);
+    setSelectedId(null);
+    setKeepCanvasClear(true);
+    const matched = castMatchingJob(castEntries, castItems, job.refs);
+    if (matched) {
+      void commitCast(matched);
+      setJobsNotice("Loaded. The cast now matches that run.");
+    } else {
+      setJobsNotice(
+        job.refs.length === 0
+          ? "Loaded into the composer."
+          : "Loaded. None of that run’s references is in the cast any more, so the selection stayed as it was.",
+      );
+    }
+    if (phoneLayout()) setProjectsOpen(false);
+  }
+
+  function addJobOutputsToCast(job: ProjectJob, outputs: ProjectJobOutput[]) {
+    if (!activeProject) return;
+    const files = castFilesForJob(job, outputs);
+    if (files.length === 0) {
+      setJobsNotice("Nothing finished to add yet.");
+      return;
+    }
+    const before = castItems.length;
+    projectAddRefs(files);
+    setJobsNotice(
+      `Added ${files.length} ${files.length === 1 ? "output" : "outputs"} to the cast as ${
+        files.length === 1 ? `number ${before + 1}` : `numbers ${before + 1}–${before + files.length}`
+      }.`,
+    );
+  }
+
+  async function openJobOutput(output: ProjectJobOutput) {
+    if (!generations.some((item) => item.id === output.id)) {
+      try {
+        const { generation } = await api.getGeneration(output.id);
+        setGenerations((prev) => mergeGenerations(prev, [generation]));
+      } catch {
+        setJobsNotice("That output is no longer in Studio.");
+        return;
+      }
+    }
+    setKeepCanvasClear(false);
+    setPeekId(null);
+    setSelectedId(output.id);
+    if (phoneLayout()) setProjectsOpen(false);
+  }
+
+  const jobsLive = useMemo(() => new Map(generations.map((item) => [item.id, item] as const)), [generations]);
+  const modelNames = useMemo(
+    () =>
+      new Map(
+        [...favorites, ...models].flatMap((item) =>
+          item.display_name ? [[item.id, item.display_name] as const] : [],
+        ),
+      ),
+    [favorites, models],
+  );
+
+  const draftProjectId = activeProject && !shareName ? activeProject.id : null;
+  const currentDraft: ComposerDraft = { prompt, mode, model, settings: composerSettings() };
+  composerDraftRef.current = currentDraft;
+  const draftKey = draftProjectId ? JSON.stringify(currentDraft) : null;
+  useEffect(() => {
+    if (!draftProjectId || draftKey == null) return;
+    if (draftSkip.current) {
+      draftSkip.current = false;
+      return;
+    }
+    draftPending.current = { projectId: draftProjectId, draft: composerDraftRef.current };
+    if (draftTimer.current != null) window.clearTimeout(draftTimer.current);
+    draftTimer.current = window.setTimeout(() => {
+      draftTimer.current = null;
+      const pending = draftPending.current;
+      draftPending.current = null;
+      if (!pending) return;
+      void api.saveProjectDraft(pending.projectId, { draft: pending.draft }).catch(() => {
+        /* the next edit saves again */
+      });
+    }, DRAFT_SAVE_DELAY_MS);
+  }, [draftProjectId, draftKey]);
 
   const imageRouted = Boolean(
     controls?.slots.some((slot) => slot.field === "input_face_images") &&
@@ -2357,7 +2635,7 @@ export default function App() {
       const audios: string[] = [];
       const imageRoles: MediaRole[] = [];
       const videoRoles: MediaRole[] = [];
-      const sessionAttachments: ProjectMedia[] = [];
+      const jobRefs: { kind: "image" | "video" | "audio"; number: number; role: MediaRole | null; name: string; key: string }[] = [];
       const sendable = [
         ...takeStagedOfKind(staged, "image", capForKind("image")),
         ...takeStagedOfKind(staged, "video", capForKind("video")),
@@ -2374,12 +2652,12 @@ export default function App() {
         if (!url) continue;
         const role = normalizeMediaRole(item.role);
         if (key) {
-          sessionAttachments.push({
+          jobRefs.push({
             kind: item.kind,
+            number: item.number ?? jobRefs.filter((ref) => ref.kind === item.kind).length + 1,
+            role: item.kind === "audio" ? null : role,
             name: item.name,
             key,
-            role: item.kind === "audio" ? null : role,
-            url,
           });
         }
         if (item.kind === "image") {
@@ -2473,50 +2751,30 @@ export default function App() {
         if (modelHasFaceSlot("video")) payload.video_roles = videoRoles;
       }
       if (audios.length) payload.audios = audios;
+      const projectRun = activeProject && !shareName ? activeProject : null;
+      if (projectRun) {
+        payload.project_id = projectRun.id;
+        if (jobRefs.length > 0) payload.refs = jobRefs;
+        const estimated = estimateGenerationCost({
+          pricing: controls?.pricing ?? selectedModel?.pricing,
+          numGenerations,
+          duration: modeIsVideo(mode) ? durationToSend(duration, controls?.duration ?? null) : undefined,
+          generateAudio,
+          resolution,
+          quality,
+        });
+        if (estimated.amount != null) payload.estimated_cost = estimated.amount;
+        if (prompt.trim()) payload.base_prompt = prompt.trim();
+      }
 
       const { generations: created } = await api.generate(payload);
       setKeepCanvasClear(false);
       setPeekId(null);
       setGenerations((prev) => mergeGenerations(prev, created));
       setSelectedId(created[0]?.id ?? null);
-      if (activeProject && !shareName) {
-        const current = activeProject.sessions.find((session) => session.id === activeSessionId);
-        const saved = await api.saveProjectSession(activeProject.id, {
-          id: activeSessionId,
-          name: current?.name,
-          prompt,
-          lookIds,
-          mode,
-          model,
-          params: { aspectRatio, duration, seed, numGenerations },
-          attachments: sessionAttachments,
-          generationIds: created.map((item) => item.id),
-        });
-        const session = saved.session;
-        if (session) {
-          setActiveSessionId(session.id);
-          setActiveProject((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  sessions: [session, ...prev.sessions.filter((item) => item.id !== session.id)],
-                }
-              : prev,
-          );
-          setProjectSummaries((prev) =>
-            prev.map((item) =>
-              item.id === activeProject.id
-                ? {
-                    ...item,
-                    sessions: [
-                      { id: session.id, name: session.name, updatedAt: session.updatedAt },
-                      ...item.sessions.filter((entry) => entry.id !== session.id),
-                    ],
-                  }
-                : item,
-            ),
-          );
-        }
+      if (projectRun) {
+        setJobsNotice(null);
+        recordProjectRun(projectRun.id, { prompt, mode, model, settings: composerSettings() });
       }
       void refreshCredits();
     } catch (err) {
@@ -2585,11 +2843,14 @@ export default function App() {
         activeProjectId={activeProject?.id ?? null}
         activeProjectName={activeProject?.name ?? null}
         onCreate={(name) => {
+          flushDraft();
           void api.createProject(name).then(({ project }) => {
+            draftSkip.current = true;
             rememberProject(project);
             applyProjectDefaults(project);
-            setActiveSessionId(null);
+            setProjectJobs([]);
             setCastNotice(null);
+            setJobsNotice(null);
             setProjectView("cast");
           }).catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t create that project"));
         }}
@@ -2636,6 +2897,34 @@ export default function App() {
             }}
           />
         ) : null}
+        {activeProject && projectView === "jobs" ? (
+          <ProjectJobs
+            jobs={projectJobs}
+            loading={jobsLoading}
+            error={jobsError}
+            notice={jobsNotice}
+            busy={busy || projectBusy}
+            live={jobsLive}
+            modelNames={modelNames}
+            onRerun={(job) => void rerunJob(job)}
+            onLoad={loadJobIntoComposer}
+            onAddOutputs={addJobOutputsToCast}
+            onOpenOutput={(output) => void openJobOutput(output)}
+            onDownload={(job, output) => {
+              if (!output.resultUrl) return;
+              void downloadMedia(
+                output.resultUrl,
+                downloadFilename({
+                  id: output.id,
+                  mediaType: output.mediaType,
+                  prompt: job.basePrompt ?? job.prompt,
+                  resultUrl: output.resultUrl,
+                }),
+              );
+            }}
+            onRefresh={() => void loadProjectJobs(activeProject.id)}
+          />
+        ) : null}
         {activeProject && projectView === "brief" ? (
           <ProjectBrief
             project={activeProject}
@@ -2674,9 +2963,8 @@ export default function App() {
                 api.project(activeProject.id).then(({ project }) => rememberProject(project)),
               );
             }}
-            activeSessionId={activeSessionId}
-            onOpenSession={(sessionId) => void openSession(activeProject.id, sessionId)}
-            onNewSession={newProjectSession}
+            hasDraft={prompt !== briefSavedPrompt || !sameIds(lookIds, activeProject.lookIds)}
+            onResetDraft={resetProjectDraft}
           />
         ) : null}
       </ProjectRail>

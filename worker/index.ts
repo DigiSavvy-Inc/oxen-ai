@@ -119,7 +119,6 @@ import {
 import { presentGallery, presentGalleryList } from "./gallery-present";
 import { acceptProjectBudget, acceptProjectCast } from "./project-cast";
 import {
-  acceptProjectMedia,
   acceptProjectName,
   acceptProjectPrompt,
   acceptStyleBody,
@@ -132,16 +131,20 @@ import {
   getProject,
   listProjects,
   listStyles,
+  ownsProject,
   readShare,
   revokeShare,
-  saveSession,
+  saveProjectDraft,
   shareExpiresAt,
   updateProject,
   updateStyle,
 } from "./projects";
+import { acceptComposerDefaults, acceptComposerDraft } from "./project-draft";
+import { acceptBasePrompt, acceptJobCost, acceptJobRefs, listProjectJobs } from "./project-jobs";
 import { acceptAppliedLooks, acceptLookGroup, acceptLookIds, looksFromParams } from "./looks";
 import { ensureLooksSchema } from "./looks-migration";
 import { ensureCastSchema } from "./cast-migration";
+import { ensureJobsSchema } from "./jobs-migration";
 import { parseServedThumbWidth, resizeServedImage } from "./gallery-thumbs";
 import {
   deleteSavedPrompt,
@@ -258,16 +261,24 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
-// Looks, projects, and shares read the 0024 and 0025 schemas. Bring the live database
+// Looks, projects, and shares read the 0024–0026 schemas. Bring the live database
 // up to them before the first such request on this isolate; later calls return at once.
+async function ensureProjectSchemas(db: D1Database): Promise<void> {
+  await ensureLooksSchema(db);
+  await ensureCastSchema(db);
+  await ensureJobsSchema(db);
+}
 app.use("/api/projects/*", async (c, next) => {
-  await ensureLooksSchema(c.env.DB);
-  await ensureCastSchema(c.env.DB);
+  await ensureProjectSchemas(c.env.DB);
   await next();
 });
 app.use("/api/projects", async (c, next) => {
-  await ensureLooksSchema(c.env.DB);
-  await ensureCastSchema(c.env.DB);
+  await ensureProjectSchemas(c.env.DB);
+  await next();
+});
+// A run from a project stamps generations.project_id, which 0026 adds.
+app.use("/api/generate", async (c, next) => {
+  await ensureJobsSchema(c.env.DB);
   await next();
 });
 app.use("/api/styles/*", async (c, next) => {
@@ -279,8 +290,7 @@ app.use("/api/styles", async (c, next) => {
   await next();
 });
 app.use("/api/shares/*", async (c, next) => {
-  await ensureLooksSchema(c.env.DB);
-  await ensureCastSchema(c.env.DB);
+  await ensureProjectSchemas(c.env.DB);
   await next();
 });
 
@@ -596,6 +606,7 @@ type GenerationRow = {
   error_message: string | null;
   batch_id?: string | null;
   profile_id?: string | null;
+  project_id?: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -652,6 +663,7 @@ function toGenerationJson(
     typicalSeconds: extras?.typicalSeconds ?? null,
     tags: extras?.tags ?? [],
     profileId: row.profile_id ?? null,
+    projectId: row.project_id ?? null,
     draftTaskId: draftMetaFromParams(row.params_json)?.draftTaskId ?? null,
     draftExpiresAt: draftMetaFromParams(row.params_json)?.draftExpiresAt ?? null,
     looks: looksFromParams(row.params_json),
@@ -1548,48 +1560,29 @@ app.delete("/api/styles/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-app.post("/api/projects/:id/sessions", async (c) => {
+app.get("/api/projects/:id/jobs", async (c) => {
   const user = await requireUser(c);
-  const body = await c.req.json<{
-    id?: unknown;
-    name?: unknown;
-    prompt?: unknown;
-    lookIds?: unknown;
-    styleId?: unknown;
-    mode?: unknown;
-    model?: unknown;
-    params?: unknown;
-    attachments?: unknown;
-    generationIds?: unknown;
-  }>();
-  const prompt = acceptProjectPrompt(body.prompt);
-  const attachments = acceptProjectMedia(user.id, body.attachments);
-  if (prompt == null || !attachments) {
-    throw new HTTPException(400, { message: "Session needs a prompt and media that belong to you" });
+  if (!(await ownsProject(c.env.DB, user.id, c.req.param("id")))) {
+    throw new HTTPException(404, { message: "Project not found" });
   }
-  const lookIds = lookIdsFromBody(body) ?? [];
-  const params =
-    body.params && typeof body.params === "object" && !Array.isArray(body.params)
-      ? (body.params as Record<string, unknown>)
-      : {};
-  const generationIds = Array.isArray(body.generationIds)
-    ? body.generationIds.filter((item): item is string => typeof item === "string")
-    : [];
-  const id = await saveSession(c.env.DB, user.id, c.req.param("id"), {
-    id: typeof body.id === "string" ? body.id : null,
-    name: body.name,
-    prompt,
-    lookIds,
-    mode: typeof body.mode === "string" ? body.mode : null,
-    model: typeof body.model === "string" ? body.model : "",
-    params,
-    attachments,
-    generationIds,
+  const jobs = await listProjectJobs(c.env, user.id, c.req.param("id"));
+  return c.json({ jobs });
+});
+
+app.put("/api/projects/:id/draft", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ draft?: unknown; defaults?: unknown }>().catch(() => ({}) as {
+    draft?: unknown;
+    defaults?: unknown;
   });
-  if (!id) throw new HTTPException(404, { message: "Project not found" });
-  const project = await getProject(c.env, user.id, c.req.param("id"));
-  const session = project?.sessions.find((item) => item.id === id) ?? null;
-  return c.json({ session });
+  const draft = body.draft === undefined ? null : acceptComposerDraft(body.draft);
+  const defaults = body.defaults === undefined ? null : acceptComposerDefaults(body.defaults);
+  if (body.draft !== undefined && !draft) {
+    throw new HTTPException(400, { message: "A draft is the composer state: prompt, mode, model, settings" });
+  }
+  const saved = await saveProjectDraft(c.env.DB, user.id, c.req.param("id"), { draft, defaults });
+  if (!saved) throw new HTTPException(404, { message: "Project not found" });
+  return c.json({ ok: true });
 });
 
 app.post("/api/projects/:id/shares", async (c) => {
@@ -1855,6 +1848,14 @@ app.post("/api/generate", async (c) => {
     multi_prompt?: { prompt?: string; duration?: number | string }[];
     /** Looks applied for this run, ids and names only. Recorded, never sent to Oxen. */
     looks?: unknown;
+    /** The project this run belongs to. Recorded on the rows so the Jobs view can list it. */
+    project_id?: unknown;
+    /** The references as attached: project number, role, name, Studio key. Recorded only. */
+    refs?: unknown;
+    /** The estimate the composer showed, in USD. Recorded only. */
+    estimated_cost?: unknown;
+    /** The composer prompt before the looks were placed ahead of it. Recorded only. */
+    base_prompt?: unknown;
   }>();
 
   const mode = body.mode;
@@ -2145,13 +2146,31 @@ app.post("/api/generate", async (c) => {
       mode,
     });
 
+  // A run from a project is a job: the rows carry the project and what was attached.
+  const projectId =
+    !draftTaskId && typeof body.project_id === "string" && body.project_id.trim()
+      ? body.project_id.trim()
+      : null;
+  if (projectId && !(await ownsProject(c.env.DB, user.id, projectId))) {
+    throw new HTTPException(404, { message: "Project not found" });
+  }
+
   const generations = await enqueueGeneration(apiKey, payload);
   const now = Math.floor(Date.now() / 1000);
   const batchId = crypto.randomUUID();
   const profileId = await ensureDefaultProfile(c.env.DB, user.id);
   const appliedLooks = draftTaskId ? [] : acceptAppliedLooks(body.looks);
-  const storedPayload: Record<string, unknown> =
-    appliedLooks.length > 0 ? { ...payload, studio_looks: appliedLooks } : payload;
+  const studioRecord: Record<string, unknown> = {};
+  if (appliedLooks.length > 0) studioRecord.studio_looks = appliedLooks;
+  if (projectId) {
+    const refs = acceptJobRefs(user.id, body.refs);
+    const cost = acceptJobCost(body.estimated_cost);
+    const basePrompt = acceptBasePrompt(body.base_prompt);
+    if (refs.length > 0) studioRecord.studio_refs = refs;
+    if (cost != null) studioRecord.studio_cost = cost;
+    if (basePrompt && basePrompt !== storedPrompt) studioRecord.studio_prompt = basePrompt;
+  }
+  const storedPayload: Record<string, unknown> = { ...payload, ...studioRecord };
   const saved = [];
 
   for (const gen of generations) {
@@ -2167,14 +2186,15 @@ app.post("/api/generate", async (c) => {
       meta.mediaType,
       generationParamsForStorage(storedPayload, captureLastFrame),
       batchId,
+      projectId,
       now,
       now,
     ] as const;
     try {
       await c.env.DB.prepare(
         `INSERT INTO generations
-          (id, user_id, oxen_generation_id, mode, model, prompt, status, media_type, params_json, batch_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, user_id, oxen_generation_id, mode, model, prompt, status, media_type, params_json, batch_id, project_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
         .bind(...row)
         .run();
@@ -2182,8 +2202,8 @@ app.post("/api/generate", async (c) => {
       if (!isD1TooBig(err)) throw err;
       await c.env.DB.prepare(
         `INSERT INTO generations
-          (id, user_id, oxen_generation_id, mode, model, prompt, status, media_type, params_json, batch_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (id, user_id, oxen_generation_id, mode, model, prompt, status, media_type, params_json, batch_id, project_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
         .bind(
           id,
@@ -2194,11 +2214,9 @@ app.post("/api/generate", async (c) => {
           storedPrompt,
           gen.status || "queued",
           meta.mediaType,
-          generationParamsForStorage(
-            appliedLooks.length > 0 ? { studio_looks: appliedLooks } : {},
-            captureLastFrame,
-          ),
+          generationParamsForStorage(studioRecord, captureLastFrame),
           batchId,
+          projectId,
           now,
           now,
         )

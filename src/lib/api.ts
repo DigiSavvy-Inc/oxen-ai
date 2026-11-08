@@ -1,11 +1,18 @@
 import type { AppliedLook, Look, LookGroup } from "../../worker/looks";
 import { firstSupportedMode, modelSupportsMode } from "../../worker/model-modes";
 import { estimateGenerationCost, type OxenPricing } from "../../worker/pricing";
+import type { ComposerDefaults, ComposerDraft, ComposerSettings } from "../../worker/project-draft";
+import type { JobOutputJson, JobRefJson, JobStatus, ProjectJobJson } from "../../worker/job-record";
 import type { MediaRole } from "../../worker/schema";
 
 export { firstSupportedMode, modelSupportsMode };
 export { estimateGenerationCost, type OxenPricing };
 export type { AppliedLook, LookGroup };
+export type { ComposerDefaults, ComposerDraft, ComposerSettings };
+export type ProjectJob = ProjectJobJson;
+export type ProjectJobOutput = JobOutputJson;
+export type ProjectJobRef = JobRefJson;
+export type ProjectJobStatus = JobStatus;
 
 export type GenerationMode =
   | "text-to-image"
@@ -163,6 +170,8 @@ export type Generation = {
   draftTaskId?: string | null;
   draftExpiresAt?: string | null;
   profileId?: string | null;
+  /** The project this run was made from, when it was a job. */
+  projectId?: string | null;
   /** Looks applied when this run was sent, ids and names. */
   looks?: AppliedLook[];
 };
@@ -228,19 +237,14 @@ export type ProjectMedia = {
   url: string | null;
 };
 
-export type ProjectSessionSummary = {
-  id: string;
-  name: string;
-  updatedAt: number;
-};
-
 export type ProjectSummary = {
   id: string;
   name: string;
   updatedAt: number;
   castCount: number;
   galleryCount: number;
-  sessions: ProjectSessionSummary[];
+  jobCount: number;
+  lastRunAt: number | null;
 };
 
 export type ProjectCastGalleryItem = {
@@ -293,16 +297,6 @@ export type ProjectCastRequest = Array<
     }
 >;
 
-export type ProjectSession = ProjectSessionSummary & {
-  prompt: string;
-  lookIds: string[];
-  mode: string | null;
-  model: string;
-  params: Record<string, unknown>;
-  attachments: ProjectMedia[];
-  generationIds: string[];
-};
-
 export type ProjectShare = {
   id: string;
   token: string;
@@ -321,7 +315,12 @@ export type StudioProject = {
   budget: number;
   cast: ProjectCastEntry[];
   galleryIds: string[];
-  sessions: ProjectSession[];
+  /** Composer state from the last visit; null when the project has not been opened yet. */
+  draft: ComposerDraft | null;
+  /** Mode, model, and settings from the last run; null before the first run. */
+  defaults: ComposerDefaults | null;
+  jobCount: number;
+  lastRunAt: number | null;
   shares: ProjectShare[];
 };
 
@@ -679,25 +678,19 @@ export const api = {
     fetch(`/api/styles/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
       parseJson<{ ok: boolean }>(r),
     ),
-  saveProjectSession: (
+  projectJobs: (projectId: string) =>
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/jobs`).then((r) =>
+      parseJson<{ jobs: ProjectJob[] }>(r),
+    ),
+  saveProjectDraft: (
     projectId: string,
-    body: {
-      id?: string | null;
-      name?: string;
-      prompt: string;
-      lookIds: string[];
-      mode: string | null;
-      model: string;
-      params: Record<string, unknown>;
-      attachments: { kind: ProjectMedia["kind"]; name: string; key: string; role: string | null }[];
-      generationIds: string[];
-    },
+    body: { draft?: ComposerDraft; defaults?: ComposerDefaults },
   ) =>
-    fetch(`/api/projects/${encodeURIComponent(projectId)}/sessions`, {
-      method: "POST",
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/draft`, {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    }).then((r) => parseJson<{ session: ProjectSession | null }>(r)),
+    }).then((r) => parseJson<{ ok: boolean }>(r)),
   createProjectShare: (projectId: string, days: number | null) =>
     fetch(`/api/projects/${encodeURIComponent(projectId)}/shares`, {
       method: "POST",

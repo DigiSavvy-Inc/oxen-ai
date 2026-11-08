@@ -137,6 +137,7 @@ describe("look storage", () => {
   function sqliteD1(): { raw: DatabaseSync; db: D1Database } {
     const raw = new DatabaseSync(":memory:");
     raw.exec(readFileSync(new URL("../migrations/0001_init.sql", import.meta.url), "utf8"));
+    raw.exec(readFileSync(new URL("../migrations/0003_generation_batches.sql", import.meta.url), "utf8"));
     raw.exec(readFileSync(new URL("../migrations/0009_galleries.sql", import.meta.url), "utf8"));
     raw.exec(readFileSync(new URL("../migrations/0022_projects.sql", import.meta.url), "utf8"));
     const statement = (sql: string, args: unknown[]) => ({
@@ -175,6 +176,7 @@ describe("look storage", () => {
     );
     raw.exec(readFileSync(new URL("../migrations/0024_looks.sql", import.meta.url), "utf8"));
     raw.exec(readFileSync(new URL("../migrations/0025_project_cast.sql", import.meta.url), "utf8"));
+    raw.exec(readFileSync(new URL("../migrations/0026_project_jobs.sql", import.meta.url), "utf8"));
     const env = { DB: db } as unknown as Parameters<typeof getProject>[0];
     const migrated = await getProject(env, "u1", "pr1");
     expect(migrated?.lookIds).toEqual(["s1"]);
