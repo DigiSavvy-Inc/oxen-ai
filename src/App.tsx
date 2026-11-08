@@ -21,6 +21,15 @@ import { ProjectBrief } from "./components/ProjectBrief";
 import { ProjectJobs } from "./components/ProjectJobs";
 import { ProjectHeader, type ProjectPanelView } from "./components/ProjectHeader";
 import {
+  composerStateForNewJob,
+  composerStateOnOpen,
+  defaultsAfterRun,
+  pinnedDefaults,
+  unpinnedDefaults,
+  type ComposerOrigin,
+  type ProjectComposerState,
+} from "./lib/project-model";
+import {
   castFilesForJob,
   castMatchingJob,
   composerStateForJob,
@@ -68,6 +77,7 @@ import {
   type GallerySummary,
   type ProjectJob,
   type ProjectJobOutput,
+  type ReferenceModel,
   type SavedPrompt,
   type StudioProfile,
   type StudioSettings,
@@ -244,6 +254,9 @@ export default function App() {
   const [projectError, setProjectError] = useState<string | null>(null);
   const [castNotice, setCastNotice] = useState<string | null>(null);
   const [briefSavedPrompt, setBriefSavedPrompt] = useState("");
+  const [composerOrigin, setComposerOrigin] = useState<ComposerOrigin>("draft");
+  const [referenceModels, setReferenceModels] = useState<ReferenceModel[] | null>(null);
+  const [referenceModelsError, setReferenceModelsError] = useState<string | null>(null);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [panelPlace, setPanelPlace] = useState<PanelPlace>(readPanelPlace);
   const [focusGalleryId, setFocusGalleryId] = useState<string | null>(null);
@@ -296,6 +309,8 @@ export default function App() {
   const attachDraft = useRef<{ text: string; caret: number } | null>(null);
   /** Settings to put back once the model's controls have loaded and run their resets. */
   const pendingSettings = useRef<{ model: string; settings: ComposerSettings } | null>(null);
+  /** A model chosen together with its mode. The mode's model list keeps it instead of the user's mode default. */
+  const modelHold = useRef<string | null>(null);
   const draftSkip = useRef(false);
   const draftTimer = useRef<number | null>(null);
   const draftPending = useRef<{ projectId: string; draft: ComposerDraft } | null>(null);
@@ -663,10 +678,30 @@ export default function App() {
     };
   }, [user]);
 
+  const wantReferenceModels = Boolean(user && activeProject && projectView === "brief" && referenceModels == null);
+  useEffect(() => {
+    if (!wantReferenceModels) return;
+    let cancelled = false;
+    void api
+      .referenceModels()
+      .then((data) => {
+        if (cancelled) return;
+        setReferenceModels(data.models);
+        setReferenceModelsError(null);
+      })
+      .catch((err) => {
+        if (!cancelled) setReferenceModelsError(err instanceof Error ? err.message : "Couldn’t load the model list");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [wantReferenceModels]);
+
   useEffect(() => {
     if (!user) {
       setProjectSummaries([]);
       setLooks([]);
+      setReferenceModels(null);
       return;
     }
     let cancelled = false;
@@ -888,10 +923,16 @@ export default function App() {
         if (cancelled) return;
         setModels(data.models);
         setModel((prev) => {
+          const held = modelHold.current;
+          modelHold.current = null;
           const next = pickModel(
             data.models,
             favorites,
-            mode ? settings?.defaultModelByMode[mode] : undefined,
+            held && data.models.some((item) => item.id === held)
+              ? held
+              : mode
+                ? settings?.defaultModelByMode[mode]
+                : undefined,
             prev,
             Boolean(mode),
           );
@@ -1278,7 +1319,7 @@ export default function App() {
     if (!ref) return;
     if (projectStaging) {
       if (!generation.resultKey) {
-        setError("That file has no Studio copy yet, so it can’t join the cast.");
+        setError("That file has no Studio copy yet, so it can’t join the references.");
         return;
       }
       projectAddRefs([{ kind: ref.kind, name: ref.name, key: generation.resultKey, url: ref.url }]);
@@ -1426,7 +1467,7 @@ export default function App() {
   const unattachedMention =
     mode && mode !== "chat" && controls?.mentions ? missingMention(prompt, staged) : null;
   const generateBlock = unattachedMention
-    ? `The prompt mentions ${unattachedMention}, which isn’t attached. Attach it in the cast or take it out of the prompt.`
+    ? `The prompt mentions ${unattachedMention}, which isn’t attached. Attach it in the references or take it out of the prompt.`
     : null;
 
   async function onSavePrompt(name: string, body: string) {
@@ -1931,7 +1972,10 @@ export default function App() {
     if (!selected) return;
     if (mode && modelSupportsMode(selected, mode)) return;
     const inferred = firstSupportedMode(selected, mode ?? "text-to-image");
-    if (inferred) setMode(inferred);
+    if (inferred) {
+      modelHold.current = next;
+      setMode(inferred);
+    }
   }
 
   async function onDownloadAll() {
@@ -2142,6 +2186,9 @@ export default function App() {
 
   /** Mode, model, and settings together. The model's controls finish the settings once they load. */
   function applyComposerDefaults(defaults: ComposerDefaults) {
+    if (defaults.model && isGenerationMode(defaults.mode) && defaults.mode !== mode) {
+      modelHold.current = defaults.model;
+    }
     if (isGenerationMode(defaults.mode)) setMode(defaults.mode);
     if (defaults.model) {
       if (defaults.model !== model) {
@@ -2157,26 +2204,49 @@ export default function App() {
     }
   }
 
-  function applyProjectDefaults(project: StudioProject) {
-    setLookIds(project.lookIds);
-    setPrompt(project.prompt);
-    if (project.defaults) applyComposerDefaults(project.defaults);
+  function applyProjectComposerState(state: ProjectComposerState) {
+    setLookIds(state.lookIds);
+    setPrompt(state.prompt);
+    if (state.defaults) applyComposerDefaults(state.defaults);
+    setNumGenerations(1);
+    setComposerOrigin(state.origin);
     setSelectedId(null);
     setKeepCanvasClear(true);
   }
 
-  /** Opening a project brings its draft back, or starts from the brief with the last run's settings. */
+  /** Opening a project brings its draft back under the project model, or starts a new job from the brief. */
   function applyProjectDraft(project: StudioProject) {
-    setLookIds(project.lookIds);
-    if (project.draft) {
-      setPrompt(project.draft.prompt ?? project.prompt);
-      applyComposerDefaults(project.draft);
-    } else {
-      setPrompt(project.prompt);
-      if (project.defaults) applyComposerDefaults(project.defaults);
+    applyProjectComposerState(composerStateOnOpen(project));
+  }
+
+  /** New job: the brief's prompt and looks, the project model and its saved settings, count 1×. */
+  function startNewJob() {
+    if (!activeProject) return;
+    setCastNotice(null);
+    setJobsNotice(null);
+    applyProjectComposerState(composerStateForNewJob(activeProject));
+    if (phoneLayout()) setProjectsOpen(false);
+  }
+
+  /** The Brief chose a model (or let go of it). Runs keep the pick; the composer follows it right away. */
+  async function pinProjectModel(choice: ReferenceModel | null) {
+    if (!activeProject) return;
+    const defaults = choice ? pinnedDefaults(choice, activeProject.defaults) : unpinnedDefaults(activeProject.defaults);
+    if (!defaults) return;
+    setProjectBusy(true);
+    setProjectError(null);
+    try {
+      await api.saveProjectDraft(activeProject.id, { defaults });
+      setActiveProject((prev) => (prev && prev.id === activeProject.id ? { ...prev, defaults } : prev));
+      if (choice) {
+        setNumGenerations(1);
+        applyComposerDefaults(defaults);
+      }
+    } catch (err) {
+      setProjectError(err instanceof Error ? err.message : "Couldn’t save the model");
+    } finally {
+      setProjectBusy(false);
     }
-    setSelectedId(null);
-    setKeepCanvasClear(true);
   }
 
   async function loadProjectJobs(projectId: string) {
@@ -2219,7 +2289,6 @@ export default function App() {
     applyProjectDraft(project);
     setProjectJobs([]);
     setProjectView("cast");
-    if (phoneLayout()) setProjectsOpen(false);
     void loadProjectJobs(project.id);
   }
 
@@ -2231,11 +2300,6 @@ export default function App() {
     setJobsNotice(null);
     setProjectView("list");
     replaceStaged([]);
-  }
-
-  function resetProjectDraft() {
-    if (!activeProject) return;
-    applyProjectDefaults(activeProject);
   }
 
   /** Save the cast and, when numbers moved, rewrite the prompt the composer shows and the saved brief. */
@@ -2274,7 +2338,7 @@ export default function App() {
       rememberProject(project);
       setCastNotice(notice);
     } catch (err) {
-      setProjectError(err instanceof Error ? err.message : "Couldn’t save the cast");
+      setProjectError(err instanceof Error ? err.message : "Couldn’t save the references");
     } finally {
       setProjectBusy(false);
     }
@@ -2381,7 +2445,7 @@ export default function App() {
   /** After a run from a project: the draft and defaults follow the request, and the jobs list refreshes. */
   function recordProjectRun(projectId: string, draftBody: ComposerDraft) {
     draftPending.current = null;
-    const defaults: ComposerDefaults = { mode: draftBody.mode, model: draftBody.model, settings: draftBody.settings };
+    const defaults = defaultsAfterRun(activeProject?.id === projectId ? activeProject.defaults : null, draftBody);
     void api.saveProjectDraft(projectId, { draft: draftBody, defaults }).catch(() => {
       /* the jobs list still shows the run */
     });
@@ -2444,12 +2508,12 @@ export default function App() {
     const matched = castMatchingJob(castEntries, castItems, job.refs);
     if (matched) {
       void commitCast(matched);
-      setJobsNotice("Loaded. The cast now matches that run.");
+      setJobsNotice("Loaded. The references now match that run.");
     } else {
       setJobsNotice(
         job.refs.length === 0
           ? "Loaded into the composer."
-          : "Loaded. None of that run’s references is in the cast any more, so the selection stayed as it was.",
+          : "Loaded. None of that run’s references is in the project any more, so the selection stayed as it was.",
       );
     }
     if (phoneLayout()) setProjectsOpen(false);
@@ -2465,7 +2529,7 @@ export default function App() {
     const before = castItems.length;
     projectAddRefs(files);
     setJobsNotice(
-      `Added ${files.length} ${files.length === 1 ? "output" : "outputs"} to the cast as ${
+      `Added ${files.length} ${files.length === 1 ? "output" : "outputs"} to the references as ${
         files.length === 1 ? `number ${before + 1}` : `numbers ${before + 1}–${before + files.length}`
       }.`,
     );
@@ -2847,7 +2911,7 @@ export default function App() {
           void api.createProject(name).then(({ project }) => {
             draftSkip.current = true;
             rememberProject(project);
-            applyProjectDefaults(project);
+            applyProjectComposerState(composerStateForNewJob(project));
             setProjectJobs([]);
             setCastNotice(null);
             setJobsNotice(null);
@@ -2855,6 +2919,8 @@ export default function App() {
           }).catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t create that project"));
         }}
         onOpenProject={(id) => void openProject(id)}
+        onNewJob={startNewJob}
+        busy={busy || projectBusy}
         onClose={() => setProjectsOpen(false)}
         error={projectError}
       >
@@ -2923,12 +2989,17 @@ export default function App() {
               );
             }}
             onRefresh={() => void loadProjectJobs(activeProject.id)}
+            onNewJob={startNewJob}
           />
         ) : null}
         {activeProject && projectView === "brief" ? (
           <ProjectBrief
             project={activeProject}
             looks={looks}
+            referenceModels={referenceModels}
+            referenceModelsError={referenceModelsError}
+            preferredModelIds={favoriteIds}
+            onPinModel={(choice) => void pinProjectModel(choice)}
             lookIds={lookIds}
             onToggleLook={toggleLook}
             prompt={prompt}
@@ -2964,7 +3035,8 @@ export default function App() {
               );
             }}
             hasDraft={prompt !== briefSavedPrompt || !sameIds(lookIds, activeProject.lookIds)}
-            onResetDraft={resetProjectDraft}
+            origin={composerOrigin}
+            onNewJob={startNewJob}
           />
         ) : null}
       </ProjectRail>
@@ -3203,6 +3275,9 @@ export default function App() {
               selection={castSelection}
               galleryCount={castEntries.filter((entry) => entry.type === "gallery").length}
               view={projectsOpen ? projectView : null}
+              origin={composerOrigin}
+              busy={busy || projectBusy}
+              onNewJob={startNewJob}
               onOpen={(view) => {
                 setProjectView(view);
                 setLibraryOpen(false);

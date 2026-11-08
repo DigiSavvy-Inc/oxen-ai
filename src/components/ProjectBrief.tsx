@@ -1,10 +1,23 @@
 import { useEffect, useState } from "react";
-import type { StudioLook, StudioProject } from "../lib/api";
+import { MODE_LABELS, type GenerationMode, type ReferenceModel, type StudioLook, type StudioProject } from "../lib/api";
+import {
+  ORIGIN_LABELS,
+  referenceCapsLabel,
+  referenceModeFor,
+  sortReferenceModels,
+  type ComposerOrigin,
+} from "../lib/project-model";
 import { appliedLooks, PROJECT_LOOKS_MAX, sortLooks } from "../../worker/looks";
 
 type Props = {
   project: StudioProject;
   looks: StudioLook[];
+  /** Reference-capable models from the live catalog; null while loading. */
+  referenceModels: ReferenceModel[] | null;
+  referenceModelsError: string | null;
+  /** Ids the user starred in Oxen; they list first. */
+  preferredModelIds: ReadonlySet<string>;
+  onPinModel: (model: ReferenceModel | null) => void;
   /** Looks applied in the composer, in chip order. Saving the brief keeps them on the project. */
   lookIds: string[];
   onToggleLook: (id: string) => void;
@@ -20,14 +33,30 @@ type Props = {
   onRevoke: (shareId: string) => void;
   /** True when the composer differs from the saved brief (a draft is being kept). */
   hasDraft: boolean;
-  onResetDraft: () => void;
+  /** Where the composer's contents came from this visit. */
+  origin: ComposerOrigin;
+  onNewJob: () => void;
 };
+
+function modeLabel(mode: string | null): string {
+  return mode && mode in MODE_LABELS ? MODE_LABELS[mode as GenerationMode] : "";
+}
 
 export function ProjectBrief(props: Props) {
   const [name, setName] = useState(props.project.name);
   const [days, setDays] = useState("7");
   const chosenLooks = appliedLooks(props.lookIds, props.looks);
   const lookOptions = sortLooks(props.looks).filter((look) => !props.lookIds.includes(look.id));
+  const defaults = props.project.defaults;
+  const pinnedId = defaults?.pinned ? defaults.model : "";
+  const modelOptions = props.referenceModels ? sortReferenceModels(props.referenceModels, props.preferredModelIds) : [];
+  const pinnedModel = modelOptions.find((model) => model.id === pinnedId) ?? null;
+  const lastRunLabel =
+    !pinnedId && defaults?.model
+      ? `${props.referenceModels?.find((model) => model.id === defaults.model)?.display_name ?? defaults.model}${
+          modeLabel(defaults.mode) ? ` · ${modeLabel(defaults.mode)}` : ""
+        }`
+      : null;
 
   useEffect(() => {
     setName(props.project.name);
@@ -110,28 +139,70 @@ export function ProjectBrief(props: Props) {
           ))}
         </select>
       </div>
+      <div className="project-editor-look project-brief-model">
+        <div className="project-editor-head">
+          <h3>Model</h3>
+          {pinnedModel ? (
+            <span className="project-rail-empty">{referenceCapsLabel(pinnedModel.caps)}</span>
+          ) : null}
+        </div>
+        <select
+          className="field"
+          aria-label="Project model"
+          value={pinnedModel ? pinnedModel.id : ""}
+          disabled={props.busy || props.referenceModels == null}
+          onChange={(event) => {
+            const id = event.target.value;
+            props.onPinModel(id ? (modelOptions.find((model) => model.id === id) ?? null) : null);
+          }}
+        >
+          <option value="">
+            {props.referenceModels == null
+              ? "Loading models…"
+              : lastRunLabel
+                ? `Last run’s model (${lastRunLabel})`
+                : "Whatever the composer has"}
+          </option>
+          {modelOptions.map((model) => (
+            <option key={model.id} value={model.id}>
+              {props.preferredModelIds.has(model.id) ? "★ " : ""}
+              {model.display_name ?? model.id} — {referenceCapsLabel(model.caps)}
+            </option>
+          ))}
+        </select>
+        <p className="project-rail-empty">
+          {props.referenceModelsError
+            ? props.referenceModelsError
+            : pinnedModel
+              ? `${modeLabel(referenceModeFor(pinnedModel)) || "Reference mode"}. New job and opening the project use this model; a run can still pick another in the composer without changing it here.`
+              : "Models that take image, video, or audio references. Without a pick, the last run’s model and settings come back."}
+        </p>
+      </div>
       <div className="project-editor-share project-brief-draft">
         <div className="project-editor-head">
-          <h3>Draft</h3>
+          <h3>Composer</h3>
           <button
             type="button"
-            className="ghost-btn"
-            disabled={props.busy || !props.hasDraft}
-            title="Put the saved brief back in the composer and keep the last run’s model and settings"
-            onClick={props.onResetDraft}
+            className="primary-btn project-new-job"
+            disabled={props.busy}
+            title="Start a job from the brief: its prompt, looks, references, and the project model, count 1×"
+            onClick={props.onNewJob}
           >
-            Start from the brief
+            New job
           </button>
         </div>
         <p>
-          {props.hasDraft
-            ? "The composer is keeping a draft for this project. Opening the project brings it back."
-            : "The composer shows the saved brief. Edits here are kept as this project’s draft."}
+          <span className={`project-origin is-${props.origin}`}>{ORIGIN_LABELS[props.origin]}</span>{" "}
+          {props.origin === "draft"
+            ? "The composer came back as you left it. New job clears the scene text and starts from this brief."
+            : props.hasDraft
+              ? "This job started from the brief and has edits, kept as the project’s draft for next time."
+              : "This job started from the brief. Edits in the composer are kept as the project’s draft."}
         </p>
       </div>
       <div className="project-editor-share">
         <h3>Share link</h3>
-        <p>Someone signed in can generate with this brief and cast. They cannot change this project.</p>
+        <p>Someone signed in can generate with this brief and references. They cannot change this project.</p>
         <div className="project-editor-share-row">
           <select className="field" value={days} aria-label="Share expiry" onChange={(event) => setDays(event.target.value)}>
             <option value="1">1 day</option>

@@ -5683,6 +5683,55 @@ select.attach-role {
   flex: none;
 }
 
+.project-new-job {
+  margin-left: 0;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.project-new-job:disabled {
+  opacity: 0.55;
+}
+
+.project-origin {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--neutral-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  vertical-align: middle;
+}
+
+.project-origin.is-new-job {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+}
+
+.project-brief-model select {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 860px) {
+  .project-header {
+    flex-wrap: wrap;
+  }
+
+  .project-header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .project-header-actions .project-new-job {
+    flex: 1 1 auto;
+  }
+}
+
 .project-tabs {
   display: flex;
   gap: 2px;

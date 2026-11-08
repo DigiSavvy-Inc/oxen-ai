@@ -34,6 +34,8 @@ export type ComposerDefaults = {
   mode: string | null;
   model: string;
   settings: ComposerSettings;
+  /** True when the Brief chose the model. Runs then keep the model and mode as they are. */
+  pinned?: boolean;
 };
 
 export type ComposerDraft = ComposerDefaults & {
@@ -83,11 +85,13 @@ export function acceptComposerDraft(raw: unknown): ComposerDraft | null {
 export function acceptComposerDefaults(raw: unknown): ComposerDefaults | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
-  return {
+  const defaults: ComposerDefaults = {
     mode: acceptMode(record.mode),
     model: acceptModel(record.model),
     settings: acceptComposerSettings(record.settings),
   };
+  if (record.pinned === true && defaults.model) defaults.pinned = true;
+  return defaults;
 }
 
 /** Stored JSON → draft. An empty or broken column reads as no draft. */

@@ -34,6 +34,8 @@ type Props = {
   onOpenOutput: (output: ProjectJobOutput) => void;
   onDownload: (job: ProjectJob, output: ProjectJobOutput) => void;
   onRefresh: () => void;
+  /** Start a job from the brief with the project model. */
+  onNewJob: () => void;
 };
 
 function outputPreview(output: ProjectJobOutput): string {
@@ -133,6 +135,15 @@ export function ProjectJobs(props: Props) {
         <button type="button" className="ghost-btn" disabled={props.loading} onClick={props.onRefresh}>
           Refresh
         </button>
+        <button
+          type="button"
+          className="primary-btn project-new-job"
+          disabled={props.busy}
+          title="Start a job from the brief: its prompt, looks, references, and the project model"
+          onClick={props.onNewJob}
+        >
+          New job
+        </button>
       </div>
       {props.notice ? <p className="cast-notice" role="status">{props.notice}</p> : null}
       {props.error ? <p className="settings-bad">{props.error}</p> : null}
@@ -220,12 +231,12 @@ export function ProjectJobs(props: Props) {
                       disabled={props.busy || castFiles.length === 0}
                       title={
                         castFiles.length === 0
-                          ? "Finished outputs can join the cast"
-                          : `Add ${castFiles.length} ${castFiles.length === 1 ? "output" : "outputs"} to the cast, taking the next numbers`
+                          ? "Finished outputs can join the references"
+                          : `Add ${castFiles.length} ${castFiles.length === 1 ? "output" : "outputs"} to the references, taking the next numbers`
                       }
                       onClick={() => props.onAddOutputs(job, outputs)}
                     >
-                      Add outputs to cast
+                      Add outputs to references
                     </button>
                   </div>
                   <h4 className="job-heading">Sent</h4>

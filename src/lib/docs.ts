@@ -194,6 +194,29 @@ export const DOC_ARTICLES: DocArticle[] = [
     ],
   },
   {
+    id: "projects",
+    title: "Projects, references, and jobs",
+    category: "Generate",
+    blocks: [
+      {
+        type: "p",
+        text: "A project keeps a brief, numbered references, and the jobs run from it. Projects opens from the top bar and docks with the other panels. Open a project and a header sits above the composer with its name, how many references are attached, and the last run. References, Jobs, and Brief open the matching tab.",
+      },
+      {
+        type: "p",
+        text: "References are the project’s galleries and files, numbered in the order they arrived. Tick what is active, give each image a role, and the composer attaches that set up to the budget and the model’s own limits. Remove one and later numbers move up; mentions in the prompt follow.",
+      },
+      {
+        type: "p",
+        text: "The Brief’s Model picker lists the models from the Oxen catalog that take image, video, or audio references, with each model’s limits beside it. Pick one and it becomes the project model: New job and opening the project use it, and runs do not change it. Leave it unset and the last run’s model and settings come back instead. The composer’s own picker can still use another model for a single run without rewriting the project.",
+      },
+      {
+        type: "p",
+        text: "New job, in the project header, the Projects panel, the Jobs tab, and the Brief, starts a fresh run from the brief: its prompt, its looks, the active references, the project model and its saved settings, with the count back to 1×. Edits in the composer are kept as the project’s draft and come back the next time the project opens. The header badge says whether the composer is showing that draft or a new job.",
+      },
+    ],
+  },
+  {
     id: "library",
     title: "Library and history",
     category: "Library",

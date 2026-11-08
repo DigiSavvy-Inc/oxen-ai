@@ -3,12 +3,14 @@ import { firstSupportedMode, modelSupportsMode } from "../../worker/model-modes"
 import { estimateGenerationCost, type OxenPricing } from "../../worker/pricing";
 import type { ComposerDefaults, ComposerDraft, ComposerSettings } from "../../worker/project-draft";
 import type { JobOutputJson, JobRefJson, JobStatus, ProjectJobJson } from "../../worker/job-record";
+import type { ReferenceCaps, ReferenceModel } from "../../worker/reference-models";
 import type { MediaRole } from "../../worker/schema";
 
 export { firstSupportedMode, modelSupportsMode };
 export { estimateGenerationCost, type OxenPricing };
 export type { AppliedLook, LookGroup };
 export type { ComposerDefaults, ComposerDraft, ComposerSettings };
+export type { ReferenceCaps, ReferenceModel };
 export type ProjectJob = ProjectJobJson;
 export type ProjectJobOutput = JobOutputJson;
 export type ProjectJobRef = JobRefJson;
@@ -309,7 +311,10 @@ export type StudioProject = {
   galleryIds: string[];
   /** Composer state from the last visit; null when the project has not been opened yet. */
   draft: ComposerDraft | null;
-  /** Mode, model, and settings from the last run; null before the first run. */
+  /**
+   * Mode, model, and settings for a new job: the model the Brief pinned, or what the
+   * last run used. Null before either.
+   */
   defaults: ComposerDefaults | null;
   jobCount: number;
   lastRunAt: number | null;
@@ -469,6 +474,8 @@ export const api = {
     fetch(`/api/models/${encodeURIComponent(id)}`).then((r) =>
       parseJson<{ model: OxenModel; controls: ModelControls }>(r),
     ),
+  referenceModels: () =>
+    fetch("/api/models/references").then((r) => parseJson<{ models: ReferenceModel[] }>(r)),
   favorites: () =>
     fetch("/api/models/favorites").then((r) => parseJson<{ models: OxenModel[] }>(r)),
   favorite: (id: string) =>

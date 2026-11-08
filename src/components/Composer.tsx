@@ -1367,7 +1367,7 @@ export function Composer(props: Props) {
               <button
                 type="button"
                 className={`ghost-btn attach-summary${props.attachSummary.partial ? " is-partial" : ""}`}
-                title="Open the cast to choose which references are active"
+                title="Open the references to choose which are active"
                 onClick={props.attachSummary.onOpen}
               >
                 {props.attachSummary.label}
@@ -1379,7 +1379,7 @@ export function Composer(props: Props) {
             <button
               type="button"
               className={`ghost-btn attach-summary${props.attachSummary.partial ? " is-partial" : ""}`}
-              title="Open the cast to choose which references are active"
+              title="Open the references to choose which are active"
               onClick={props.attachSummary.onOpen}
             >
               {props.attachSummary.label}

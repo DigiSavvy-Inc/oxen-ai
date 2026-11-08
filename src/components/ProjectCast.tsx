@@ -99,8 +99,8 @@ export function ProjectCast(props: Props) {
         <button
           type="button"
           className="gallery-remove cast-tile-remove"
-          aria-label={`Remove ${token} from the cast`}
-          title="Remove from the cast. Later numbers move up."
+          aria-label={`Remove ${token} from the references`}
+          title="Remove from the references. Later numbers move up."
           disabled={props.busy}
           onClick={() => props.onRemoveItem(item)}
         >
@@ -124,7 +124,7 @@ export function ProjectCast(props: Props) {
   }
 
   return (
-    <section className="cast-panel" aria-label="Cast">
+    <section className="cast-panel" aria-label="References">
       <div className="cast-summary">
         <strong>{castSummaryLabel(props.selection)}</strong>
         <label className="cast-budget">
@@ -150,7 +150,7 @@ export function ProjectCast(props: Props) {
         {props.modelCaps
           ? capLine
             ? `The model takes up to ${capLine}.`
-            : "Pick a model that takes references to attach the cast."
+            : "Pick a model that takes references to attach them."
           : "Pick a model to see its reference limit."}
         {props.selection.overBudget > 0 ? ` ${props.selection.overBudget} over budget.` : ""}
         {props.selection.skipped.length > 0 ? ` ${props.selection.skipped.length} skipped for this model.` : ""}
@@ -158,7 +158,7 @@ export function ProjectCast(props: Props) {
       {props.notice ? <p className="cast-notice" role="status">{props.notice}</p> : null}
       {props.entries.length === 0 ? (
         <p className="project-rail-empty">
-          Nothing in the cast yet. Add a gallery or drop files; the project numbers them in the order they arrive.
+          No references yet. Add a gallery or drop files; the project numbers them in the order they arrive.
         </p>
       ) : null}
       <div className="cast-groups">

@@ -13,9 +13,12 @@ type Props = {
   activeProjectName: string | null;
   onCreate: (name: string) => void;
   onOpenProject: (id: string) => void;
+  /** Start a job from the open project's brief. */
+  onNewJob: () => void;
+  busy?: boolean;
   onClose: () => void;
   error?: string | null;
-  /** The Cast, Jobs, or Brief panel for the open project. */
+  /** The References, Jobs, or Brief panel for the open project. */
   children?: ReactNode;
 };
 
@@ -27,7 +30,7 @@ function lastRun(project: ProjectSummary): string {
 
 const TAB_LABELS: Record<ProjectPanelView, string> = {
   list: "Projects",
-  cast: "Cast",
+  cast: "References",
   jobs: "Jobs",
   brief: "Brief",
 };
@@ -61,7 +64,17 @@ export function ProjectRail(props: Props) {
             <button type="button" className="ghost-btn" onClick={() => setNaming((value) => !value)}>
               New
             </button>
-          ) : null}
+          ) : (
+            <button
+              type="button"
+              className="primary-btn project-new-job"
+              disabled={props.busy}
+              title="Start a job from the brief: its prompt, looks, references, and the project model"
+              onClick={props.onNewJob}
+            >
+              New job
+            </button>
+          )}
           <button type="button" className="gallery-close" aria-label="Close projects" onClick={props.onClose}>
             ×
           </button>
@@ -109,7 +122,7 @@ export function ProjectRail(props: Props) {
           {props.error ? <p className="settings-bad">{props.error}</p> : null}
           {props.projects.length === 0 ? (
             <p className="project-rail-empty">
-              A project keeps a brief and a numbered cast of references, ready to generate.
+              A project keeps a brief and numbered references, ready to generate.
             </p>
           ) : (
             <ul className="project-rail-list">

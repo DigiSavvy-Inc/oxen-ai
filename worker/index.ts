@@ -116,6 +116,7 @@ import {
 } from "./galleries";
 import { presentGallery, presentGalleryList } from "./gallery-present";
 import { acceptProjectBudget, acceptProjectCast } from "./project-cast";
+import { referenceModels } from "./reference-models";
 import {
   acceptProjectName,
   acceptProjectPrompt,
@@ -1605,6 +1606,20 @@ app.get("/api/models/search", async (c) => {
     mode: mode ?? null,
     models: mode ? filterModelsForMode(found, mode) : found.filter(isMediaGenerationModel),
   });
+});
+
+/** Models a project can pin: the live catalog, kept to those whose schema takes references. */
+app.get("/api/models/references", async (c) => {
+  const user = await requireUser(c);
+  let models: OxenModel[] = [];
+  try {
+    const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
+    if (apiKey) models = await mergeMissingFeaturedModels(apiKey, await listModels(apiKey));
+  } catch (err) {
+    console.error("reference model list error", err);
+  }
+  if (models.length === 0) models = fallbackModelsFor(null);
+  return c.json({ models: referenceModels(models) });
 });
 
 app.get("/api/models/:id", async (c) => {
