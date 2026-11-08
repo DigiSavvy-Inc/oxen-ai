@@ -5,7 +5,7 @@ import {
   acceptGalleryItems,
   acceptGalleryName,
   GALLERY_MAX_ITEMS,
-  galleryKeyForUser,
+  ownedMediaKey,
   getGallery,
   listGalleries,
   saveGallery,
@@ -157,9 +157,9 @@ describe("galleries", () => {
   it("rejects a blank name and another user's media key", () => {
     expect(acceptGalleryName("  Product shots  ")).toBe("Product shots");
     expect(acceptGalleryName("   ")).toBeNull();
-    expect(galleryKeyForUser("user-1", "u/user-1/galleries/a.png")).toBe("u/user-1/galleries/a.png");
-    expect(galleryKeyForUser("user-1", "u/user-2/galleries/a.png")).toBeNull();
-    expect(galleryKeyForUser("user-1", "u/user-1/../user-2/a.png")).toBeNull();
+    expect(ownedMediaKey("user-1", "u/user-1/galleries/a.png")).toBe("u/user-1/galleries/a.png");
+    expect(ownedMediaKey("user-1", "u/user-2/galleries/a.png")).toBeNull();
+    expect(ownedMediaKey("user-1", "u/user-1/../user-2/a.png")).toBeNull();
     expect(
       acceptGalleryItems("user-1", [
         { kind: "image", name: "hero.png", key: "u/user-1/galleries/a.png" },

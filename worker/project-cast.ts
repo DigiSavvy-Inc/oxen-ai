@@ -1,10 +1,10 @@
-import { galleryKeyForUser, getGallery } from "./galleries";
+import { getGallery, ownedMediaKey } from "./galleries";
 import { presentGallery } from "./gallery-present";
 import { displayStoredMediaUrl } from "./media";
-import { normalizeMediaRole, type MediaRole } from "./schema";
+import { acceptMediaKind, normalizeMediaRole, type MediaKind, type MediaRole } from "./schema";
 import type { Env } from "./types";
 
-export type CastKind = "image" | "video" | "audio";
+export type CastKind = MediaKind;
 
 export const CAST_BUDGET_DEFAULT = 20;
 export const CAST_BUDGET_MAX = 96;
@@ -89,17 +89,6 @@ type CastItemRow = {
   role: string | null;
 };
 
-function acceptKind(raw: unknown): CastKind | null {
-  switch (raw) {
-    case "image":
-    case "video":
-    case "audio":
-      return raw;
-    default:
-      return null;
-  }
-}
-
 function acceptFlag(raw: unknown, fallback: boolean): boolean {
   return typeof raw === "boolean" ? raw : fallback;
 }
@@ -138,7 +127,7 @@ export function acceptProjectCast(userId: string, raw: unknown): CastInput[] | n
         for (const item of record.items) {
           if (!item || typeof item !== "object") return null;
           const itemRecord = item as Record<string, unknown>;
-          const key = galleryKeyForUser(userId, itemRecord.key);
+          const key = ownedMediaKey(userId, itemRecord.key);
           if (!key) return null;
           items.push({
             key,
@@ -155,8 +144,8 @@ export function acceptProjectCast(userId: string, raw: unknown): CastInput[] | n
       continue;
     }
     if (record.type === "file") {
-      const kind = acceptKind(record.kind);
-      const key = galleryKeyForUser(userId, record.key);
+      const kind = acceptMediaKind(record.kind);
+      const key = ownedMediaKey(userId, record.key);
       if (!kind || typeof record.name !== "string" || !key) return null;
       const name = record.name.trim();
       if (!name || name.length > 180) return null;
@@ -260,7 +249,7 @@ export async function loadProjectCast(
     });
   }
   for (const row of media) {
-    const kind = acceptKind(row.kind) ?? "image";
+    const kind = acceptMediaKind(row.kind) ?? "image";
     const url = await displayStoredMediaUrl(env, row.media_key, null);
     positioned.push({
       position: row.position,

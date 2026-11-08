@@ -85,7 +85,6 @@ type ProjectRow = {
   id: string;
   name: string;
   prompt: string;
-  style_id: string | null;
   updated_at: number;
   budget: number | null;
   draft_json?: string | null;
@@ -215,15 +214,13 @@ export async function deleteStyle(db: D1Database, userId: string, id: string): P
     .prepare(`DELETE FROM styles WHERE id = ? AND user_id = ?`)
     .bind(id, userId)
     .run();
-  await db.batch([
-    db.prepare(`UPDATE projects SET style_id = NULL WHERE user_id = ? AND style_id = ?`).bind(userId, id),
-    db
-      .prepare(
-        `DELETE FROM project_looks WHERE style_id = ?
-         AND project_id IN (SELECT id FROM projects WHERE user_id = ?)`,
-      )
-      .bind(id, userId),
-  ]);
+  await db
+    .prepare(
+      `DELETE FROM project_looks WHERE style_id = ?
+       AND project_id IN (SELECT id FROM projects WHERE user_id = ?)`,
+    )
+    .bind(id, userId)
+    .run();
   return (result.meta.changes ?? 0) > 0;
 }
 
@@ -269,8 +266,8 @@ export async function createProject(
   const id = crypto.randomUUID();
   await db
     .prepare(
-      `INSERT INTO projects (id, user_id, profile_id, name, prompt, style_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, '', NULL, ?, ?)`,
+      `INSERT INTO projects (id, user_id, profile_id, name, prompt, created_at, updated_at)
+       VALUES (?, ?, ?, ?, '', ?, ?)`,
     )
     .bind(id, userId, profileId, name, now, now)
     .run();
@@ -339,7 +336,7 @@ async function castCounts(
 async function ownedProject(db: D1Database, userId: string, id: string): Promise<ProjectRow | null> {
   return db
     .prepare(
-      `SELECT id, name, prompt, style_id, updated_at, budget, draft_json, defaults_json
+      `SELECT id, name, prompt, updated_at, budget, draft_json, defaults_json
        FROM projects WHERE id = ? AND user_id = ?`,
     )
     .bind(id, userId)
@@ -378,7 +375,7 @@ export async function getProject(
     id: row.id,
     name: row.name,
     prompt: row.prompt,
-    lookIds: lookIds.length > 0 ? lookIds : row.style_id ? [row.style_id] : [],
+    lookIds,
     updatedAt: row.updated_at,
     budget: row.budget ?? CAST_BUDGET_DEFAULT,
     cast,
@@ -416,10 +413,10 @@ export async function updateProject(
   const now = Math.floor(Date.now() / 1000);
   await db
     .prepare(
-      `UPDATE projects SET name = ?, prompt = ?, style_id = ?, budget = ?, updated_at = ?
+      `UPDATE projects SET name = ?, prompt = ?, budget = ?, updated_at = ?
        WHERE id = ? AND user_id = ?`,
     )
-    .bind(patch.name, patch.prompt, lookIds[0] ?? null, patch.budget, now, id, userId)
+    .bind(patch.name, patch.prompt, patch.budget, now, id, userId)
     .run();
   const statements: D1PreparedStatement[] = [
     db.prepare(`DELETE FROM project_looks WHERE project_id = ?`).bind(id),

@@ -1,8 +1,8 @@
-import { galleryKeyForUser } from "./galleries";
+import { ownedMediaKey } from "./galleries";
+import { acceptMediaKind } from "./schema";
 import {
   acceptBasePrompt,
   acceptJobCost,
-  acceptJobKind,
   groupJobRows,
   JOB_NAME_MAX,
   JOB_REFS_MAX,
@@ -56,8 +56,8 @@ export function acceptJobRefs(userId: string, raw: unknown): JobRef[] {
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") continue;
     const record = entry as Record<string, unknown>;
-    const kind = acceptJobKind(record.kind);
-    const key = galleryKeyForUser(userId, record.key);
+    const kind = acceptMediaKind(record.kind);
+    const key = ownedMediaKey(userId, record.key);
     const number = typeof record.number === "number" ? Math.round(record.number) : NaN;
     if (!kind || !key || !Number.isFinite(number) || number < 1) continue;
     const name = typeof record.name === "string" ? record.name.trim().slice(0, JOB_NAME_MAX) : "";

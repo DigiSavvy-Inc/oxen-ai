@@ -1,5 +1,6 @@
 import type { StudioProject } from "../lib/api";
 import { castSummaryLabel, type CastSelection } from "../lib/cast";
+import { timeAgo } from "../lib/time-ago";
 
 export type ProjectPanelView = "list" | "cast" | "jobs" | "brief";
 
@@ -15,11 +16,7 @@ type Props = {
 function lastRunLabel(project: StudioProject): string {
   const latest = project.lastRunAt ?? 0;
   if (!latest) return "No runs yet";
-  const delta = Math.max(0, Math.floor(Date.now() / 1000) - latest);
-  if (delta < 60) return "Ran just now";
-  if (delta < 3600) return `Ran ${Math.floor(delta / 60)}m ago`;
-  if (delta < 86400) return `Ran ${Math.floor(delta / 3600)}h ago`;
-  return `Ran ${Math.floor(delta / 86400)}d ago`;
+  return `Ran ${timeAgo(latest)}`;
 }
 
 export function ProjectHeader(props: Props) {

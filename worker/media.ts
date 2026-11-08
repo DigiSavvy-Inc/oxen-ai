@@ -94,15 +94,6 @@ export function mediaSigningSecret(env: MediaSigningEnv): string {
   return env.MEDIA_SIGNING_KEY?.trim() || env.ENCRYPTION_KEY;
 }
 
-/**
- * Keys a signature may verify against. ENCRYPTION_KEY stays accepted so URLs signed before
- * MEDIA_SIGNING_KEY existed (composer refs, queued jobs) work until they expire (≤13h).
- * TODO: drop the ENCRYPTION_KEY entry after 2026-10-01.
- */
-export function mediaVerifySecrets(env: MediaSigningEnv): string[] {
-  return [...new Set([mediaSigningSecret(env), env.ENCRYPTION_KEY].filter(Boolean))];
-}
-
 export async function verifyMediaSignature(
   key: string,
   exp: string,

@@ -25,6 +25,17 @@ export type JsonSchema = {
 
 export type MediaKind = "image" | "video" | "audio";
 
+export function acceptMediaKind(raw: unknown): MediaKind | null {
+  switch (raw) {
+    case "image":
+    case "video":
+    case "audio":
+      return raw;
+    default:
+      return null;
+  }
+}
+
 export type MediaField =
   | "input_image"
   | "input_images"

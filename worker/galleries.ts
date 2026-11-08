@@ -1,9 +1,9 @@
 import { GALLERY_MAX_ITEMS } from "./gallery-limits";
-import { normalizeMediaRole, type MediaRole } from "./schema";
+import { acceptMediaKind, normalizeMediaRole, type MediaKind, type MediaRole } from "./schema";
 
 export { GALLERY_MAX_ITEMS };
 
-export type GalleryKind = "image" | "video" | "audio";
+export type GalleryKind = MediaKind;
 
 export type GalleryItemInput = {
   kind: GalleryKind;
@@ -56,24 +56,14 @@ export function acceptGalleryName(raw: unknown): string | null {
   return name;
 }
 
-export function galleryKeyForUser(userId: string, raw: unknown): string | null {
+/** A stored key this user owns (under `u/{userId}/`), or null for anything else. */
+export function ownedMediaKey(userId: string, raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   if (!userId || raw.length > 512) return null;
   if (raw.includes("..") || raw.includes("\\") || raw.includes("\0")) return null;
   const prefix = `u/${userId}/`;
   if (!raw.startsWith(prefix)) return null;
   return raw;
-}
-
-function acceptKind(raw: unknown): GalleryKind | null {
-  switch (raw) {
-    case "image":
-    case "video":
-    case "audio":
-      return raw;
-    default:
-      return null;
-  }
 }
 
 function acceptItemRole(kind: GalleryKind, raw: unknown): MediaRole | null {
@@ -99,8 +89,8 @@ export function acceptGalleryItems(userId: string, raw: unknown): GalleryItemInp
   for (const entry of raw) {
     if (!entry || typeof entry !== "object") return null;
     const record = entry as { kind?: unknown; name?: unknown; key?: unknown; role?: unknown };
-    const kind = acceptKind(record.kind);
-    const key = galleryKeyForUser(userId, record.key);
+    const kind = acceptMediaKind(record.kind);
+    const key = ownedMediaKey(userId, record.key);
     if (!kind || typeof record.name !== "string" || !key) return null;
     const name = record.name.trim();
     if (!name || name.length > GALLERY_ITEM_NAME_MAX) return null;
@@ -187,7 +177,7 @@ async function itemsForGallery(
   const rows = await itemRows(db, userId, galleryId);
   const items: StoredGalleryItem[] = [];
   for (const row of rows) {
-    const kind = acceptKind(row.kind);
+    const kind = acceptMediaKind(row.kind);
     if (!kind) continue;
     items.push({
       id: row.id,

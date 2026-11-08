@@ -195,7 +195,6 @@ describe("look storage", () => {
     expect(saved).toBe(true);
     const reordered = await getProject(env, "u1", "pr1");
     expect(reordered?.lookIds).toEqual(["s3", "s1", "s2", "s4", "s5"]);
-    expect(raw.prepare(`SELECT style_id FROM projects WHERE id = 'pr1'`).get()).toEqual({ style_id: "s3" });
 
     const starred = await updateStyle(db, "u1", "s2", { starred: true, group: "Light" });
     expect(starred).toMatchObject({ id: "s2", starred: true, group: "Light" });
@@ -213,6 +212,19 @@ describe("look storage", () => {
       cast: [],
     });
     expect(foreign).toBe(false);
+
+    // The pre-Looks `projects.style_id` column is never read again, so removing a project's
+    // last look stays removed after reload instead of resurrecting the old single style.
+    const cleared = await updateProject(db, "u1", "pr1", {
+      name: "Clip",
+      prompt: "Hold still.",
+      lookIds: [],
+      budget: 20,
+      cast: [],
+    });
+    expect(cleared).toBe(true);
+    expect((await getProject(env, "u1", "pr1"))?.lookIds).toEqual([]);
+    expect(raw.prepare(`SELECT style_id FROM projects WHERE id = 'pr1'`).get()).toEqual({ style_id: "s1" });
   });
 });
 

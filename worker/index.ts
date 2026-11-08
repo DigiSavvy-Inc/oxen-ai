@@ -33,7 +33,6 @@ import {
   guessMediaContentType,
   mediaServeDisposition,
   mediaSigningSecret,
-  mediaVerifySecrets,
   putMediaObject,
   sniffSafeMediaType,
   verifyMediaSignature,
@@ -1471,7 +1470,6 @@ app.put("/api/projects/:id", async (c) => {
     name?: unknown;
     prompt?: unknown;
     lookIds?: unknown;
-    styleId?: unknown;
     budget?: unknown;
     cast?: unknown;
   }>();
@@ -1482,7 +1480,7 @@ app.put("/api/projects/:id", async (c) => {
   if (!name || prompt == null || !cast || budget == null) {
     throw new HTTPException(400, { message: "A project needs a name, a prompt, a budget, and your own media" });
   }
-  const lookIds = lookIdsFromBody(body);
+  const lookIds = body.lookIds === undefined ? [] : acceptLookIds(body.lookIds);
   if (!lookIds) throw new HTTPException(400, { message: "A project applies up to five of your looks" });
   const saved = await updateProject(c.env.DB, user.id, c.req.param("id"), {
     name,
@@ -1501,13 +1499,6 @@ app.delete("/api/projects/:id", async (c) => {
   if (!removed) throw new HTTPException(404, { message: "Project not found" });
   return c.json({ ok: true });
 });
-
-/** `lookIds` in chip order; an older client's single `styleId` becomes the first look. */
-function lookIdsFromBody(body: { lookIds?: unknown; styleId?: unknown }): string[] | null {
-  if (body.lookIds !== undefined) return acceptLookIds(body.lookIds);
-  if (typeof body.styleId === "string" && body.styleId.trim()) return [body.styleId.trim()];
-  return [];
-}
 
 app.post("/api/styles", async (c) => {
   const user = await requireUser(c);
@@ -1758,7 +1749,7 @@ app.get("/api/media/*", async (c) => {
   }
   const exp = c.req.query("exp") || "";
   const sig = c.req.query("sig") || "";
-  const ok = await verifyMediaSignature(key, exp, sig, mediaVerifySecrets(c.env));
+  const ok = await verifyMediaSignature(key, exp, sig, mediaSigningSecret(c.env));
   if (!ok) {
     throw new HTTPException(403, { message: "Invalid or expired media signature" });
   }
@@ -1911,7 +1902,6 @@ app.post("/api/generate", async (c) => {
   const signing = {
     publicBaseUrl: c.env.PUBLIC_BASE_URL,
     secret: mediaSigningSecret(c.env),
-    verifySecrets: mediaVerifySecrets(c.env),
     userId: user.id,
     apiKey,
     db: c.env.DB,

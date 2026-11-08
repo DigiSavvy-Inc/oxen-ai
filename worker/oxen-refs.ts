@@ -1,4 +1,4 @@
-import { galleryKeyForUser } from "./galleries";
+import { ownedMediaKey } from "./galleries";
 import { ImageFrameError, normalizeSeedanceImage, type ImageRatioBounds } from "./image-frame";
 import {
   arrayBufferToDataUri,
@@ -72,8 +72,6 @@ export class StudioMediaRefRejected extends Error {
 export type StudioMediaAuth = {
   userId: string;
   secret: string;
-  /** Extra keys to accept while old signatures age out; see mediaVerifySecrets. */
-  verifySecrets?: string[];
 };
 
 function studioMediaUrl(value: string): URL | null {
@@ -114,10 +112,10 @@ export async function assertAuthorizedStudioMediaUrl(
   const parsed = studioMediaUrl(url);
   const exp = parsed?.searchParams.get("exp") ?? "";
   const sig = parsed?.searchParams.get("sig") ?? "";
-  if (!auth?.secret || !galleryKeyForUser(auth.userId, key) || !exp || !sig) {
+  if (!auth?.secret || !ownedMediaKey(auth.userId, key) || !exp || !sig) {
     throw new StudioMediaRefRejected();
   }
-  const ok = await verifyMediaSignature(key, exp, sig, auth.verifySecrets ?? auth.secret);
+  const ok = await verifyMediaSignature(key, exp, sig, auth.secret);
   if (!ok) throw new StudioMediaRefRejected();
 }
 
@@ -254,7 +252,7 @@ async function studioKeyForHubUrl(
     .bind(userId, hubUrl, path)
     .first<{ result_key: string | null }>();
   const key = row?.result_key?.trim() ?? "";
-  if (!key || !galleryKeyForUser(userId, key)) return null;
+  if (!key || !ownedMediaKey(userId, key)) return null;
   return key;
 }
 
@@ -441,7 +439,6 @@ export async function resolveRefsForOxen(
   signing?: {
     publicBaseUrl?: string | null;
     secret: string;
-    verifySecrets?: string[];
     userId: string;
     apiKey?: string;
     db?: D1Database;
@@ -451,7 +448,7 @@ export async function resolveRefsForOxen(
 ): Promise<string[]> {
   const auth: StudioMediaAuth | undefined =
     signing?.secret && signing.userId
-      ? { userId: signing.userId, secret: signing.secret, verifySecrets: signing.verifySecrets }
+      ? { userId: signing.userId, secret: signing.secret }
       : undefined;
   // Image and face refs stay Studio https. Data URIs are rehosted onto
   // hub.oxen.ai playground files, and ByteDance times out downloading those.
@@ -489,7 +486,7 @@ async function fitStudioHttpsImage(
   const userId = options.auth?.userId;
   const secret = options.auth?.secret;
   const origin = resolvePublicBaseUrl(options.publicBaseUrl);
-  if (!key || !userId || !secret || !origin || !galleryKeyForUser(userId, key)) return url;
+  if (!key || !userId || !secret || !origin || !ownedMediaKey(userId, key)) return url;
   const object = await bucket.get(key);
   if (!object) return url;
   const contentType = object.httpMetadata?.contentType || guessMediaContentType(key);

@@ -65,7 +65,7 @@ npx wrangler d1 create oxen-studio
 npx wrangler r2 bucket create oxen-studio-media
 ```
 
-Put the printed D1 `database_id` in `wrangler.jsonc` in place of the existing id, then:
+Put the printed D1 `database_id` in `wrangler.jsonc` in place of the existing id, then run the commands below. The hosted Worker applies migrations 0023 to 0026 itself on first use and records them, so `migrations apply` reporting those as already applied is expected.
 
 ```bash
 npx wrangler d1 migrations apply oxen-studio --remote

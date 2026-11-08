@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { ProjectSummary } from "../lib/api";
+import { timeAgo } from "../lib/time-ago";
 import { PanelPlaceSwitch } from "./PanelPlace";
 import type { ProjectPanelView } from "./ProjectHeader";
 
@@ -21,10 +22,7 @@ type Props = {
 function lastRun(project: ProjectSummary): string {
   if (!project.lastRunAt) return "no runs";
   const runs = `${project.jobCount} ${project.jobCount === 1 ? "run" : "runs"}`;
-  const delta = Math.max(0, Math.floor(Date.now() / 1000) - project.lastRunAt);
-  if (delta < 3600) return `${runs} · ${Math.max(1, Math.floor(delta / 60))}m ago`;
-  if (delta < 86400) return `${runs} · ${Math.floor(delta / 3600)}h ago`;
-  return `${runs} · ${Math.floor(delta / 86400)}d ago`;
+  return `${runs} · ${timeAgo(project.lastRunAt)}`;
 }
 
 const TAB_LABELS: Record<ProjectPanelView, string> = {

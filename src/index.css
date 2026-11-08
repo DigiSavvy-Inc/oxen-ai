@@ -5357,31 +5357,14 @@ select.attach-role {
   font-weight: 600;
 }
 
-.project-editor label,
-.project-editor-galleries label {
+.project-editor label {
   display: flex;
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
 }
 
-.project-editor-galleries {
-  border: 0;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.project-editor-galleries label {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-}
-
 .project-editor-look,
-.project-editor-media ul,
 .project-editor-share ul {
   display: flex;
   flex-direction: column;
@@ -5391,7 +5374,6 @@ select.attach-role {
   list-style: none;
 }
 
-.project-editor-media li,
 .project-editor-share li {
   display: flex;
   align-items: center;

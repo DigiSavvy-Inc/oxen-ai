@@ -1,5 +1,5 @@
 import type { AppliedLook } from "./looks";
-import type { MediaRole } from "./schema";
+import type { MediaKind, MediaRole } from "./schema";
 
 /**
  * A job is one generation batch (`batch_id`) run from a project. The record of what was
@@ -10,7 +10,7 @@ import type { MediaRole } from "./schema";
  * This module has no bindings so the client can share the types and the pure helpers.
  */
 
-export type JobKind = "image" | "video" | "audio";
+export type JobKind = MediaKind;
 
 /** One reference as it was attached: its project number, role, and the Studio key behind it. */
 export type JobRef = {
@@ -89,17 +89,6 @@ export const JOB_SETTING_FIELDS = [
   "pitch",
   "capture_last_frame",
 ] as const;
-
-export function acceptJobKind(raw: unknown): JobKind | null {
-  switch (raw) {
-    case "image":
-    case "video":
-    case "audio":
-      return raw;
-    default:
-      return null;
-  }
-}
 
 /** An estimated cost in USD, as the composer showed it. Anything else reads as unknown. */
 export function acceptJobCost(raw: unknown): number | null {

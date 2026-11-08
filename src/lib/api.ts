@@ -229,14 +229,6 @@ export type ProfileState = {
 
 export type StudioLook = Look;
 
-export type ProjectMedia = {
-  kind: "image" | "video" | "audio";
-  name: string;
-  key: string;
-  role: string | null;
-  url: string | null;
-};
-
 export type ProjectSummary = {
   id: string;
   name: string;

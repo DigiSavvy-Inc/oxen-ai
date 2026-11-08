@@ -38,19 +38,18 @@ describe("dedicated media signing key", () => {
     expect(mediaSigningSecret(createEnv())).toBe(TEST_SECRET);
   });
 
-  // URLs issued before the key existed live in composers and queued jobs for up to ~13h.
-  it("still serves and accepts URLs signed with the old key while they age out", async () => {
+  // The grace window for URLs signed before MEDIA_SIGNING_KEY existed closed on 2026-10-01.
+  it("rejects URLs signed with ENCRYPTION_KEY once a signing key is set", async () => {
     const env = envWithMedia({ MEDIA_SIGNING_KEY: SIGNING_KEY });
     const legacy = await createSignedMediaUrl(ORIGIN, KEY, TEST_SECRET);
-    expect((await app.request(legacy, {}, env)).status).toBe(200);
+    expect((await app.request(legacy, {}, env)).status).toBe(403);
     await expect(
       resolveRefsForOxen(env.MEDIA, [legacy], undefined, [false], {
         publicBaseUrl: ORIGIN,
         secret: SIGNING_KEY,
-        verifySecrets: [SIGNING_KEY, TEST_SECRET],
         userId: "user-1",
       }),
-    ).resolves.toHaveLength(1);
+    ).rejects.toBeInstanceOf(StudioMediaRefRejected);
   });
 
   it("no longer accepts SESSION_SECRET as a silent signing fallback", async () => {
@@ -61,7 +60,6 @@ describe("dedicated media signing key", () => {
       resolveRefsForOxen(env.MEDIA, [forged], undefined, [false], {
         publicBaseUrl: ORIGIN,
         secret: SIGNING_KEY,
-        verifySecrets: [SIGNING_KEY, TEST_SECRET],
         userId: "user-1",
       }),
     ).rejects.toBeInstanceOf(StudioMediaRefRejected);
