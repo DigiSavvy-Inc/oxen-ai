@@ -10,6 +10,7 @@ import {
 } from "../lib/download";
 import { historyItemForGallery } from "../lib/gallery-history";
 import { writeHistoryDrag } from "../lib/history-drag";
+import { runModes } from "../lib/mode-icons";
 import { estimateGenerationWait } from "../lib/progress";
 import { MAX_TAGS_PER_MEDIA, parseTagList } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
@@ -17,6 +18,7 @@ import { DownloadButton } from "./DownloadButton";
 import { LastFrameStill } from "./LastFrameStill";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
+import { ModeIcons } from "./ModeIcon";
 import { StagedStill, StagedVideo } from "./StagedStill";
 
 function fitSlides(variants: Generation[]): FitSlide[] {
@@ -343,6 +345,7 @@ export function Canvas({
       <div className="result-frame" ref={frameRef}>
         <div className="frame-head">
           <h3>
+            <ModeIcons modes={runModes(generation.mode)} className="frame-head-kind" />
             {label} · {generation.model}
           </h3>
           <div className="frame-head-actions">

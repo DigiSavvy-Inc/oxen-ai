@@ -81,6 +81,19 @@ export const DOC_ARTICLES: DocArticle[] = [
         type: "p",
         text: "Settings → Models can set a preferred model for each mode. Those defaults start empty and stay empty until you choose them. Changing the model resets the count to 1×.",
       },
+      {
+        type: "p",
+        text: "The icons beside a model’s name show what it can run, in the order of the mode pills. Hover one for its name.",
+      },
+      {
+        type: "ul",
+        items: [
+          "A picture is Text → Image. A picture with a pencil is Image → Image.",
+          "A frame with a play mark is Text → Video. A picture with a play mark is Image → Video. A play frame with a pencil is Video → Video.",
+          "Sound bars are Text → Audio. A speech bubble is Chat.",
+          "In Library and in a project’s Jobs, the icon is the one mode that run used.",
+        ],
+      },
     ],
   },
   {

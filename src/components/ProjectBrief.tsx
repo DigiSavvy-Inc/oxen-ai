@@ -8,6 +8,7 @@ import {
   type ComposerOrigin,
 } from "../lib/project-model";
 import { appliedLooks, PROJECT_LOOKS_MAX, sortLooks } from "../../worker/looks";
+import { ModelMenu } from "./ModelMenu";
 
 type Props = {
   project: StudioProject;
@@ -51,6 +52,8 @@ export function ProjectBrief(props: Props) {
   const pinnedId = defaults?.pinned ? defaults.model : "";
   const modelOptions = props.referenceModels ? sortReferenceModels(props.referenceModels, props.preferredModelIds) : [];
   const pinnedModel = modelOptions.find((model) => model.id === pinnedId) ?? null;
+  const preferredModels = modelOptions.filter((model) => props.preferredModelIds.has(model.id));
+  const capsById = new Map(modelOptions.map((model) => [model.id, referenceCapsLabel(model.caps)] as const));
   const lastRunLabel =
     !pinnedId && defaults?.model
       ? `${props.referenceModels?.find((model) => model.id === defaults.model)?.display_name ?? defaults.model}${
@@ -146,30 +149,23 @@ export function ProjectBrief(props: Props) {
             <span className="project-rail-empty">{referenceCapsLabel(pinnedModel.caps)}</span>
           ) : null}
         </div>
-        <select
-          className="field"
-          aria-label="Project model"
-          value={pinnedModel ? pinnedModel.id : ""}
-          disabled={props.busy || props.referenceModels == null}
-          onChange={(event) => {
-            const id = event.target.value;
-            props.onPinModel(id ? (modelOptions.find((model) => model.id === id) ?? null) : null);
-          }}
-        >
-          <option value="">
-            {props.referenceModels == null
+        <ModelMenu
+          block
+          label="Project model"
+          emptyOption={
+            props.referenceModels == null
               ? "Loading models…"
               : lastRunLabel
                 ? `Last run’s model (${lastRunLabel})`
-                : "Whatever the composer has"}
-          </option>
-          {modelOptions.map((model) => (
-            <option key={model.id} value={model.id}>
-              {props.preferredModelIds.has(model.id) ? "★ " : ""}
-              {model.display_name ?? model.id} — {referenceCapsLabel(model.caps)}
-            </option>
-          ))}
-        </select>
+                : "Whatever the composer has"
+          }
+          models={modelOptions}
+          preferred={preferredModels}
+          value={pinnedModel ? pinnedModel.id : ""}
+          detail={(model) => capsById.get(model.id) ?? null}
+          disabled={props.busy || props.referenceModels == null}
+          onChange={(id) => props.onPinModel(id ? (modelOptions.find((model) => model.id === id) ?? null) : null)}
+        />
         <p className="project-rail-empty">
           {props.referenceModelsError
             ? props.referenceModelsError

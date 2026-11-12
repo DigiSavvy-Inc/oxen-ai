@@ -4,6 +4,12 @@ export type NamedModel = {
   description?: string | null;
 };
 
+/** A row in a model picker: a name, plus the catalog fields its kind icons are read from. */
+export type MenuModel = NamedModel & {
+  endpoint?: string;
+  capabilities?: { input?: string[]; output?: string[] };
+};
+
 export function modelLabel(model: NamedModel): string {
   return model.display_name || model.id;
 }

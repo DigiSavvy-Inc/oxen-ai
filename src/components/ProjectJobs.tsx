@@ -13,10 +13,12 @@ import {
   mergeJobOutputs,
   type JobFilter,
 } from "../lib/project-jobs";
+import { runModes } from "../lib/mode-icons";
 import { jobStatus } from "../../worker/job-record";
 import { referenceRoleLabel } from "../../worker/schema";
 import { GalleryThumb } from "./GalleryThumb";
 import { Loader } from "./Loader";
+import { ModeIcons, ModelName } from "./ModeIcon";
 
 type Props = {
   jobs: ProjectJob[];
@@ -198,6 +200,7 @@ export function ProjectJobs(props: Props) {
                 <span className="job-copy">
                   <span className="job-excerpt">{jobPromptExcerpt(job)}</span>
                   <span className="job-meta">
+                    <ModeIcons modes={runModes(job.mode)} className="job-meta-kind" />
                     {modelLabel(job.model)} · {jobModeLabel(job.mode)}
                     {job.cost != null ? ` · ${jobCostLabel(job.cost)}` : ""} · {jobTimeLabel(job.createdAt)}
                   </span>
@@ -282,7 +285,9 @@ export function ProjectJobs(props: Props) {
                   <dl className="job-settings">
                     <div>
                       <dt>Model</dt>
-                      <dd>{modelLabel(job.model)}</dd>
+                      <dd>
+                        <ModelName name={modelLabel(job.model)} modes={runModes(job.mode)} />
+                      </dd>
                     </div>
                     <div>
                       <dt>Mode</dt>

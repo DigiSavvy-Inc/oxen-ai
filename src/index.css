@@ -3876,6 +3876,80 @@ button.history-expand-preview {
   border-style: dashed;
 }
 
+.mode-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+.mode-icon {
+  display: block;
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+}
+
+.mode-icons-more {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.model-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.model-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A run's kind, set ahead of a line of text. */
+.job-meta-kind,
+.frame-head-kind {
+  display: inline-flex;
+  margin-right: 6px;
+  vertical-align: -3px;
+}
+
+.history-model-pill .model-name {
+  display: flex;
+  gap: 5px;
+}
+
+.history-model-pill .mode-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.settings-default {
+  margin-bottom: 12px;
+}
+
+.settings-default-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.allow-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .composer textarea {
   width: 100%;
   border: 0;
@@ -3946,6 +4020,18 @@ button.history-expand-preview {
   border-color: var(--border-strong);
 }
 
+.model-menu-trigger:disabled {
+  opacity: 0.6;
+}
+
+.model-menu.is-block,
+.model-menu.is-block .model-menu-trigger {
+  display: flex;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
 .model-menu-value {
   flex: 1;
   min-width: 0;
@@ -3996,7 +4082,10 @@ button.history-expand-preview {
 
 .model-menu-option {
   width: 100%;
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   text-align: left;
   border: 0;
   background: transparent;
@@ -4013,6 +4102,23 @@ button.history-expand-preview {
 
 .model-menu-option.is-selected {
   font-weight: 600;
+}
+
+.model-menu-option-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.model-menu-option-name {
+  overflow-wrap: anywhere;
+}
+
+.model-menu-option-detail {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
 }
 
 .model-menu-empty {
@@ -5573,11 +5679,6 @@ select.attach-role {
 .project-origin.is-new-job {
   color: var(--success);
   border-color: color-mix(in srgb, var(--success) 40%, var(--border));
-}
-
-.project-brief-model select {
-  width: 100%;
-  min-width: 0;
 }
 
 @media (max-width: 860px) {

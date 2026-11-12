@@ -1,26 +1,55 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import type { OxenModel } from "../lib/api";
-import { filterModels, groupPreferredModels, modelLabel } from "../lib/model-menu";
+import { filterModels, groupPreferredModels, modelLabel, type MenuModel } from "../lib/model-menu";
+import { modeIconsLabel, modelModes } from "../lib/mode-icons";
+import { ModeIcons } from "./ModeIcon";
 
 type Props = {
-  models: OxenModel[];
-  preferred: OxenModel[];
+  models: MenuModel[];
+  preferred: { id: string }[];
   value: string;
-  query: string;
-  onQueryChange: (value: string) => void;
   onChange: (value: string) => void;
+  /** Search text held by the caller, which may widen `models` from it. Left out, the menu keeps its own. */
+  query?: string;
+  onQueryChange?: (value: string) => void;
+  /** Accessible name of the control. */
+  label?: string;
+  /** A first row that clears the choice. Its label also stands in on the trigger while nothing is picked. */
+  emptyOption?: string;
+  /** A second line under the name, such as what the model accepts. */
+  detail?: (model: MenuModel) => string | null;
+  disabled?: boolean;
+  id?: string;
+  /** Fill the row it sits in, and open toward whichever side has room. The composer's opens upward. */
+  block?: boolean;
 };
 
+type Box = { left: number; width?: number; top?: number; bottom?: number; maxHeight: number };
+
+const POP_WIDTH = 320;
+const POP_HEIGHT = 320;
+
 export function ModelMenu(props: Props) {
-  const { models, preferred, value, query, onQueryChange, onChange } = props;
+  const { models, preferred, value, onChange, emptyOption, detail, disabled = false, block = false } = props;
   const [open, setOpen] = useState(false);
   const [hot, setHot] = useState(0);
-  const [box, setBox] = useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
+  const [ownQuery, setOwnQuery] = useState("");
+  const [box, setBox] = useState<Box | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const listId = `model-menu-list-${useId()}`;
+
+  const query = props.query ?? ownQuery;
+  const reportQuery = props.onQueryChange;
+  const setQuery = useCallback(
+    (next: string) => {
+      setOwnQuery(next);
+      reportQuery?.(next);
+    },
+    [reportQuery],
+  );
 
   const selected = models.find((model) => model.id === value) ?? null;
   const visible = useMemo(() => filterModels(models, query), [models, query]);
@@ -28,17 +57,19 @@ export function ModelMenu(props: Props) {
     () => groupPreferredModels(visible, preferred),
     [visible, preferred],
   );
-  const extra =
-    value && !visible.some((model) => model.id === value) && !query.trim()
+  const searching = Boolean(query.trim());
+  const extra: MenuModel[] =
+    value && !visible.some((model) => model.id === value) && !searching
       ? [selected ?? { id: value }]
       : [];
-  const options = [...grouped.preferred, ...grouped.rest, ...extra];
+  const clearRow: MenuModel[] = emptyOption != null && !searching ? [{ id: "" }] : [];
+  const options = [...clearRow, ...grouped.preferred, ...grouped.rest, ...extra];
   const activeHot = options.length === 0 ? 0 : Math.min(hot, options.length - 1);
 
   const close = useCallback(() => {
     setOpen(false);
-    onQueryChange("");
-  }, [onQueryChange]);
+    setQuery("");
+  }, [setQuery]);
 
   function choose(id: string) {
     onChange(id);
@@ -51,11 +82,19 @@ export function ModelMenu(props: Props) {
       const trigger = rootRef.current?.querySelector(".model-menu-trigger");
       if (!(trigger instanceof HTMLElement)) return;
       const rect = trigger.getBoundingClientRect();
-      const spaceAbove = Math.max(160, rect.top - 12);
+      const width = block ? Math.min(Math.max(rect.width, POP_WIDTH), window.innerWidth - 16) : undefined;
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - (width ?? POP_WIDTH) - 8));
+      const above = rect.top - 12;
+      const below = window.innerHeight - rect.bottom - 12;
+      if (block && (below >= POP_HEIGHT || below >= above)) {
+        setBox({ left, width, top: rect.bottom + 6, maxHeight: Math.min(POP_HEIGHT, Math.max(160, below)) });
+        return;
+      }
       setBox({
-        left: Math.max(8, Math.min(rect.left, window.innerWidth - 328)),
+        left,
+        width,
         bottom: window.innerHeight - rect.top + 6,
-        maxHeight: Math.min(320, spaceAbove),
+        maxHeight: Math.min(POP_HEIGHT, Math.max(160, above)),
       });
     }
     place();
@@ -65,7 +104,7 @@ export function ModelMenu(props: Props) {
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [open]);
+  }, [open, block]);
 
   useEffect(() => {
     if (!open) return;
@@ -74,21 +113,26 @@ export function ModelMenu(props: Props) {
       if (rootRef.current?.contains(target) || popRef.current?.contains(target)) return;
       close();
     }
+    // Capture, and claim the key, so a panel holding this menu stays open while the list closes.
     function onDocumentKey(event: globalThis.KeyboardEvent) {
-      if (event.key === "Escape") close();
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      close();
     }
     window.addEventListener("mousedown", onPointer);
-    window.addEventListener("keydown", onDocumentKey);
+    window.addEventListener("keydown", onDocumentKey, true);
     return () => {
       window.removeEventListener("mousedown", onPointer);
-      window.removeEventListener("keydown", onDocumentKey);
+      window.removeEventListener("keydown", onDocumentKey, true);
     };
   }, [open, close]);
 
+  // The list mounts once it has a place, which on the first open is one render after `open`.
+  const placed = box != null;
   useEffect(() => {
-    if (!open) return;
+    if (!open || !placed) return;
     searchRef.current?.focus();
-  }, [open]);
+  }, [open, placed]);
 
   useEffect(() => {
     if (!open) return;
@@ -137,21 +181,44 @@ export function ModelMenu(props: Props) {
     }
   }
 
-  const triggerLabel = selected ? modelLabel(selected) : value || "Select a model";
+  const controlLabel = props.label ?? "Model";
+  const triggerModel = selected ?? (value ? { id: value } : null);
+  const triggerLabel = triggerModel ? modelLabel(triggerModel) : (emptyOption ?? "Select a model");
+  const triggerKinds = triggerModel ? modeIconsLabel(modelModes(triggerModel)) : "";
+  const triggerName = triggerModel
+    ? `${controlLabel}: ${triggerLabel}${triggerKinds ? `. ${triggerKinds}` : ""}`
+    : controlLabel;
   const headingRest = grouped.preferred.length > 0 ? "All" : "Models";
-  const emptyLabel = query.trim()
-    ? `No models match “${query.trim()}”`
-    : "No models";
+  const emptyLabel = searching ? `No models match “${query.trim()}”` : "No models";
+  const offset = clearRow.length;
+
+  function option(model: MenuModel, index: number, key: string) {
+    return (
+      <ModelOption
+        key={key}
+        id={`${listId}-${index}`}
+        model={model}
+        label={model.id ? modelLabel(model) : (emptyOption ?? "")}
+        detail={model.id ? (detail?.(model) ?? null) : null}
+        selected={model.id === value}
+        hot={index === activeHot}
+        onHot={() => setHot(index)}
+        onChoose={() => choose(model.id)}
+      />
+    );
+  }
 
   return (
-    <div className="model-menu" ref={rootRef}>
+    <div className={`model-menu${block ? " is-block" : ""}`} ref={rootRef}>
       <button
         type="button"
+        id={props.id}
         className={`select select-model model-menu-trigger${open ? " open" : ""}`}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-controls="model-menu-list"
-        aria-label="Model"
+        aria-controls={listId}
+        aria-label={triggerName}
+        disabled={disabled}
         onClick={() => {
           if (open) close();
           else setOpen(true);
@@ -164,6 +231,7 @@ export function ModelMenu(props: Props) {
           }
         }}
       >
+        {triggerModel ? <ModeIcons modes={modelModes(triggerModel)} /> : null}
         <span className="model-menu-value">{triggerLabel}</span>
         <span className="model-menu-caret" aria-hidden>
           ▾
@@ -174,7 +242,7 @@ export function ModelMenu(props: Props) {
         <div
           ref={popRef}
           className="model-menu-pop"
-          style={{ left: box.left, bottom: box.bottom, maxHeight: box.maxHeight }}
+          style={{ left: box.left, width: box.width, top: box.top, bottom: box.bottom, maxHeight: box.maxHeight }}
         >
           <input
             ref={searchRef}
@@ -183,69 +251,38 @@ export function ModelMenu(props: Props) {
             placeholder="Search models"
             value={query}
             aria-label="Filter models"
-            aria-controls="model-menu-list"
-            aria-activedescendant={options[activeHot] ? `model-option-${activeHot}` : undefined}
+            aria-controls={listId}
+            aria-activedescendant={options[activeHot] ? `${listId}-${activeHot}` : undefined}
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
             onChange={(event) => {
-              onQueryChange(event.target.value);
+              setQuery(event.target.value);
               setHot(0);
             }}
             onKeyDown={onSearchKeyDown}
           />
           <div
             ref={listRef}
-            id="model-menu-list"
+            id={listId}
             className="model-menu-list"
             role="listbox"
-            aria-label="Models"
+            aria-label={`${controlLabel} list`}
           >
+            {clearRow.map((model) => option(model, 0, "none"))}
             {grouped.preferred.length > 0 ? (
               <div className="model-menu-heading">Preferred</div>
             ) : null}
-            {grouped.preferred.map((model, index) => (
-              <ModelOption
-                key={`fav-${model.id}`}
-                model={model}
-                index={index}
-                selected={model.id === value}
-                hot={index === activeHot}
-                onHot={() => setHot(index)}
-                onChoose={() => choose(model.id)}
-              />
-            ))}
+            {grouped.preferred.map((model, index) => option(model, offset + index, `fav-${model.id}`))}
             {grouped.rest.length > 0 ? (
               <div className="model-menu-heading">{headingRest}</div>
             ) : null}
-            {grouped.rest.map((model, index) => {
-              const optionIndex = grouped.preferred.length + index;
-              return (
-                <ModelOption
-                  key={model.id}
-                  model={model}
-                  index={optionIndex}
-                  selected={model.id === value}
-                  hot={optionIndex === activeHot}
-                  onHot={() => setHot(optionIndex)}
-                  onChoose={() => choose(model.id)}
-                />
-              );
-            })}
-            {extra.map((model, index) => {
-              const optionIndex = grouped.preferred.length + grouped.rest.length + index;
-              return (
-                <ModelOption
-                  key={`extra-${model.id}`}
-                  model={model}
-                  index={optionIndex}
-                  selected={model.id === value}
-                  hot={optionIndex === activeHot}
-                  onHot={() => setHot(optionIndex)}
-                  onChoose={() => choose(model.id)}
-                />
-              );
-            })}
+            {grouped.rest.map((model, index) =>
+              option(model, offset + grouped.preferred.length + index, model.id),
+            )}
+            {extra.map((model, index) =>
+              option(model, offset + grouped.preferred.length + grouped.rest.length + index, `extra-${model.id}`),
+            )}
             {options.length === 0 ? <div className="model-menu-empty">{emptyLabel}</div> : null}
           </div>
         </div>,
@@ -257,15 +294,19 @@ export function ModelMenu(props: Props) {
 }
 
 function ModelOption({
+  id,
   model,
-  index,
+  label,
+  detail,
   selected,
   hot,
   onHot,
   onChoose,
 }: {
-  model: OxenModel;
-  index: number;
+  id: string;
+  model: MenuModel;
+  label: string;
+  detail: string | null;
   selected: boolean;
   hot: boolean;
   onHot: () => void;
@@ -273,7 +314,7 @@ function ModelOption({
 }) {
   return (
     <button
-      id={`model-option-${index}`}
+      id={id}
       type="button"
       role="option"
       aria-selected={selected}
@@ -285,7 +326,11 @@ function ModelOption({
         onChoose();
       }}
     >
-      {modelLabel(model)}
+      <span className="model-menu-option-copy">
+        <span className="model-menu-option-name">{label}</span>
+        {detail ? <span className="model-menu-option-detail">{detail}</span> : null}
+      </span>
+      {model.id ? <ModeIcons modes={modelModes(model)} /> : null}
     </button>
   );
 }

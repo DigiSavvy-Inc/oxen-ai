@@ -31,6 +31,7 @@ import {
   type HistoryGalleryNotice,
 } from "../lib/gallery-history";
 import { writeHistoryDrag } from "../lib/history-drag";
+import { runModes } from "../lib/mode-icons";
 import { suggestTags } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
 import { CreateGalleryPalette } from "./CreateGalleryPalette";
@@ -41,6 +42,7 @@ import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
 import { PanelPlaceSwitch } from "./PanelPlace";
 import { MediaDeleteGroup } from "./MediaDeleteGroup";
+import { ModelName } from "./ModeIcon";
 import { StagedStill, StagedVideo } from "./StagedStill";
 
 function tileSrc(item: Generation, allowFull = false): string | null {
@@ -152,7 +154,7 @@ function attachKindLabel(item: Generation): string {
   return "images";
 }
 
-function ExpandPrompt({ prompt, model }: { prompt: string; model: string }) {
+function ExpandPrompt({ prompt, model, mode }: { prompt: string; model: string; mode: string }) {
   const [open, setOpen] = useState(false);
   const modelName = model.trim();
   const hasPrompt = prompt.trim().length > 0;
@@ -172,7 +174,7 @@ function ExpandPrompt({ prompt, model }: { prompt: string; model: string }) {
         ) : null}
         {modelName ? (
           <span className="pill history-model-pill" title={modelName} data-model={modelName}>
-            {modelName}
+            <ModelName name={modelName} modes={runModes(mode)} />
           </span>
         ) : null}
       </div>
@@ -1021,7 +1023,7 @@ export function Sidebar({
                           </div>
                         ) : null}
                         {preview.prompt || preview.model ? (
-                          <ExpandPrompt prompt={preview.prompt ?? ""} model={preview.model} />
+                          <ExpandPrompt prompt={preview.prompt ?? ""} model={preview.model} mode={preview.mode} />
                         ) : null}
                         {expandVisible.fitOpen && canFit && preview.resultUrl ? (
                           <FullSizeMedia

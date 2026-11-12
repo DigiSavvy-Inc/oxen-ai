@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import {
   ALL_MODES,
@@ -11,6 +11,9 @@ import {
 } from "../lib/api";
 import { brandMarkClass, DEFAULT_LOGO_URL, DEFAULT_SITE_NAME } from "../lib/branding";
 import { defaultModelChoices, modelLabel } from "../lib/model-menu";
+import { MODE_ICON_LABELS, modelModes } from "../lib/mode-icons";
+import { ModeIcon, ModeIcons } from "./ModeIcon";
+import { ModelMenu } from "./ModelMenu";
 import {
   canPromptInstall,
   canUseNotifications,
@@ -92,6 +95,15 @@ export function SettingsModal({
     Partial<Record<GenerationMode, OxenModel[]>>
   >({});
   const [catalogLoading, setCatalogLoading] = useState(false);
+  // A starred or searched row may carry less than the catalog's copy, so read kinds from the catalog first.
+  const catalogById = useMemo(() => {
+    const byId = new Map<string, OxenModel>();
+    for (const mode of ALL_MODES) {
+      for (const item of catalogByMode[mode] ?? []) byId.set(item.id, item);
+    }
+    return byId;
+  }, [catalogByMode]);
+  const kindsOf = (item: OxenModel) => modelModes(catalogById.get(item.id) ?? item);
   const [modelBusy, setModelBusy] = useState(false);
   const [libraryBusy, setLibraryBusy] = useState(false);
   const [libraryError, setLibraryError] = useState<string | null>(null);
@@ -530,36 +542,23 @@ export function SettingsModal({
                     current,
                   );
                   return (
-                    <label key={mode} htmlFor={`default-${mode}`}>
-                      Default · {MODE_LABELS[mode]}
-                      <select
+                    <div className="settings-default" key={mode}>
+                      <span className="settings-default-label">
+                        <ModeIcon mode={mode} />
+                        Default · {MODE_LABELS[mode]}
+                      </span>
+                      <ModelMenu
+                        block
                         id={`default-${mode}`}
-                        className="field"
-                        disabled={modelBusy || catalogLoading}
+                        label={`Default for ${MODE_ICON_LABELS[mode]}`}
+                        emptyOption="None"
+                        models={[...choices.preferred, ...choices.rest]}
+                        preferred={favorites}
                         value={current || ""}
-                        onChange={(e) => void setModeDefault(mode, e.target.value)}
-                      >
-                        <option value="">None</option>
-                        {choices.preferred.length > 0 ? (
-                          <optgroup label="Preferred">
-                            {choices.preferred.map((item) => (
-                              <option key={`${mode}-pref-${item.id}`} value={item.id}>
-                                {modelLabel(item)}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ) : null}
-                        {choices.rest.length > 0 ? (
-                          <optgroup label="All">
-                            {choices.rest.map((item) => (
-                              <option key={`${mode}-all-${item.id}`} value={item.id}>
-                                {modelLabel(item)}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ) : null}
-                      </select>
-                    </label>
+                        disabled={modelBusy || catalogLoading}
+                        onChange={(id) => void setModeDefault(mode, id)}
+                      />
+                    </div>
                   );
                 })}
                 <h3>Preferred</h3>
@@ -571,7 +570,8 @@ export function SettingsModal({
                   ) : (
                     favorites.map((item) => (
                       <div className="allow-row" key={item.id}>
-                        <span>{item.display_name || item.id}</span>
+                        <span className="allow-row-name">{modelLabel(item)}</span>
+                        <ModeIcons modes={kindsOf(item)} />
                         <button
                           className="ghost-btn"
                           disabled={modelBusy}
@@ -596,7 +596,8 @@ export function SettingsModal({
                     const starred = favorites.some((fav) => fav.id === item.id);
                     return (
                       <div className="allow-row" key={`hit-${item.id}`}>
-                        <span>{item.display_name || item.id}</span>
+                        <span className="allow-row-name">{modelLabel(item)}</span>
+                        <ModeIcons modes={kindsOf(item)} />
                         <button
                           className="ghost-btn"
                           disabled={modelBusy}
