@@ -5471,7 +5471,7 @@ select.attach-role {
 }
 
 .model-delivery {
-  margin-top: 8px;
+  margin: 8px 10px 0;
   font-size: 12px;
   color: var(--text-muted);
 }
