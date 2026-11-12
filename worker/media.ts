@@ -94,21 +94,38 @@ export function mediaSigningSecret(env: MediaSigningEnv): string {
   return env.MEDIA_SIGNING_KEY?.trim() || env.ENCRYPTION_KEY;
 }
 
+/**
+ * `expired` means Studio signed this exact key and expiry, and the expiry has passed.
+ * `invalid` covers a missing part, a signature Studio did not issue, and a wrong key.
+ */
+export type MediaSignatureState = "valid" | "expired" | "invalid";
+
+export async function mediaSignatureState(
+  key: string,
+  exp: string,
+  sig: string,
+  secrets: string | string[],
+): Promise<MediaSignatureState> {
+  const candidates = (Array.isArray(secrets) ? secrets : [secrets]).filter(Boolean);
+  if (!key || !exp || !sig || candidates.length === 0) return "invalid";
+  const expires = Number(exp);
+  if (!Number.isFinite(expires)) return "invalid";
+  for (const secret of candidates) {
+    const expected = await hmacSign(secret, `${key}:${exp}`);
+    if (await timingSafeEqual(expected, sig)) {
+      return expires < Math.floor(Date.now() / 1000) ? "expired" : "valid";
+    }
+  }
+  return "invalid";
+}
+
 export async function verifyMediaSignature(
   key: string,
   exp: string,
   sig: string,
   secrets: string | string[],
 ): Promise<boolean> {
-  const candidates = (Array.isArray(secrets) ? secrets : [secrets]).filter(Boolean);
-  if (!key || !exp || !sig || candidates.length === 0) return false;
-  const expires = Number(exp);
-  if (!Number.isFinite(expires) || expires < Math.floor(Date.now() / 1000)) return false;
-  for (const secret of candidates) {
-    const expected = await hmacSign(secret, `${key}:${exp}`);
-    if (await timingSafeEqual(expected, sig)) return true;
-  }
-  return false;
+  return (await mediaSignatureState(key, exp, sig, secrets)) === "valid";
 }
 
 export function arrayBufferToDataUri(buffer: ArrayBuffer, contentType: string): string {

@@ -5,10 +5,10 @@ import {
   canonicalSafeMediaType,
   createSignedMediaUrl,
   guessMediaContentType,
+  mediaSignatureState,
   putMediaObject,
   resolvePublicBaseUrl,
   sniffSafeMediaType,
-  verifyMediaSignature,
 } from "./media";
 import { downloadOxenResult } from "./oxen";
 import { referenceRoleUsesFace } from "./schema";
@@ -62,10 +62,20 @@ export function isOxenHostedMediaUrl(value: string): boolean {
   }
 }
 
+/** Why a Studio media reference was refused. Logged, and `expired` gets its own message. */
+export type StudioMediaRefRejection = "expired" | "not-owned" | "unsigned" | "bad-signature";
+
+const REF_REJECTED = "Media reference must be your own unexpired signed file";
+const REF_EXPIRED =
+  "A reference link expired while this tab was open. Reload Studio, then attach the file again.";
+
 export class StudioMediaRefRejected extends Error {
-  constructor() {
-    super("Media reference must be your own unexpired signed file");
+  readonly reason: StudioMediaRefRejection;
+
+  constructor(reason: StudioMediaRefRejection = "bad-signature") {
+    super(reason === "expired" ? REF_EXPIRED : REF_REJECTED);
     this.name = "StudioMediaRefRejected";
+    this.reason = reason;
   }
 }
 
@@ -112,11 +122,35 @@ export async function assertAuthorizedStudioMediaUrl(
   const parsed = studioMediaUrl(url);
   const exp = parsed?.searchParams.get("exp") ?? "";
   const sig = parsed?.searchParams.get("sig") ?? "";
-  if (!auth?.secret || !ownedMediaKey(auth.userId, key) || !exp || !sig) {
-    throw new StudioMediaRefRejected();
+  if (!auth?.secret || !ownedMediaKey(auth.userId, key)) {
+    throw new StudioMediaRefRejected("not-owned");
   }
-  const ok = await verifyMediaSignature(key, exp, sig, auth.secret);
-  if (!ok) throw new StudioMediaRefRejected();
+  if (!exp || !sig) throw new StudioMediaRefRejected("unsigned");
+  const state = await mediaSignatureState(key, exp, sig, auth.secret);
+  if (state === "expired") throw new StudioMediaRefRejected("expired");
+  if (state !== "valid") throw new StudioMediaRefRejected("bad-signature");
+}
+
+/**
+ * A new signature for a link Studio issued to this user, whatever its age.
+ * A link to anything other than Studio media is returned as it came. Null when the
+ * key is not this user's or the signature is not one Studio made.
+ */
+export async function renewStudioMediaUrl(
+  url: string,
+  auth: StudioMediaAuth,
+  publicBaseUrl: string | null | undefined,
+): Promise<string | null> {
+  const key = studioMediaKeyFromUrl(url);
+  if (!key) return url;
+  const origin = resolvePublicBaseUrl(publicBaseUrl);
+  if (!origin) return url;
+  const parsed = studioMediaUrl(url);
+  const exp = parsed?.searchParams.get("exp") ?? "";
+  const sig = parsed?.searchParams.get("sig") ?? "";
+  if (!auth.secret || !ownedMediaKey(auth.userId, key)) return null;
+  if ((await mediaSignatureState(key, exp, sig, auth.secret)) === "invalid") return null;
+  return createSignedMediaUrl(origin, key, auth.secret);
 }
 
 export async function oxenSourceUrlForMediaKey(

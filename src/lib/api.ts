@@ -5,6 +5,7 @@ import type { ComposerDefaults, ComposerDraft, ComposerSettings } from "../../wo
 import type { JobOutputJson, JobRefJson, JobStatus, ProjectJobJson } from "../../worker/job-record";
 import type { ReferenceCaps, ReferenceModel } from "../../worker/reference-models";
 import type { MediaRole } from "../../worker/schema";
+import { withLiveMediaRefs } from "./media-links";
 
 export { firstSupportedMode, modelSupportsMode };
 export { estimateGenerationCost, type OxenPricing };
@@ -427,6 +428,16 @@ async function parseJson<T>(res: Response): Promise<T> {
   return data;
 }
 
+function renewMediaLinks(urls: string[]): Promise<(string | null)[]> {
+  return fetch("/api/media/renew", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ urls }),
+  })
+    .then((r) => parseJson<{ urls: (string | null)[] }>(r))
+    .then((data) => data.urls);
+}
+
 export const api = {
   me: () => fetch("/api/auth/me").then((r) => parseJson<{ user: SessionUser | null }>(r)),
   logout: () => fetch("/api/auth/logout", { method: "POST" }).then((r) => parseJson(r)),
@@ -494,11 +505,13 @@ export const api = {
       parseJson<{ key: string; url: string; contentType: string; name: string }>(r),
     );
   },
-  generate: (body: Record<string, unknown>) =>
+  renewMediaLinks,
+  // A reference attached hours ago carries a link that has expired since. Exchange it first.
+  generate: async (body: Record<string, unknown>) =>
     fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(await withLiveMediaRefs(body, renewMediaLinks)),
     }).then((r) => parseJson<{ generations: Generation[] }>(r)),
   chat: (body: { model: string; messages: unknown[] }) =>
     fetch("/api/chat", {

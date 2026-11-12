@@ -31,15 +31,16 @@ import {
   displayStoredMediaUrl,
   guessMediaContentType,
   mediaServeDisposition,
+  mediaSignatureState,
   mediaSigningSecret,
   putMediaObject,
   sniffSafeMediaType,
-  verifyMediaSignature,
 } from "./media";
 import { SEEDANCE_IMAGE_RATIO } from "./image-frame";
 import {
   collectOxenRefs,
   OxenMediaInlineError,
+  renewStudioMediaUrl,
   resolveRefsForOxen,
   StudioMediaRefRejected,
 } from "./oxen-refs";
@@ -112,6 +113,7 @@ import {
   acceptGalleryName,
   deleteGallery,
   getGallery,
+  ownedMediaKey,
   saveGallery,
 } from "./galleries";
 import { presentGallery, presentGalleryList } from "./gallery-present";
@@ -1715,6 +1717,40 @@ app.post("/api/upload", async (c) => {
   return c.json({ key, url, contentType, size: file.size, name: file.name });
 });
 
+const OWNER_VIEW_CACHE_SECONDS = 60 * 60;
+const MEDIA_RENEW_MAX_URLS = 64;
+
+/** True when the request carries a live Studio session for the user who owns `key`. */
+async function sessionOwnsMediaKey(
+  c: { req: { header: (name: string) => string | undefined }; env: Env },
+  key: string,
+): Promise<boolean> {
+  const sessionId = getSessionId(c.req.header("Cookie"));
+  if (!sessionId) return false;
+  const user = await loadAuthorizedUser(c.env, sessionId);
+  return Boolean(user && ownedMediaKey(user.id, key));
+}
+
+// New signatures for links this user already holds, so a reference attached before its
+// link expired can still be submitted. /api/generate keeps refusing an expired link.
+app.post("/api/media/renew", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ urls?: unknown }>().catch(() => null);
+  const urls = body?.urls;
+  if (
+    !Array.isArray(urls) ||
+    urls.length > MEDIA_RENEW_MAX_URLS ||
+    urls.some((url) => typeof url !== "string")
+  ) {
+    throw new HTTPException(400, { message: `Send up to ${MEDIA_RENEW_MAX_URLS} media links` });
+  }
+  const auth = { userId: user.id, secret: mediaSigningSecret(c.env) };
+  const renewed = await Promise.all(
+    (urls as string[]).map((url) => renewStudioMediaUrl(url, auth, c.env.PUBLIC_BASE_URL)),
+  );
+  return c.json({ urls: renewed });
+});
+
 app.get("/api/media/*", async (c) => {
   let key = c.req.path.replace(/^\/api\/media\//, "");
   try {
@@ -1727,8 +1763,12 @@ app.get("/api/media/*", async (c) => {
   }
   const exp = c.req.query("exp") || "";
   const sig = c.req.query("sig") || "";
-  const ok = await verifyMediaSignature(key, exp, sig, mediaSigningSecret(c.env));
-  if (!ok) {
+  const signature = await mediaSignatureState(key, exp, sig, mediaSigningSecret(c.env));
+  // A tab left open past the link's expiry still shows the signed-in owner their own
+  // files. Everyone without that session, Oxen and providers included, needs a live link.
+  const ownerView = signature === "expired" && (await sessionOwnsMediaKey(c, key));
+  if (signature !== "valid" && !ownerView) {
+    console.warn(`media link refused: ${signature}`);
     throw new HTTPException(403, { message: "Invalid or expired media signature" });
   }
   const object = await c.env.MEDIA.get(key);
@@ -1741,13 +1781,18 @@ app.get("/api/media/*", async (c) => {
   const served = mediaServeDisposition(storedType);
   headers.set("Content-Disposition", served.disposition);
   headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("Access-Control-Allow-Origin", "*");
-  headers.set("Cross-Origin-Resource-Policy", "cross-origin");
-  const remaining = Number(exp) - Math.floor(Date.now() / 1000);
-  headers.set(
-    "Cache-Control",
-    `public, max-age=${Math.max(0, remaining)}, immutable`,
-  );
+  if (ownerView) {
+    headers.set("Cross-Origin-Resource-Policy", "same-origin");
+    headers.set("Cache-Control", `private, max-age=${OWNER_VIEW_CACHE_SECONDS}`);
+  } else {
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+    const remaining = Number(exp) - Math.floor(Date.now() / 1000);
+    headers.set(
+      "Cache-Control",
+      `public, max-age=${Math.max(0, remaining)}, immutable`,
+    );
+  }
   const width = parseServedThumbWidth(c.req.query("w"));
   if (width && isRasterImage(served.contentType)) {
     const bytes = await object.arrayBuffer();
@@ -1756,7 +1801,7 @@ app.get("/api/media/*", async (c) => {
     headers.set("Content-Type", resized?.contentType ?? served.contentType);
     headers.set("Content-Length", String(body.byteLength));
     const response = new Response(body, { headers });
-    if (resized) {
+    if (resized && !ownerView) {
       try {
         c.executionCtx.waitUntil(caches.default.put(c.req.raw, response.clone()));
       } catch {
@@ -1913,7 +1958,11 @@ app.post("/api/generate", async (c) => {
       signing,
     );
   } catch (err) {
-    if (err instanceof StudioMediaRefRejected || err instanceof OxenMediaInlineError) {
+    if (err instanceof StudioMediaRefRejected) {
+      console.warn(`media reference refused: ${err.reason}`);
+      throw new HTTPException(400, { message: err.message });
+    }
+    if (err instanceof OxenMediaInlineError) {
       throw new HTTPException(400, { message: err.message });
     }
     throw err;

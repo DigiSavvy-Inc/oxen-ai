@@ -106,7 +106,9 @@ This call asks Oxen for status and, on success, copies the file into R2. Repeat 
 
 On `succeeded`, `generation.resultUrl` is the media URL (a signed Studio URL once the file is archived). `thumbUrl` is a small image preview when one exists.
 
-`GET` that URL. `/api/media/*` does not use the session cookie. It checks `exp` and `sig`. Signed URLs last 12 hours. If the signature is expired, `GET /api/generations/<id>` again for a fresh `resultUrl`.
+`GET` that URL. `/api/media/*` checks `exp` and `sig`, and a live link needs no session cookie. Signed URLs last 12 hours. If the signature is expired, `GET /api/generations/<id>` again for a fresh `resultUrl`. An expired link still loads when the request carries the session of the user who owns the file; nobody else can use it.
+
+`POST /api/generate` refuses a reference whose link has expired. `POST /api/media/renew` with `{ "urls": [...] }` (up to 64) returns a new link for each of your own files that Studio signed, `null` for a link it will not renew, and any other URL unchanged. The Studio UI does this before it submits.
 
 ## Limits
 
