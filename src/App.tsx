@@ -5,7 +5,6 @@ import { Canvas } from "./components/Canvas";
 import { ChatThread } from "./components/ChatThread";
 import { HelpDock } from "./components/HelpDock";
 import { Composer, type PromptField } from "./components/Composer";
-import type { GalleryDraftItem } from "./components/GalleryDrawer";
 import { VideoThumbSecondsProvider } from "./components/GalleryThumb";
 import { CreditMeter } from "./components/CreditMeter";
 import { LibraryPeek } from "./components/LibraryPeek";
@@ -120,6 +119,8 @@ import {
   type HistoryGalleryNotice,
 } from "./lib/gallery-history";
 import { insertAttachMentions, moveItem } from "./lib/mentions";
+import { keepDraftIds, type GalleryDraftItem } from "./lib/gallery-draft";
+import { escapeTaken } from "./lib/escape-layer";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 import { captureVideoLastFrame } from "./lib/last-frame";
 import { preferredAspectRatio, showGetLastFrame, takeStagedOfKind } from "./lib/params";
@@ -259,7 +260,9 @@ export default function App() {
   const [referenceModelsError, setReferenceModelsError] = useState<string | null>(null);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [panelPlace, setPanelPlace] = useState<PanelPlace>(readPanelPlace);
-  const [focusGalleryId, setFocusGalleryId] = useState<string | null>(null);
+  const [managingGallery, setManagingGallery] = useState(false);
+  const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
+  const [galleryTileDrag, setGalleryTileDrag] = useState(false);
   const [gallerySummaries, setGallerySummaries] = useState<GallerySummary[]>([]);
   const [galleryId, setGalleryId] = useState<string | null>(null);
   const [galleryName, setGalleryName] = useState("");
@@ -322,6 +325,10 @@ export default function App() {
   const lastFrameAttempted = useRef(new Set<string>());
   const createGalleryOpenRef = useRef(false);
   const cancelCreateGalleryRef = useRef<() => void>(() => {});
+  /** Counts edits made inside an open gallery, so a save that returns late does not undo a newer one. */
+  const galleryEdit = useRef(0);
+  const galleryAutosave = useRef(false);
+  const saveGalleryRef = useRef<() => void>(() => {});
 
   function rememberParam<T>(setter: (value: T) => void) {
     return (value: T) => {
@@ -375,6 +382,8 @@ export default function App() {
   const closeLibrary = useCallback(() => {
     setLibraryOpen(false);
     setLibraryPane("history");
+    setManagingGallery(false);
+    setGalleryTileDrag(false);
     cancelCreateGalleryRef.current();
     if (window.matchMedia("(max-width: 860px)").matches) setPeekId(null);
   }, []);
@@ -391,7 +400,23 @@ export default function App() {
     setProjectsOpen(false);
     setShowSettings(false);
     setPeekId(null);
+    setManagingGallery(false);
     setLibraryPane(pane);
+    setLibraryOpen(true);
+  }
+
+  /** The prompt's Gallery button: the same panel, on the gallery last opened or on the list. */
+  function toggleGalleryPanel() {
+    if (libraryOpen && libraryPane === "galleries") {
+      closeLibrary();
+      return;
+    }
+    if (createGalleryOpen) cancelCreateGallery();
+    setProjectsOpen(false);
+    setShowSettings(false);
+    setPeekId(null);
+    setManagingGallery(Boolean(galleryId));
+    setLibraryPane("galleries");
     setLibraryOpen(true);
   }
 
@@ -781,8 +806,7 @@ export default function App() {
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        const target = event.target;
-        if (target instanceof Element && target.closest("#gallery-drawer")) return;
+        if (escapeTaken(event)) return;
         if (createGalleryOpenRef.current) {
           event.preventDefault();
           cancelCreateGalleryRef.current();
@@ -1500,6 +1524,7 @@ export default function App() {
     setGalleryName("");
     setGalleryItems([]);
     setGalleryStatus(null);
+    setGallerySkipped([]);
   }
 
   async function onDeleteSavedPrompt(id: string) {
@@ -1543,7 +1568,7 @@ export default function App() {
           role: item.kind === "audio" ? undefined : "character",
         });
       }
-      setGalleryItems((prev) => [...prev, ...added].slice(0, GALLERY_ITEM_CAP));
+      changeGallerySet((prev) => [...prev, ...added].slice(0, GALLERY_ITEM_CAP));
       if (rejected.length > 0) {
         setGalleryStatus(supportedMediaNotice(acceptedMediaKinds(controls, mode, currentModel())));
       }
@@ -1554,10 +1579,17 @@ export default function App() {
     }
   }
 
+  /** A file added to or taken out of the open gallery. A save still in flight must not put the old set back. */
+  function changeGallerySet(update: (prev: GalleryDraftItem[]) => GalleryDraftItem[]) {
+    galleryEdit.current += 1;
+    setGalleryItems(update);
+  }
+
   async function onGallerySave(nextItems?: GalleryDraftItem[]): Promise<boolean> {
     const name = galleryName.trim();
     const items = nextItems ?? galleryItems;
     if (!name || gallerySaving) return false;
+    const edit = galleryEdit.current;
     setGallerySaving(true);
     setGalleryStatus(null);
     try {
@@ -1568,7 +1600,10 @@ export default function App() {
       });
       setGalleryId(saved.gallery.id);
       setGalleryName(saved.gallery.name);
-      setGalleryItems(saved.gallery.items.map(draftFromGalleryItem));
+      // The set changed while this save was in flight: keep what is on screen.
+      if (galleryEdit.current === edit) {
+        setGalleryItems(keepDraftIds(items, saved.gallery.items.map(draftFromGalleryItem)));
+      }
       const listed = await api.galleries().catch(() => null);
       setGallerySummaries(
         listed?.galleries ?? [
@@ -1606,7 +1641,7 @@ export default function App() {
       return;
     }
     const result = appendHistoryToGallery(galleryItems, incoming, GALLERY_ITEM_CAP);
-    setGalleryItems(result.items);
+    changeGallerySet(() => result.items);
     if (result.skipped > 0) {
       setGalleryStatus(`A gallery holds ${GALLERY_ITEM_CAP} items`);
       return;
@@ -1625,7 +1660,7 @@ export default function App() {
       return;
     }
     const result = toggleHistoryInGallery(galleryItems, incoming, GALLERY_ITEM_CAP);
-    setGalleryItems(result.items);
+    changeGallerySet(() => result.items);
     if (result.skipped > 0) {
       setGalleryStatus(`A gallery holds ${GALLERY_ITEM_CAP} items`);
       return;
@@ -1660,8 +1695,11 @@ export default function App() {
 
   async function onGalleryLoad(id: string) {
     setGalleryStatus(null);
+    setGallerySkipped([]);
     try {
       const { gallery } = await api.gallery(id);
+      galleryEdit.current += 1;
+      galleryAutosave.current = false;
       setGalleryId(gallery.id);
       setGalleryName(gallery.name);
       setGalleryItems(gallery.items.map(draftFromGalleryItem));
@@ -1670,13 +1708,31 @@ export default function App() {
     }
   }
 
-  async function onGalleryFeature(index: number) {
+  /** An edit made on a tile of an open gallery. It shows at once and is saved with the gallery. */
+  function editGalleryItems(next: GalleryDraftItem[]) {
+    if (next === galleryItems) return;
+    galleryEdit.current += 1;
+    galleryAutosave.current = Boolean(galleryId && galleryName.trim());
+    setGalleryItems(next);
+  }
+
+  function onGalleryFeature(index: number) {
     const item = galleryItems[index];
     if (!item || index === 0) return;
-    const next = [item, ...galleryItems.filter((_, itemIndex) => itemIndex !== index)];
-    setGalleryItems(next);
-    await onGallerySave(next);
+    editGalleryItems([item, ...galleryItems.filter((_, itemIndex) => itemIndex !== index)]);
   }
+
+  function onGalleryReorder(from: number, to: number) {
+    editGalleryItems(moveItem(galleryItems, from, to));
+  }
+
+  saveGalleryRef.current = () => void onGallerySave();
+
+  useEffect(() => {
+    if (gallerySaving || !galleryAutosave.current) return;
+    galleryAutosave.current = false;
+    saveGalleryRef.current();
+  }, [gallerySaving, galleryItems]);
 
   async function onGalleryRename(id: string, name: string) {
     const trimmed = name.trim();
@@ -1795,15 +1851,11 @@ export default function App() {
     }));
   }
 
-  async function onGalleryRoleChange(index: number, role: MediaRole) {
+  function onGalleryRoleChange(index: number, role: MediaRole) {
     const current = galleryItems[index];
     if (!current || current.kind === "audio") return;
     if (normalizeMediaRole(current.role) === role) return;
-    const next = galleryItems.map((item, itemIndex) =>
-      itemIndex === index ? { ...item, role } : item,
-    );
-    setGalleryItems(next);
-    if (galleryId && galleryName.trim()) await onGallerySave(next);
+    editGalleryItems(galleryItems.map((item, itemIndex) => (itemIndex === index ? { ...item, role } : item)));
   }
 
   async function addHistoryToGallery(
@@ -1869,6 +1921,10 @@ export default function App() {
     }
   }
 
+  function attachFromGallery(items?: GalleryDraftItem[], caret?: number | null) {
+    setGallerySkipped(onGalleryAttach(items, caret));
+  }
+
   function onGalleryAttach(items?: GalleryDraftItem[], caret?: number | null): string[] {
     if (projectStaging) {
       const chosen = items ?? galleryItems;
@@ -1919,12 +1975,13 @@ export default function App() {
     if (plan.tokens.length > 0) {
       const field = promptField.current;
       const el = field?.element ?? null;
+      // A click in the gallery panel takes focus from the prompt, so use the caret it remembers.
       const liveCaret =
         caret !== undefined
           ? caret
           : el && document.activeElement === el
             ? el.selectionStart
-            : null;
+            : (field?.caret() ?? null);
       const result = insertAttachMentions(promptRef.current, liveCaret, plan.tokens);
       promptRef.current = result.next;
       attachDraft.current = { text: result.next, caret: result.caret };
@@ -2895,9 +2952,11 @@ export default function App() {
     return <LoginPage name={branding.name} logoUrl={branding.logoUrl} />;
   }
 
+  const galleryPanelOpen = libraryOpen && libraryPane === "galleries";
+
   return (
     <VideoThumbSecondsProvider seconds={settings?.videoThumbSeconds ?? DEFAULT_VIDEO_THUMB_SECONDS}>
-    <div className={`app-shell panel-place-${panelPlace}${libraryOpen ? " library-open" : ""}${peek ? " has-peek" : ""}`}>
+    <div className={`app-shell panel-place-${panelPlace}${libraryOpen ? " library-open" : ""}${peek ? " has-peek" : ""}${galleryTileDrag ? " is-tile-drag" : ""}${galleryPanelOpen && managingGallery ? " is-gallery-open" : ""}`}>
       <PanelPlaceProvider place={panelPlace} setPlace={setPanelPlace}>
       <ProjectRail
         open={projectsOpen}
@@ -2954,7 +3013,7 @@ export default function App() {
               setLibraryOpen(true);
             }}
             onOpenGallery={(id) => {
-              setFocusGalleryId(id);
+              setManagingGallery(true);
               setLibraryPane("galleries");
               setProjectsOpen(false);
               setShowSettings(false);
@@ -3063,7 +3122,6 @@ export default function App() {
         onPage={setLibraryPage}
         downloadingAll={downloadingAll}
         onSelect={setPeekId}
-        open={libraryOpen}
         onClose={closeLibrary}
         onDownloadAll={() => void onDownloadAll()}
         onDelete={(ids, fromOxen) => {
@@ -3087,7 +3145,7 @@ export default function App() {
         galleryAdding={galleryAdding}
         galleryStatus={galleryStatus}
         onGalleryAddFiles={(files) => void onGalleryAddFiles(files)}
-        onGalleryRemove={(index) => setGalleryItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
+        onGalleryRemove={(index) => changeGallerySet((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
         onCreateGallery={openCreateGallery}
         onCreateGalleryClose={cancelCreateGallery}
         onCreateGallerySave={() => void saveCreateGallery()}
@@ -3099,16 +3157,20 @@ export default function App() {
         galleryId={galleryId}
         onGalleryOpen={(id) => void onGalleryLoad(id)}
         onManageGallerySave={() => void onGallerySave()}
-        onGalleryAttach={onGalleryAttach}
-        onGalleryRoleChange={(index, role) => void onGalleryRoleChange(index, role)}
-        onGalleryFeature={(index) => void onGalleryFeature(index)}
+        onGalleryAttach={attachFromGallery}
+        gallerySkipped={gallerySkipped}
+        onGalleryRoleChange={onGalleryRoleChange}
+        onGalleryFeature={onGalleryFeature}
+        onGalleryReorder={onGalleryReorder}
+        onGalleryTileDrag={setGalleryTileDrag}
         onGalleryDelete={(id) => void onGalleryDelete(id)}
         onGalleryRename={(id, name) => void onGalleryRename(id, name)}
         onGalleryDeleteSelected={onGalleryDeleteSelected}
         onGalleryPlace={onGalleryPlace}
         onHistoryAddToGallery={addHistoryToGallery}
         onHistoryCreateGallery={createHistoryGallery}
-        focusGalleryId={focusGalleryId}
+        managingGallery={managingGallery}
+        onManagingGallery={setManagingGallery}
         pane={libraryPane}
         onPaneChange={chooseLibraryPane}
       />
@@ -3126,7 +3188,7 @@ export default function App() {
             <PhoneNav
               libraryActive={libraryOpen && libraryPane === "history"}
               projectsActive={projectsOpen}
-              galleriesActive={libraryOpen && libraryPane === "galleries"}
+              galleriesActive={galleryPanelOpen}
               onOpenLibrary={() => openLibraryPane("history")}
               onOpenProjects={openProjectsPane}
               onOpenGalleries={() => openLibraryPane("galleries")}
@@ -3334,21 +3396,10 @@ export default function App() {
             onSavePrompt={onSavePrompt}
             onUpdateSavedPrompt={onUpdateSavedPrompt}
             onDeleteSavedPrompt={onDeleteSavedPrompt}
-            galleryName={galleryName}
-            onGalleryNameChange={setGalleryName}
+            galleryOpen={galleryPanelOpen}
+            onGalleryToggle={toggleGalleryPanel}
             galleryItems={galleryItems}
-            gallerySummaries={gallerySummaries}
-            gallerySaving={gallerySaving}
-            galleryAdding={galleryAdding}
-            galleryStatus={galleryStatus}
-            onGalleryAddFiles={(files) => void onGalleryAddFiles(files)}
-            onGalleryRemove={(index) => setGalleryItems((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
-            onGalleryReorder={(from, to) => setGalleryItems((prev) => moveItem(prev, from, to))}
-            onGallerySave={onGallerySave}
-            onGalleryNew={onGalleryNew}
-            onGalleryLoad={onGalleryLoad}
-            onGalleryAttach={onGalleryAttach}
-            onGalleryRoleChange={(index, role) => void onGalleryRoleChange(index, role)}
+            onGalleryAttach={attachFromGallery}
             quality={quality}
             onQualityChange={rememberParam(setQuality)}
             resolution={resolution}

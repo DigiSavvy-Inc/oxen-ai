@@ -960,9 +960,9 @@ describe("in-gallery version expand", () => {
     ).toMatchObject({ fitOpen: false, expandedId: "set", previewId: "b" });
   });
 
-  it("renders the expand inside the library scroller, not the saved gallery drawer", () => {
+  it("renders the expand inside the library scroller, not the open gallery", () => {
     const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
-    const drawer = readFileSync(new URL("../src/components/GalleryDrawer.tsx", import.meta.url), "utf8");
+    const browser = readFileSync(new URL("../src/components/GalleryBrowser.tsx", import.meta.url), "utf8");
     const peek = readFileSync(new URL("../src/components/LibraryPeek.tsx", import.meta.url), "utf8");
     expect(sidebar).toContain("{!galleriesOpen ? (");
     expect(sidebar).toContain('className="history"');
@@ -1014,7 +1014,7 @@ describe("in-gallery version expand", () => {
     expect(videoBranch).not.toContain("<video");
     expect(sidebar).toContain("onPointerDown={notePointer}");
     expect(sidebar).toContain("!dragMoved(event)");
-    expect(drawer).not.toContain("history-expand");
+    expect(browser).not.toContain("history-expand");
     const media = readFileSync(new URL("../src/components/FullSizeMedia.tsx", import.meta.url), "utf8");
     expect(media).toContain("kind === \"video\"");
     expect(media).toContain("!actualSize && slides.length > 1");
@@ -1103,12 +1103,7 @@ describe("library history layout", () => {
     expect(css).not.toMatch(/\.history-expand-anchor/);
     expect(css).not.toMatch(/\.history-expand-set/);
     expect(css).not.toMatch(/\.history-tile\.is-open \.history-tile-square::after\s*\{[^}]*inset 0 0 0 3px/);
-    expect(css).toMatch(/\.selected-collection\s*\{[^}]*padding:\s*8px/);
-    expect(css).toMatch(/\.selected-collection\s*\{[^}]*background:\s*var\(--bg-active\)/);
-    expect(css).not.toMatch(/\.history-tile-square\s*\{[^}]*selected-collection/);
-    const drawer = readFileSync(new URL("../src/components/GalleryDrawer.tsx", import.meta.url), "utf8");
-    expect(drawer).toContain("selected-collection");
-    expect(drawer).toContain("props.items.length > 0");
+    expect(css).not.toContain("selected-collection");
     expect(sidebar).not.toContain("selected-collection");
     expect(css).toMatch(/\.history-expand\s*\{[^}]*overflow-x:\s*hidden/);
     expect(css).toMatch(/\.history-expand-versions\s*\{[^}]*overflow:\s*hidden/);
@@ -1135,8 +1130,8 @@ describe("library history layout", () => {
     expect(header.indexOf("Galleries")).toBeLessThan(header.indexOf("Create gallery"));
     expect(header.indexOf("Create gallery")).toBeGreaterThan(-1);
     expect(header.indexOf("Create gallery")).toBeLessThan(header.indexOf("Download all"));
-    expect(sidebar).toContain('aria-label={galleriesOpen ? "Back to history" : "Close library"}');
-    expect(sidebar).toContain("if (open !== false) return;");
+    expect(sidebar).toContain('aria-label="Close library"');
+    expect(sidebar).not.toContain("Back to history");
     const modelMenu = readFileSync(new URL("../src/components/ModelMenu.tsx", import.meta.url), "utf8");
     expect(modelMenu).toContain("createPortal");
     expect(css).toContain(".model-menu-pop");
@@ -1456,7 +1451,8 @@ describe("app column", () => {
     expect(css).toMatch(/\.project-slide\s*\{[^}]*transform:\s*translateX\(calc\(-100% - 24px\)\)/);
     expect(css).toMatch(/\.slide-backdrop\s*\{[^}]*inset:\s*52px 0 0 0/);
     expect(css).toContain(".app-shell.panel-place-right .sidebar");
-    expect(css).toContain(".app-shell.panel-place-bottom .gallery-drawer");
+    expect(css).toContain(".app-shell.panel-place-bottom .library-peek");
+    expect(css).not.toContain(".gallery-drawer");
     expect(css.lastIndexOf(".panel-place {\n    display: none;")).toBeGreaterThan(
       css.indexOf(".panel-place {\n  display: inline-flex;"),
     );
@@ -1731,23 +1727,7 @@ describe("mobile result stays reachable", () => {
   });
 });
 
-describe("gallery drawer", () => {
-  it("docks on the left with the other media panels and fills the screen on a phone", () => {
-    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
-    const drawer = readFileSync(new URL("../src/components/GalleryDrawer.tsx", import.meta.url), "utf8");
-    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*position:\s*fixed/);
-    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*inset:\s*52px auto 0 0/);
-    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*width:\s*var\(--slide-width\)/);
-    expect(css).toMatch(/\.gallery-drawer\s*\{[^}]*overflow:\s*hidden/);
-    expect(drawer).toContain("PanelPlaceSwitch");
-    expect(drawer).toContain('document.querySelector(".workspace")');
-    expect(css).toMatch(/\.gallery-scroll\s*\{[^}]*overflow:\s*auto/);
-    expect(drawer).toContain("New gallery");
-    expect(css).toMatch(
-      /@media \(max-width: 860px\) \{[\s\S]*\.gallery-drawer\.is-sheet\s*\{[^}]*position:\s*fixed;[^}]*inset:\s*0/,
-    );
-  });
-
+describe("gallery panel", () => {
   it("keeps the selected-item bar stuck to the top of an open gallery", () => {
     const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
     expect(css).toMatch(/\.gallery-bulk\s*\{[^}]*position:\s*sticky/);

@@ -41,11 +41,9 @@ describe("gallery slot thumbs", () => {
   });
 
   it("renders gallery slots from GalleryThumb instead of the full file", () => {
-    const drawer = readFileSync(new URL("../src/components/GalleryDrawer.tsx", import.meta.url), "utf8");
     const palette = readFileSync(new URL("../src/components/CreateGalleryPalette.tsx", import.meta.url), "utf8");
     const browser = readFileSync(new URL("../src/components/GalleryBrowser.tsx", import.meta.url), "utf8");
-    expect(drawer).toContain('slot="tile"');
-    expect(drawer).not.toContain("<video");
+    expect(browser).not.toContain("<video");
     expect(palette).toContain('slot="strip"');
     expect(palette).not.toContain("<video");
     expect(browser).toContain('"strip"');
@@ -72,6 +70,7 @@ describe("gallery slot thumbs", () => {
         saving: false,
         adding: false,
         status: null,
+        skipped: ["clip.mp4"],
         accept: "image/*",
         dropLabel: "Drop",
         attachedKeys: new Set(["key-b"]),
@@ -81,8 +80,9 @@ describe("gallery slot thumbs", () => {
         onBack: () => undefined,
         onNameChange: () => undefined,
         onSave: () => undefined,
-        onAttach: () => [],
+        onAttach: () => undefined,
         onRemove: () => undefined,
+        onReorder: () => undefined,
         onRoleChange: () => undefined,
         onFeature: () => undefined,
         onDelete: () => undefined,
@@ -95,5 +95,7 @@ describe("gallery slot thumbs", () => {
     expect(html).toContain('aria-label="Attach one.png"');
     expect(html).toContain('aria-label="Attached two.png"');
     expect(html).toContain("gallery-attach-one is-attached");
+    expect(html).toContain("Skipped clip.mp4");
+    expect(html.match(/class="gallery-manage-tile" draggable="true"/g)).toHaveLength(2);
   });
 });

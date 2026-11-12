@@ -22,6 +22,7 @@ import {
   type GalleryExpandAction,
   type GalleryExpandState,
 } from "../lib/gallery-expand";
+import type { GalleryDraftItem } from "../lib/gallery-draft";
 import {
   historyItemForGallery,
   historyItemsForGallery,
@@ -34,7 +35,6 @@ import { suggestTags } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
 import { CreateGalleryPalette } from "./CreateGalleryPalette";
 import { GalleryBrowser, type GalleryPlace } from "./GalleryBrowser";
-import type { GalleryDraftItem } from "./GalleryDrawer";
 import { DownloadButton } from "./DownloadButton";
 import { HistoryGalleryActions } from "./HistoryGalleryActions";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
@@ -245,7 +245,6 @@ export function Sidebar({
   onPage,
   onSelect,
   onClose,
-  open,
   onDownloadAll,
   onDelete,
   attachedIds,
@@ -275,15 +274,19 @@ export function Sidebar({
   onGalleryOpen,
   onManageGallerySave,
   onGalleryAttach,
+  gallerySkipped,
   onGalleryRoleChange,
   onGalleryFeature,
+  onGalleryReorder,
+  onGalleryTileDrag,
   onGalleryDelete,
   onGalleryRename,
   onGalleryDeleteSelected,
   onGalleryPlace,
   onHistoryAddToGallery,
   onHistoryCreateGallery,
-  focusGalleryId = null,
+  managingGallery,
+  onManagingGallery,
   pane,
   onPaneChange,
 }: {
@@ -303,7 +306,6 @@ export function Sidebar({
   pageCount: number;
   onPage: (page: number) => void;
   onSelect: (id: string | null) => void;
-  open?: boolean;
   onClose?: () => void;
   onDownloadAll?: () => void;
   onDelete?: (ids: string[], fromOxen?: boolean) => void;
@@ -333,16 +335,21 @@ export function Sidebar({
   galleryId: string | null;
   onGalleryOpen: (id: string) => void;
   onManageGallerySave: () => void;
-  onGalleryAttach: (items?: GalleryDraftItem[]) => string[];
+  onGalleryAttach: (items?: GalleryDraftItem[]) => void;
+  gallerySkipped: string[];
   onGalleryRoleChange: (index: number, role: MediaRole) => void;
   onGalleryFeature: (index: number) => void;
+  onGalleryReorder: (from: number, to: number) => void;
+  onGalleryTileDrag: (dragging: boolean) => void;
   onGalleryDelete: (id?: string) => void;
   onGalleryRename: (id: string, name: string) => void;
   onGalleryDeleteSelected: (ids: string[]) => Promise<boolean>;
   onGalleryPlace: (input: GalleryPlace) => Promise<boolean>;
   onHistoryAddToGallery: (galleryId: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
   onHistoryCreateGallery: (name: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
-  focusGalleryId?: string | null;
+  /** True while one gallery is open in the panel; false shows the list of galleries. */
+  managingGallery: boolean;
+  onManagingGallery: (value: boolean) => void;
   pane: "history" | "galleries";
   onPaneChange: (pane: "history" | "galleries") => void;
 }) {
@@ -350,7 +357,6 @@ export function Sidebar({
   const [pageDraft, setPageDraft] = useState(String(page));
   const pageCommitSkip = useRef(false);
   const galleriesOpen = pane === "galleries";
-  const [managingGallery, setManagingGallery] = useState(false);
   const [expandKey, setExpandKey] = useState(pagingKey);
   const [expand, setExpand] = useState<GalleryExpandState>(CLOSED_EXPAND);
   const expandRef = useRef(expand);
@@ -373,21 +379,6 @@ export function Sidebar({
   const [confirmBulk, setConfirmBulk] = useState<null | "studio" | "oxen">(null);
   const [downloadingPicked, setDownloadingPicked] = useState(false);
 
-  useEffect(() => {
-    if (!focusGalleryId) return;
-    onPaneChange("galleries");
-    setManagingGallery(true);
-  }, [focusGalleryId, onPaneChange]);
-
-  function leaveGalleries() {
-    onPaneChange("history");
-    setManagingGallery(false);
-  }
-
-  useEffect(() => {
-    if (open !== false) return;
-    setManagingGallery(false);
-  }, [open]);
   const expandForPage = expandKey === pagingKey ? expand : CLOSED_EXPAND;
   const expandVisible =
     !expandForPage.expandedId || batches.some((batch) => batch.id === expandForPage.expandedId)
@@ -639,7 +630,7 @@ export function Sidebar({
             aria-pressed={galleriesOpen}
             onClick={() => {
               if (createGalleryOpen) onCreateGalleryClose();
-              setManagingGallery(false);
+              onManagingGallery(false);
               onPaneChange(galleriesOpen ? "history" : "galleries");
             }}
           >
@@ -652,7 +643,7 @@ export function Sidebar({
             aria-controls="create-gallery"
             onClick={() => {
               onPaneChange("history");
-              setManagingGallery(false);
+              onManagingGallery(false);
               onCreateGallery();
             }}
           >
@@ -679,14 +670,8 @@ export function Sidebar({
             <button
               type="button"
               className="icon-btn sidebar-close"
-              aria-label={galleriesOpen ? "Back to history" : "Close library"}
-              onClick={() => {
-                if (galleriesOpen) {
-                  leaveGalleries();
-                  return;
-                }
-                onClose();
-              }}
+              aria-label="Close library"
+              onClick={onClose}
             >
               ×
             </button>
@@ -721,11 +706,12 @@ export function Sidebar({
           items={galleryItems}
           saving={gallerySaving}
           status={galleryStatus}
+          skipped={gallerySkipped}
           onOpen={(id) => {
-            setManagingGallery(true);
+            onManagingGallery(true);
             onGalleryOpen(id);
           }}
-          onBack={() => setManagingGallery(false)}
+          onBack={() => onManagingGallery(false)}
           onNameChange={onGalleryNameChange}
           onSave={onManageGallerySave}
           onAttach={onGalleryAttach}
@@ -733,6 +719,8 @@ export function Sidebar({
           onRemove={onGalleryRemove}
           onRoleChange={onGalleryRoleChange}
           onFeature={onGalleryFeature}
+          onReorder={onGalleryReorder}
+          onTileDrag={onGalleryTileDrag}
           onDelete={() => onGalleryDelete()}
           onRenameGallery={onGalleryRename}
           onDeleteGallery={onGalleryDelete}

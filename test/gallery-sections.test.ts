@@ -39,15 +39,12 @@ describe("gallery sections", () => {
     expect(sections[4]?.items.map((entry) => entry.item.name)).toEqual(["bed"]);
   });
 
-  it("offers the same role control in the attachment gallery and the library gallery", () => {
-    const drawer = readFileSync(new URL("../src/components/GalleryDrawer.tsx", import.meta.url), "utf8");
+  it("groups an open gallery into sections and offers the role control on each tile", () => {
     const browser = readFileSync(new URL("../src/components/GalleryBrowser.tsx", import.meta.url), "utf8");
     const role = readFileSync(new URL("../src/components/GalleryRoleSelect.tsx", import.meta.url), "utf8");
-    expect(drawer).toContain("GallerySections");
     expect(browser).toContain("GallerySections");
-    expect(drawer).toContain("GalleryRoleSelect");
     expect(browser).toContain("GalleryRoleSelect");
-    expect(drawer).toContain("Images, video, and audio sort into their own groups.");
+    expect(browser).toContain("Images, video, and audio sort into their own groups.");
     expect(role).toContain("REFERENCE_ROLES.map");
     expect(role).toContain("referenceRoleLabel(role)");
     expect(gallerySections([])).toEqual([]);

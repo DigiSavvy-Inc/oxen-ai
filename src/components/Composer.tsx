@@ -60,9 +60,8 @@ import {
   type DurationControl,
   type MediaRole,
 } from "../../worker/schema";
-import type { GallerySummary } from "../lib/api";
+import type { GalleryDraftItem } from "../lib/gallery-draft";
 import { AudioAttachControl, ExpandMediaButton } from "./MediaLightbox";
-import { GalleryDrawer, type GalleryDraftItem } from "./GalleryDrawer";
 import { Loader } from "./Loader";
 import { ModelMenu } from "./ModelMenu";
 
@@ -148,6 +147,8 @@ function savedPromptLabel(item: Pick<SavedPrompt, "name" | "body">): string {
 export type PromptField = {
   element: HTMLTextAreaElement | null;
   place: (caret: number, prompt: string) => void;
+  /** Where the caret is, or last was once the prompt lost focus. Null before the prompt is used. */
+  caret: () => number | null;
 };
 
 type Props = {
@@ -194,21 +195,11 @@ type Props = {
   onSavePrompt?: (name: string, body: string) => Promise<void> | void;
   onUpdateSavedPrompt?: (id: string, name: string, body: string) => Promise<void> | void;
   onDeleteSavedPrompt?: (id: string) => Promise<void> | void;
-  galleryName?: string;
-  onGalleryNameChange?: (value: string) => void;
+  /** The gallery panel is open. It is the Library panel on its Galleries screen. */
+  galleryOpen?: boolean;
+  onGalleryToggle?: () => void;
   galleryItems?: GalleryDraftItem[];
-  gallerySummaries?: GallerySummary[];
-  gallerySaving?: boolean;
-  galleryAdding?: boolean;
-  galleryStatus?: string | null;
-  onGalleryAddFiles?: (files: FileList | File[] | null) => void;
-  onGalleryRemove?: (index: number) => void;
-  onGalleryReorder?: (from: number, to: number) => void;
-  onGallerySave?: () => Promise<boolean | void> | boolean | void;
-  onGalleryNew?: () => void;
-  onGalleryLoad?: (id: string) => Promise<void> | void;
-  onGalleryAttach?: (items?: GalleryDraftItem[], caret?: number | null) => string[];
-  onGalleryRoleChange?: (index: number, role: MediaRole) => void;
+  onGalleryAttach?: (items?: GalleryDraftItem[], caret?: number | null) => void;
   quality: string;
   onQualityChange: (value: string) => void;
   resolution: string;
@@ -284,8 +275,6 @@ export function Composer(props: Props) {
   const [savedMark, setSavedMark] = useState<string | null>(null);
   const [lookMenu, setLookMenu] = useState<{ draft: LookDraft | null } | null>(null);
   const [promptSelection, setPromptSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
-  const [galleryForMode, setGalleryForMode] = useState<GenerationMode | null>(null);
-  const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
   const savedMenuRef = useRef<HTMLDivElement>(null);
   const mentionMenuRef = useRef<HTMLDivElement>(null);
   const pendingCaret = useRef<{ caret: number; prompt: string } | null>(null);
@@ -301,7 +290,7 @@ export function Composer(props: Props) {
   const dropPhrase = mediaKindPhrase(acceptedKinds);
   const audioCount = props.attachments.filter((item) => item.kind === "audio").length;
   const galleryAvailable = modeHasReferenceGallery(props.mode);
-  const galleryOpen = galleryAvailable && galleryForMode === props.mode;
+  const galleryOpen = galleryAvailable && props.galleryOpen === true;
   const showDropzone =
     imageMax > 0 ||
     videoMax > 0 ||
@@ -434,6 +423,13 @@ export function Composer(props: Props) {
       menu.scrollTop = bottom - menu.clientHeight;
     }
   }, [showMentions, activeMention, mentionItems]);
+
+  function promptCaret(): number | null {
+    const el = promptRef.current;
+    if (el && document.activeElement === el) return el.selectionStart;
+    if (promptCaretReady.current) return caret;
+    return null;
+  }
 
   function placeCaret(nextCaret: number, prompt: string) {
     promptCaretReady.current = true;
@@ -585,6 +581,7 @@ export function Composer(props: Props) {
     props.onPromptField?.({
       element: promptRef.current,
       place: placeCaret,
+      caret: promptCaret,
     });
     const pending = pendingCaret.current;
     const el = promptRef.current;
@@ -705,13 +702,6 @@ export function Composer(props: Props) {
     return null;
   }
 
-  function galleryDropCaret(): number | null {
-    const el = promptRef.current;
-    if (el && document.activeElement === el) return el.selectionStart;
-    if (promptCaretReady.current) return caret;
-    return null;
-  }
-
   function onFileDragEnter(event: DragEvent) {
     if (!promptDragKind(event)) return;
     event.preventDefault();
@@ -745,7 +735,7 @@ export function Composer(props: Props) {
       const id = event.dataTransfer.getData(GALLERY_ITEM_DRAG_TYPE);
       const picked = galleryItemsForDrop(props.galleryItems ?? [], id);
       if (picked.length !== 1) return;
-      setGallerySkipped(props.onGalleryAttach?.(picked, galleryDropCaret()) ?? []);
+      props.onGalleryAttach?.(picked, promptCaret());
       return;
     }
     props.onAddFiles(event.dataTransfer.files);
@@ -776,11 +766,6 @@ export function Composer(props: Props) {
       return;
     }
     clearMentionHover();
-  }
-
-  function attachGallery() {
-    const skipped = props.onGalleryAttach?.() ?? [];
-    setGallerySkipped(skipped);
   }
 
   return (
@@ -818,10 +803,8 @@ export function Composer(props: Props) {
               type="button"
               className={`gallery-toggle${galleryOpen ? " active" : ""}`}
               aria-expanded={galleryOpen}
-              aria-controls="gallery-drawer"
-              onClick={() =>
-                setGalleryForMode((current) => (current === props.mode ? null : props.mode))
-              }
+              aria-controls="media-library"
+              onClick={() => props.onGalleryToggle?.()}
             >
               Gallery
             </button>
@@ -1871,32 +1854,6 @@ export function Composer(props: Props) {
           </div>
         ) : null}
       </div>
-      {galleryAvailable && galleryOpen ? (
-        <GalleryDrawer
-          name={props.galleryName ?? ""}
-          onNameChange={(value) => props.onGalleryNameChange?.(value)}
-          items={props.galleryItems ?? []}
-          summaries={props.gallerySummaries ?? []}
-          saving={props.gallerySaving === true}
-          adding={props.galleryAdding === true}
-          status={props.galleryStatus ?? null}
-          skipped={gallerySkipped}
-          onAddFiles={(files) => props.onGalleryAddFiles?.(files)}
-          onRemove={(index) => props.onGalleryRemove?.(index)}
-          onRoleChange={(index, role) => props.onGalleryRoleChange?.(index, role)}
-          onReorder={(from, to) => props.onGalleryReorder?.(from, to)}
-          onSave={() => void props.onGallerySave?.()}
-          onNew={() => {
-            setGallerySkipped([]);
-            props.onGalleryNew?.();
-          }}
-          onLoad={(id) => void props.onGalleryLoad?.(id)}
-          onAttach={attachGallery}
-          accept={fileAccept}
-          dropLabel={dropPhrase ? `Drop ${dropPhrase}` : ""}
-          onClose={() => setGalleryForMode(null)}
-        />
-      ) : null}
       </div>
       {hoveredMention
         ? createPortal(

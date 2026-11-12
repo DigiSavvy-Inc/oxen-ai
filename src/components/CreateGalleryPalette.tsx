@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { fileDragOffered, historyDragOffered, readHistoryDrag } from "../lib/history-drag";
-import type { GalleryDraftItem } from "./GalleryDrawer";
+import type { GalleryDraftItem } from "../lib/gallery-draft";
 import { GalleryThumb } from "./GalleryThumb";
 
 type Props = {

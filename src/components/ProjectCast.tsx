@@ -109,7 +109,6 @@ export function ProjectCast(props: Props) {
         <div className="cast-tile-foot">
           {item.kind !== "audio" ? (
             <GalleryRoleSelect
-              compact
               name={token}
               role={item.role}
               onChange={(role) => props.onRoleChange(item, role)}

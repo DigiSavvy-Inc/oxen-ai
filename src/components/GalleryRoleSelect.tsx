@@ -1,22 +1,17 @@
-import { REFERENCE_ROLES, normalizeMediaRole, referenceRoleLabel, referenceRoleUsesFace, type MediaRole } from "../../worker/schema";
+import { REFERENCE_ROLES, normalizeMediaRole, referenceRoleLabel, type MediaRole } from "../../worker/schema";
 import { referenceRoleTitle } from "../lib/reference-roles";
 
 type Props = {
   name: string;
   role?: string | null;
   onChange: (role: MediaRole) => void;
-  compact?: boolean;
 };
 
 export function GalleryRoleSelect(props: Props) {
   const value = normalizeMediaRole(props.role);
   const select = (
     <select
-      className={
-        props.compact
-          ? "gallery-role"
-          : `attach-role gallery-role${referenceRoleUsesFace(value) ? "" : " is-plain"}`
-      }
+      className="gallery-role"
       aria-label={`Reference role for ${props.name}`}
       title={referenceRoleTitle(value)}
       value={value}
@@ -30,7 +25,6 @@ export function GalleryRoleSelect(props: Props) {
       ))}
     </select>
   );
-  if (!props.compact) return select;
   return (
     <span className={`gallery-role-chip is-${value}`}>
       <RoleGlyph role={value} />

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { createPortal, flushSync } from "react-dom";
 import type { GallerySummary } from "../lib/api";
+import type { GalleryDraftItem } from "../lib/gallery-draft";
 import { gallerySwipeSlides } from "../lib/gallery-slides";
 import { fileDragOffered, historyDragOffered, readHistoryDrag } from "../lib/history-drag";
+import { useTileReorder } from "../lib/tile-reorder";
 import type { MediaRole } from "../../worker/schema";
-import type { GalleryDraftItem } from "./GalleryDrawer";
 import { FullSizeMedia } from "./FullSizeMedia";
 import { GalleryRoleSelect } from "./GalleryRoleSelect";
 import { GallerySections } from "./GallerySections";
@@ -26,6 +27,7 @@ type Props = {
   saving: boolean;
   adding: boolean;
   status: string | null;
+  skipped: string[];
   accept: string;
   dropLabel: string;
   onAddFiles: (files: FileList | File[] | null) => void;
@@ -34,9 +36,11 @@ type Props = {
   onBack: () => void;
   onNameChange: (value: string) => void;
   onSave: () => void;
-  onAttach: (items?: GalleryDraftItem[]) => string[];
+  onAttach: (items?: GalleryDraftItem[]) => void;
   attachedKeys?: ReadonlySet<string>;
   onRemove: (index: number) => void;
+  onReorder: (from: number, to: number) => void;
+  onTileDrag?: (dragging: boolean) => void;
   onRoleChange: (index: number, role: MediaRole) => void;
   onFeature: (index: number) => void;
   onDelete: () => void;
@@ -48,7 +52,6 @@ type Props = {
 
 export function GalleryBrowser(props: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [skipped, setSkipped] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [confirmSelected, setConfirmSelected] = useState(false);
   const [destination, setDestination] = useState("");
@@ -57,6 +60,11 @@ export function GalleryBrowser(props: Props) {
   const [playing, setPlaying] = useState<Playing | null>(null);
   const [dropHot, setDropHot] = useState(false);
   const dropDepth = useRef(0);
+  const reorder = useTileReorder({
+    items: props.items,
+    onReorder: props.onReorder,
+    onDragChange: props.onTileDrag,
+  });
 
   useEffect(() => {
     setSelected([]);
@@ -200,7 +208,7 @@ export function GalleryBrowser(props: Props) {
           type="button"
           className="ghost-btn"
           disabled={props.items.length === 0}
-          onClick={() => setSkipped(props.onAttach())}
+          onClick={() => props.onAttach()}
         >
           Attach all
         </button>
@@ -232,7 +240,7 @@ export function GalleryBrowser(props: Props) {
           <button
             type="button"
             className="ghost-btn"
-            onClick={() => setSkipped(props.onAttach(selectedItems))}
+            onClick={() => props.onAttach(selectedItems)}
           >
             Attach
           </button>
@@ -288,10 +296,11 @@ export function GalleryBrowser(props: Props) {
           </button>
         </div>
       ) : null}
-      {skipped.length > 0 ? <p className="gallery-skipped">Skipped {skipped.join(", ")}</p> : null}
+      {props.skipped.length > 0 ? <p className="gallery-skipped">Skipped {props.skipped.join(", ")}</p> : null}
       {props.status ? <p className="gallery-status">{props.status}</p> : null}
       <label className={`gallery-drop${dropHot ? " is-hot" : ""}`}>
         {props.adding ? "Adding…" : props.dropLabel || "Drop media"}
+        <span className="gallery-drop-hint">Images, video, and audio sort into their own groups.</span>
         <input
           type="file"
           accept={props.accept}
@@ -305,20 +314,24 @@ export function GalleryBrowser(props: Props) {
       {props.items.length === 0 ? (
         <div className="history-empty">This gallery is empty.</div>
       ) : (
+        <div className="gallery-manage-set" {...reorder.set}>
         <GallerySections
           items={props.items}
           gridClassName="gallery-manage-grid"
           renderItem={(item, index) => {
             const attached = itemAttached(item, props.attachedKeys);
+            const drag = reorder.tile(index, item);
             return (
             <div
               key={item.id}
-              className={`gallery-manage-tile${selected.includes(item.id) ? " is-selected" : ""}`}
+              className={`gallery-manage-tile${selected.includes(item.id) ? " is-selected" : ""}${drag.dragging ? " is-dragging" : ""}${drag.side ? ` is-drop-${drag.side}` : ""}`}
+              {...drag.handlers}
             >
               {(item.kind === "image" || item.kind === "video") && item.url ? (
                 <button
                   type="button"
                   className="gallery-tile-hit"
+                  draggable
                   aria-label={`Open ${item.name}`}
                   onClick={() => openSlide(item)}
                 >
@@ -346,7 +359,6 @@ export function GalleryBrowser(props: Props) {
               <div className="gallery-tile-actions">
                 {item.kind === "image" || item.kind === "video" ? (
                   <GalleryRoleSelect
-                    compact
                     name={item.name}
                     role={item.role}
                     onChange={(role) => props.onRoleChange(index, role)}
@@ -382,7 +394,7 @@ export function GalleryBrowser(props: Props) {
                   className={`gallery-attach-one${attached ? " is-attached" : ""}`}
                   aria-label={`${attached ? "Attached" : "Attach"} ${item.name}`}
                   title={attached ? "Attached" : "Attach"}
-                  onClick={() => setSkipped(props.onAttach([item]))}
+                  onClick={() => props.onAttach([item])}
                 >
                   {attached ? <AttachedIcon /> : <AttachIcon />}
                 </button>
@@ -402,6 +414,7 @@ export function GalleryBrowser(props: Props) {
             );
           }}
         />
+        </div>
       )}
       {fit ? (
         <FullSizeMedia
