@@ -10,10 +10,12 @@ import {
 } from "../lib/download";
 import { historyItemForGallery } from "../lib/gallery-history";
 import { writeHistoryDrag } from "../lib/history-drag";
+import type { DeleteScope } from "../lib/media-delete";
 import { runModes } from "../lib/mode-icons";
 import { estimateGenerationWait } from "../lib/progress";
 import { MAX_TAGS_PER_MEDIA, parseTagList } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
+import { DeleteMenu } from "./DeleteMenu";
 import { DownloadButton } from "./DownloadButton";
 import { LastFrameStill } from "./LastFrameStill";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
@@ -279,7 +281,7 @@ export function Canvas({
   variants: Generation[];
   onSelect: (id: string) => void;
   onTagsChange: (id: string, tags: string[]) => void;
-  onDelete?: (id: string) => void;
+  onDelete?: (id: string, scope: DeleteScope) => void;
   onRenderFinal?: (generation: Generation) => void;
   renderBusy?: boolean;
 }) {
@@ -368,9 +370,7 @@ export function Canvas({
               </button>
             ) : null}
             {onDelete ? (
-              <button type="button" className="ghost-btn" onClick={() => onDelete(generation.id)}>
-                Delete
-              </button>
+              <DeleteMenu count={1} onChoose={(scope) => onDelete(generation.id, scope)} />
             ) : null}
           </div>
         </div>

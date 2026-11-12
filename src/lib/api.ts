@@ -568,15 +568,31 @@ export const api = {
     if (options?.fromOxen) params.set("fromOxen", "1");
     const query = params.toString();
     return fetch(`/api/generations/${id}${query ? `?${query}` : ""}`, { method: "DELETE" }).then(
-      (r) => parseJson<{ ok: boolean; oxenDeleted?: number; oxenFailed?: number }>(r),
+      (r) => parseJson<{ ok: boolean; oxenDeleted?: number; oxenAlreadyGone?: number; oxenFailed?: number }>(r),
     );
   },
+  /** One request for a whole selection, so Oxen removes the copies together. Up to 200 ids. */
+  deleteGenerations: (ids: string[], options?: { fromOxen?: boolean }) =>
+    fetch("/api/generations/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, fromOxen: options?.fromOxen === true }),
+    }).then((r) =>
+      parseJson<{
+        ok: boolean;
+        deleted?: number;
+        missing?: number;
+        oxenDeleted?: number;
+        oxenAlreadyGone?: number;
+        oxenFailed?: number;
+      }>(r),
+    ),
   cancelGeneration: (id: string, options?: { fromOxen?: boolean }) => {
     const params = new URLSearchParams();
     if (options?.fromOxen) params.set("fromOxen", "1");
     const query = params.toString();
     return fetch(`/api/generations/${id}${query ? `?${query}` : ""}`, { method: "DELETE" }).then(
-      (r) => parseJson<{ ok: boolean; oxenDeleted?: number; oxenFailed?: number }>(r),
+      (r) => parseJson<{ ok: boolean; oxenDeleted?: number; oxenAlreadyGone?: number; oxenFailed?: number }>(r),
     );
   },
   cleanupLibrary: (action: "failed" | "thumbs" | "all", options?: { fromOxen?: boolean }) =>    fetch("/api/library/cleanup", {
@@ -591,6 +607,7 @@ export const api = {
         remaining: boolean;
         r2Deleted?: number;
         oxenDeleted?: number;
+        oxenAlreadyGone?: number;
         oxenFailed?: number;
       }>(r),
     ),

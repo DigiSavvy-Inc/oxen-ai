@@ -257,12 +257,16 @@ export function GalleryBrowser(props: Props) {
                 });
               }}
             >
-              Delete {selectedItems.length} {selectedItems.length === 1 ? "item" : "items"}
+              Remove {selectedItems.length} {selectedItems.length === 1 ? "item" : "items"} from gallery
             </button>
           ) : (
-            <button type="button" className="ghost-btn gallery-delete" onClick={() => setConfirmSelected(true)}>
-              <TrashIcon />
-              Delete
+            <button
+              type="button"
+              className="ghost-btn"
+              title="Takes the selection out of this gallery. The files stay in the library."
+              onClick={() => setConfirmSelected(true)}
+            >
+              Remove from gallery
             </button>
           )}
           <select

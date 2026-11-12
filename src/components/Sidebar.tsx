@@ -31,17 +31,20 @@ import {
   type HistoryGalleryNotice,
 } from "../lib/gallery-history";
 import { writeHistoryDrag } from "../lib/history-drag";
+import type { DeleteScope } from "../lib/media-delete";
+import { prunePicked, selectionInsideGroup, togglePicked } from "../lib/media-selection";
 import { runModes } from "../lib/mode-icons";
 import { suggestTags } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
 import { CreateGalleryPalette } from "./CreateGalleryPalette";
 import { GalleryBrowser, type GalleryPlace } from "./GalleryBrowser";
 import { DownloadButton } from "./DownloadButton";
+import { DeleteMenu, TrashIcon } from "./DeleteMenu";
 import { HistoryGalleryActions } from "./HistoryGalleryActions";
+import { HistoryGroupBar } from "./HistoryGroupBar";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
 import { PanelPlaceSwitch } from "./PanelPlace";
-import { MediaDeleteGroup } from "./MediaDeleteGroup";
 import { ModelName } from "./ModeIcon";
 import { StagedStill, StagedVideo } from "./StagedStill";
 
@@ -146,12 +149,6 @@ function fitSlides(items: Generation[]): FitSlide[] {
       },
     ];
   });
-}
-
-function attachKindLabel(item: Generation): string {
-  if (item.mediaType === "video") return "video";
-  if (item.mediaType === "audio") return "audio";
-  return "images";
 }
 
 function ExpandPrompt({ prompt, model, mode }: { prompt: string; model: string; mode: string }) {
@@ -310,7 +307,7 @@ export function Sidebar({
   onSelect: (id: string | null) => void;
   onClose?: () => void;
   onDownloadAll?: () => void;
-  onDelete?: (ids: string[], fromOxen?: boolean) => void;
+  onDelete?: (ids: string[], scope: DeleteScope) => void;
   attachedIds?: Set<string>;
   attachedMediaKeys?: ReadonlySet<string>;
   onAttach?: (item: Generation) => void;
@@ -378,7 +375,6 @@ export function Sidebar({
   );
   const [picked, setPicked] = useState<string[]>([]);
   const [bulkNote, setBulkNote] = useState<string | null>(null);
-  const [confirmBulk, setConfirmBulk] = useState<null | "studio" | "oxen">(null);
   const [downloadingPicked, setDownloadingPicked] = useState(false);
 
   const expandForPage = expandKey === pagingKey ? expand : CLOSED_EXPAND;
@@ -401,37 +397,41 @@ export function Sidebar({
     expandRef.current = CLOSED_EXPAND;
     setPicked([]);
     setBulkNote(null);
-    setConfirmBulk(null);
     historyRef.current?.scrollTo({ top: 0 });
   }, [pagingKey]);
 
+  const pageIds = useMemo(() => generations.map((item) => item.id), [generations]);
+  /** Ticks for items still listed. A deleted item drops out without waiting for its tick to clear. */
+  const livePicked = useMemo(() => prunePicked(picked, pageIds), [picked, pageIds]);
   const pickedItems = useMemo(
-    () => generations.filter((item) => picked.includes(item.id)),
-    [generations, picked],
+    () => generations.filter((item) => livePicked.includes(item.id)),
+    [generations, livePicked],
   );
   const pickedReady = useMemo(() => completedMedia(pickedItems), [pickedItems]);
   const pickedDrafts = useMemo(() => historyItemsForGallery(pickedItems), [pickedItems]);
-  const pageIds = useMemo(() => generations.map((item) => item.id), [generations]);
-  const pageSelected = pageIds.length > 0 && pageIds.every((id) => picked.includes(id));
-
-  function clearPickState() {
-    setBulkNote(null);
-    setConfirmBulk(null);
-  }
+  const pageSelected = pageIds.length > 0 && pageIds.every((id) => livePicked.includes(id));
+  const openGroupIds = useMemo(
+    () => batches.find((batch) => batch.id === expandVisible.expandedId)?.items.map((item) => item.id) ?? [],
+    [batches, expandVisible.expandedId],
+  );
+  /** Ticks that all sit in the opened group are handled by that group's own bar. */
+  const groupOwnsPicks = selectionInsideGroup(openGroupIds, livePicked);
 
   function toggleIds(ids: string[]) {
-    clearPickState();
+    setBulkNote(null);
+    setPicked((current) => togglePicked(prunePicked(current, pageIds), ids));
+  }
+
+  function pickGroup(ids: string[], on: boolean) {
+    setBulkNote(null);
     setPicked((current) => {
-      const every = ids.length > 0 && ids.every((id) => current.includes(id));
-      if (every) return current.filter((id) => !ids.includes(id));
-      const next = new Set(current);
-      for (const id of ids) next.add(id);
-      return [...next];
+      const rest = prunePicked(current, pageIds).filter((id) => !ids.includes(id));
+      return on ? [...rest, ...ids] : rest;
     });
   }
 
   function togglePage() {
-    clearPickState();
+    setBulkNote(null);
     setPicked(pageSelected ? [] : pageIds);
   }
 
@@ -467,11 +467,11 @@ export function Sidebar({
     setBulkNote(skipped > 0 ? `Attached ${attached}. Skipped ${skipped}.` : `Attached ${attached}.`);
   }
 
-  function deletePicked(fromOxen: boolean) {
-    if (!onDelete || picked.length === 0) return;
-    onDelete(picked, fromOxen);
-    setPicked([]);
-    clearPickState();
+  function deleteIds(ids: string[], scope: DeleteScope) {
+    if (!onDelete || ids.length === 0) return;
+    onDelete(ids, scope);
+    setPicked((current) => current.filter((id) => !ids.includes(id)));
+    setBulkNote(null);
   }
 
   function notePointer(event: { clientX: number; clientY: number }) {
@@ -535,7 +535,7 @@ export function Sidebar({
     const inGallery = createGalleryOpen && historyKeySelected(galleryKeySet, batch.items);
     const dragItems = historyItemsForGallery(batch.items);
     const batchIds = batch.items.map((item) => item.id);
-    const batchPicked = batchIds.length > 0 && batchIds.every((id) => picked.includes(id));
+    const batchPicked = batchIds.length > 0 && batchIds.every((id) => livePicked.includes(id));
     return (
       <div
         key={batch.id}
@@ -605,10 +605,14 @@ export function Sidebar({
           ) : null}
           {multi ? <span className="history-count">{batch.items.length}</span> : null}
           {onDelete ? (
-            <MediaDeleteGroup
-              onStudio={() => onDelete(batch.items.map((item) => item.id))}
-              onOxen={() => onDelete(batch.items.map((item) => item.id), true)}
-            />
+            <DeleteMenu
+              className="media-delete"
+              count={batchIds.length}
+              label={multi ? `Delete ${batchIds.length} ${singleLabel}s` : `Delete ${singleLabel}`}
+              onChoose={(scope) => deleteIds(batchIds, scope)}
+            >
+              <TrashIcon />
+            </DeleteMenu>
           ) : null}
         </div>
       </div>
@@ -800,10 +804,10 @@ export function Sidebar({
         ) : null}
       </div>
 
-      {picked.length > 0 ? (
+      {livePicked.length > 0 && !groupOwnsPicks ? (
         <div className="history-bulk">
           <span className="gallery-bulk-count">
-            {picked.length} selected
+            {livePicked.length} selected
           </span>
           <button
             type="button"
@@ -820,36 +824,15 @@ export function Sidebar({
           ) : null}
           {pickedDrafts.length > 0 ? (
             <HistoryGalleryActions
-              image={pickedDrafts.length === 1 ? pickedDrafts[0] : null}
-              setItems={pickedDrafts}
+              items={pickedDrafts}
               summaries={gallerySummaries}
               onAdd={onHistoryAddToGallery}
               onCreate={onHistoryCreateGallery}
-              setLabel="Add to gallery"
               placement="below"
             />
           ) : null}
           {onDelete ? (
-            confirmBulk === "studio" ? (
-              <button type="button" className="ghost-btn danger-btn" onClick={() => deletePicked(false)}>
-                Delete {picked.length} from Studio
-              </button>
-            ) : (
-              <button type="button" className="ghost-btn" onClick={() => setConfirmBulk("studio")}>
-                Delete
-              </button>
-            )
-          ) : null}
-          {onDelete ? (
-            confirmBulk === "oxen" ? (
-              <button type="button" className="ghost-btn danger-btn" onClick={() => deletePicked(true)}>
-                Delete {picked.length} from Oxen
-              </button>
-            ) : (
-              <button type="button" className="ghost-btn" onClick={() => setConfirmBulk("oxen")}>
-                Oxen
-              </button>
-            )
+            <DeleteMenu count={livePicked.length} onChoose={(scope) => deleteIds(livePicked, scope)} />
           ) : null}
           {bulkNote ? <span className="history-bulk-note">{bulkNote}</span> : null}
         </div>
@@ -937,37 +920,18 @@ export function Sidebar({
                               ) : null}
                             </div>
                           ) : null}
-                          {onAttach || historyItemsForGallery(openBatch.items).length > 0 ? (
-                            <div className="history-expand-bar">
-                              {onAttach ? (
-                                <button
-                                  type="button"
-                                  className={`history-expand-attach${attachedIds?.has(preview.id) ? " is-attached" : ""}`}
-                                  disabled={!attachSupported?.(preview)}
-                                  onMouseDown={(event) => event.preventDefault()}
-                                  onClick={() => {
-                                    if (!attachSupported?.(preview)) return;
-                                    onAttach(preview);
-                                  }}
-                                >
-                                  {attachedIds?.has(preview.id)
-                                    ? "Attached"
-                                    : attachSupported?.(preview)
-                                      ? "Click to attach"
-                                      : `Can't attach ${attachKindLabel(preview)}`}
-                                </button>
-                              ) : (
-                                <span className="history-expand-spacer" />
-                              )}
-                              <HistoryGalleryActions
-                                image={historyItemForGallery(preview)}
-                                setItems={historyItemsForGallery(openBatch.items)}
-                                summaries={gallerySummaries}
-                                onAdd={onHistoryAddToGallery}
-                                onCreate={onHistoryCreateGallery}
-                              />
-                            </div>
-                          ) : null}
+                          <label className="gallery-select history-select">
+                            <input
+                              type="checkbox"
+                              checked={livePicked.includes(preview.id)}
+                              aria-label={
+                                openBatch.items.length > 1
+                                  ? `Select variation ${openBatch.items.findIndex((entry) => entry.id === preview.id) + 1}`
+                                  : "Select this one"
+                              }
+                              onChange={() => toggleIds([preview.id])}
+                            />
+                          </label>
                           {canFit ? <ExpandCorners /> : null}
                         </div>
                         {openBatch.items.length > 1 ? (
@@ -1012,7 +976,7 @@ export function Sidebar({
                                 <label className="gallery-select history-select">
                                   <input
                                     type="checkbox"
-                                    checked={picked.includes(item.id)}
+                                    checked={livePicked.includes(item.id)}
                                     aria-label={`Select variation ${index + 1}`}
                                     onChange={() => toggleIds([item.id])}
                                   />
@@ -1036,6 +1000,19 @@ export function Sidebar({
                           />
                         ) : null}
                       </div>
+                      <HistoryGroupBar
+                        items={openBatch.items}
+                        shown={preview}
+                        picked={livePicked}
+                        onPickGroup={pickGroup}
+                        attachedIds={attachedIds}
+                        attachSupported={attachSupported}
+                        onAttach={onAttach}
+                        summaries={gallerySummaries}
+                        onAdd={onHistoryAddToGallery}
+                        onCreate={onHistoryCreateGallery}
+                        onDelete={onDelete ? deleteIds : undefined}
+                      />
                     </div>
                   ) : null}
                 </Fragment>

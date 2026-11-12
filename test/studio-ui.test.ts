@@ -993,7 +993,9 @@ describe("in-gallery version expand", () => {
     expect(sidebar).toContain("downloadAllMedia(readyInGroup)");
     expect(sidebar).toContain("history-expand-preview");
     expect(sidebar).toContain("View full size");
-    expect(sidebar).toContain("Click to attach");
+    expect(
+      readFileSync(new URL("../src/components/HistoryGroupBar.tsx", import.meta.url), "utf8"),
+    ).toContain("Click to attach");
     expect(sidebar).toContain("history-prompt-toggle");
     expect(sidebar).toContain("history-prompt-row");
     expect(sidebar).toContain("history-model-pill");
@@ -1262,10 +1264,10 @@ describe("copy prompt", () => {
     expect(canvas).toContain("Delete");
     expect(canvas).toContain("onDelete");
     expect(peek).toContain("Delete");
-    expect(peek).toContain("MediaDeleteGroup");
+    expect(canvas).toContain("<DeleteMenu");
+    expect(peek).toContain("<DeleteMenu");
     expect(peek).toContain("library-peek-thumb-hit");
-    expect(peek).toContain("oxen={false}");
-    expect(app).toContain("requestDeleteMedia");
+    expect(app).toContain("deleteMedia(ids, scope)");
     expect(app).toContain("api.deleteGeneration");
   });
 

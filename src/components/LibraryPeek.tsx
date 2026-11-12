@@ -2,11 +2,12 @@ import { useState } from "react";
 import { MODE_LABELS, type Generation, type GenerationMode } from "../lib/api";
 import { isActiveGeneration } from "../lib/batches";
 import { libraryRefFromGeneration } from "../lib/library-refs";
+import type { DeleteScope } from "../lib/media-delete";
 import { CopyPrompt } from "./CopyPrompt";
+import { DeleteMenu } from "./DeleteMenu";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { LastFrameStill } from "./LastFrameStill";
 import { Loader } from "./Loader";
-import { MediaDeleteGroup } from "./MediaDeleteGroup";
 import { PanelPlaceSwitch } from "./PanelPlace";
 
 function fitSlides(variants: Generation[]): FitSlide[] {
@@ -68,7 +69,7 @@ export function LibraryPeek({
   onAttach: (item: Generation) => void;
   onSelectVariant: (id: string) => void;
   onDownload?: () => void;
-  onRemove?: (ids: string[], fromOxen?: boolean) => void;
+  onRemove?: (ids: string[], scope: DeleteScope) => void;
 }) {
   const label = MODE_LABELS[generation.mode as GenerationMode] || generation.mode;
   const ready = Boolean(libraryRefFromGeneration(generation));
@@ -88,10 +89,6 @@ export function LibraryPeek({
     if (!libraryRefFromGeneration(item) || !attachSupported) return;
     onSelectVariant(item.id);
     onAttach(item);
-  }
-
-  function remove(item: Generation, fromOxen = false) {
-    onRemove?.([item.id], fromOxen);
   }
 
   return (
@@ -141,12 +138,6 @@ export function LibraryPeek({
                 {generation.status === "succeeded" ? "Media unavailable" : generation.status}
               </span>
             )}
-            {onRemove ? (
-              <MediaDeleteGroup
-                onStudio={() => remove(generation)}
-                onOxen={() => remove(generation, true)}
-              />
-            ) : null}
           </div>
           {ready ? (
             <button
@@ -202,9 +193,6 @@ export function LibraryPeek({
                       <span>{index + 1}</span>
                     )}
                   </button>
-                  {onRemove ? (
-                    <MediaDeleteGroup oxen={false} onStudio={() => remove(item)} />
-                  ) : null}
                 </div>
               );
             })}
@@ -228,22 +216,11 @@ export function LibraryPeek({
               </button>
             ) : null}
             {onRemove ? (
-              <>
-                <button
-                  type="button"
-                  className="ghost-btn library-peek-remove"
-                  onClick={() => remove(generation)}
-                >
-                  Delete
-                </button>
-                <button
-                  type="button"
-                  className="ghost-btn library-peek-remove"
-                  onClick={() => remove(generation, true)}
-                >
-                  Delete + Oxen
-                </button>
-              </>
+              <DeleteMenu
+                className="ghost-btn library-peek-remove"
+                count={1}
+                onChoose={(scope) => onRemove([generation.id], scope)}
+              />
             ) : null}
           </div>
         ) : null}

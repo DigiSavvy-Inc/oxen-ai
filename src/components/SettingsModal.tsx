@@ -10,6 +10,7 @@ import {
   type StudioSettings,
 } from "../lib/api";
 import { brandMarkClass, DEFAULT_LOGO_URL, DEFAULT_SITE_NAME } from "../lib/branding";
+import { oxenFilesNote } from "../lib/media-delete";
 import { defaultModelChoices, modelLabel } from "../lib/model-menu";
 import { MODE_ICON_LABELS, modelModes } from "../lib/mode-icons";
 import { ModeIcon, ModeIcons } from "./ModeIcon";
@@ -454,12 +455,8 @@ export function SettingsModal({
           break;
         }
         case "all": {
-          const oxenNote =
-            fromOxen && (result.oxenFailed ?? 0) > 0
-              ? ` ${result.oxenFailed} Oxen file${result.oxenFailed === 1 ? "" : "s"} could not be removed.`
-              : fromOxen
-                ? " Oxen playground copies were removed when a matching file URL existed."
-                : "";
+          const oxenFiles = fromOxen ? oxenFilesNote(result) : "";
+          const oxenNote = oxenFiles ? ` ${oxenFiles}` : fromOxen ? " There were no Oxen files to remove." : "";
           setCleanupMessage(
             result.deleted === 0
               ? `Studio media is empty.${oxenNote}`
@@ -751,9 +748,9 @@ export function SettingsModal({
           <>
             <h3>Library cleanup</h3>
             <p>
-              Removes jobs from {branding.name} and their files in R2. Hover × in the library
-              removes Studio copies only. Oxen also deletes the matching playground file
-              when we can find it. Queue billing is unchanged.
+              Removes jobs from {branding.name} and their files in R2. Delete in the library
+              asks first: Remove from Studio keeps the Oxen copy, Delete everywhere also removes
+              the file from your Oxen repo. Queue billing is unchanged.
               Thumbnails are 320px JPEGs for the library grid; full results stay for the canvas
               and downloads.
             </p>
@@ -782,8 +779,9 @@ export function SettingsModal({
               <h4>Delete all media</h4>
               <p>
                 Permanently removes every generation for this account from D1 and R2, including
-                uploads. Optionally also deletes the matching files in your Oxen playground.
-                Queue billing is unchanged.
+                uploads. Optionally also removes the matching files from your Oxen repo. Oxen
+                storage stays the same, because the repo history keeps removed files. Queue
+                billing is unchanged.
               </p>
               <label className="settings-check" htmlFor="nuke-oxen">
                 <input

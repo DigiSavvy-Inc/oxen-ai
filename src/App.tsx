@@ -96,6 +96,14 @@ import {
 import { brandMarkClass, useInstanceBranding } from "./lib/branding";
 import { notifyGenerationLocal } from "./lib/pwa";
 import { completedMedia, downloadAllMedia, downloadFilename, downloadMedia } from "./lib/download";
+import {
+  deleteBatches,
+  deleteOutcome,
+  tallyDelete,
+  type DeleteOutcome,
+  type DeleteResult,
+  type DeleteScope,
+} from "./lib/media-delete";
 import { chatMessagesFromTurns, type ChatTurn } from "./lib/chat";
 import { filesFromList, partitionMediaFiles } from "./lib/files";
 import {
@@ -286,6 +294,8 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteNotice, setDeleteNotice] = useState<DeleteOutcome | null>(null);
+  const deleteNoticeTimer = useRef<number | null>(null);
   const [staged, setStaged] = useState<StagedMedia[]>([]);
   const [credits, setCredits] = useState<CreditBalance | null>(null);
   const [keepCanvasClear, setKeepCanvasClear] = useState(false);
@@ -2048,18 +2058,22 @@ export default function App() {
     }
   }
 
-  function requestDeleteMedia(ids: string[], fromOxen = false) {
-    if (ids.length === 0) return;
-    if (
-      fromOxen &&
-      !window.confirm(`Delete this media from ${branding.name} and Oxen? This cannot be undone.`)
-    ) {
-      return;
-    }
-    void onDeleteGenerations(ids, fromOxen);
+  function showDeleteNotice(outcome: DeleteOutcome | null) {
+    if (deleteNoticeTimer.current !== null) window.clearTimeout(deleteNoticeTimer.current);
+    deleteNoticeTimer.current = null;
+    setDeleteNotice(outcome);
+    if (!outcome) return;
+    deleteNoticeTimer.current = window.setTimeout(
+      () => {
+        deleteNoticeTimer.current = null;
+        setDeleteNotice(null);
+      },
+      outcome.tone === "warn" ? 12000 : 6000,
+    );
   }
 
-  async function onDeleteGenerations(ids: string[], fromOxen = false) {
+  /** The Delete menu already asked which copies go, so the choice runs without a second prompt. */
+  async function deleteMedia(ids: string[], scope: DeleteScope) {
     if (ids.length === 0) return;
     const removing = new Set(ids);
     setGenerations((prev) => prev.filter((row) => !removing.has(row.id)));
@@ -2067,17 +2081,39 @@ export default function App() {
     setSelectedId((prev) => siblingAfterRemoval(prev, removing, generations));
     setPeekId((prev) => siblingAfterRemoval(prev, removing, generations));
     setError(null);
-    try {
-      const results = await Promise.all(ids.map((id) => api.deleteGeneration(id, { fromOxen })));
-      const oxenFailed = results.reduce((sum, result) => sum + (result.oxenFailed ?? 0), 0);
-      if (fromOxen && oxenFailed > 0) {
-        setError("Removed from Studio. Oxen still has that file.");
+    showDeleteNotice(null);
+    const fromOxen = scope === "everywhere";
+    const results: DeleteResult[] = [];
+    const refused: string[] = [];
+    // One request at a time: each one that reaches Oxen lands its own commit there.
+    for (const batch of deleteBatches(ids)) {
+      const count = batch.length;
+      try {
+        const reply =
+          count === 1
+            ? await api.deleteGeneration(batch[0], { fromOxen })
+            : await api.deleteGenerations(batch, { fromOxen });
+        results.push({ ok: true, count, reply });
+      } catch {
+        results.push({ ok: false, count });
+        refused.push(...batch);
       }
-      if (libraryOpen) void refreshLibrary();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete media");
-      if (libraryOpen) void refreshLibrary();
     }
+    showDeleteNotice(deleteOutcome(tallyDelete(scope, results)));
+    if (libraryOpen) void refreshLibrary();
+    const kept = refused.filter((id) => generations.some((row) => row.id === id));
+    if (kept.length === 0) return;
+    // A refused delete leaves the row on the server, so it goes back on the canvas.
+    const restored = await Promise.all(
+      kept.map((id) =>
+        api.getGeneration(id).then(
+          ({ generation }) => generation,
+          () => null,
+        ),
+      ),
+    );
+    const rows = restored.filter((row): row is Generation => row !== null);
+    if (rows.length > 0) setGenerations((prev) => mergeGenerations(prev, rows));
   }
 
   async function onClearFailed() {
@@ -3124,10 +3160,7 @@ export default function App() {
         onSelect={setPeekId}
         onClose={closeLibrary}
         onDownloadAll={() => void onDownloadAll()}
-        onDelete={(ids, fromOxen) => {
-          if (fromOxen) requestDeleteMedia(ids, true);
-          else void onDeleteGenerations(ids, false);
-        }}
+        onDelete={(ids, scope) => void deleteMedia(ids, scope)}
         attachedIds={attachedIds}
         attachedMediaKeys={attachedMediaKeys}
         onAttach={addLibraryItem}
@@ -3306,7 +3339,7 @@ export default function App() {
                 variants={selectedVariants}
                 onSelect={setSelectedId}
                 onTagsChange={(id, tags) => void onSaveTags(id, tags)}
-                onDelete={(id) => requestDeleteMedia([id], true)}
+                onDelete={(id, scope) => void deleteMedia([id], scope)}
                 onRenderFinal={(item) => void onRenderFinal(item)}
                 renderBusy={busy}
               />
@@ -3324,10 +3357,7 @@ export default function App() {
                   if (!peek.resultUrl) return;
                   void downloadMedia(peek.resultUrl, downloadFilename(peek));
                 }}
-                onRemove={(ids, fromOxen) => {
-                  if (fromOxen) requestDeleteMedia(ids, true);
-                  else void onDeleteGenerations(ids, false);
-                }}
+                onRemove={(ids, scope) => void deleteMedia(ids, scope)}
               />
             ) : null}
           </div>
@@ -3485,6 +3515,19 @@ export default function App() {
         />
       ) : null}
       <HelpDock />
+      {deleteNotice ? (
+        <div className={`studio-notice${deleteNotice.tone === "warn" ? " is-warn" : ""}`} role="status">
+          <span>{deleteNotice.text}</span>
+          <button
+            type="button"
+            className="studio-notice-close"
+            aria-label="Dismiss"
+            onClick={() => showDeleteNotice(null)}
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       </PanelPlaceProvider>
     </div>
     </VideoThumbSecondsProvider>

@@ -9,20 +9,22 @@ import {
 type Menu = "add" | "set" | "new";
 
 export function HistoryGalleryActions({
-  image,
-  setItems,
+  items,
+  wholeSet,
   summaries,
   onAdd,
   onCreate,
-  setLabel = "Add set",
+  addLabel = "Add to gallery",
   placement = "above",
 }: {
-  image: HistoryGalleryItem | null;
-  setItems: HistoryGalleryItem[];
+  /** What Add to gallery and New gallery take: the ticked items, or the one being shown. */
+  items: HistoryGalleryItem[];
+  /** Given with more than one item, the whole group can also be added in one click. */
+  wholeSet?: HistoryGalleryItem[];
   summaries: GallerySummary[];
   onAdd: (galleryId: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
   onCreate: (name: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
-  setLabel?: string;
+  addLabel?: string;
   placement?: "above" | "below";
 }) {
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -31,7 +33,9 @@ export function HistoryGalleryActions({
   const [noticeId, setNoticeId] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const setItems = wholeSet ?? [];
   const showSet = setItems.length > 1;
+  const empty = items.length === 0;
   const noticeText = notice ? historyGalleryNoticeText(notice) : null;
 
   useEffect(() => {
@@ -58,8 +62,6 @@ export function HistoryGalleryActions({
       window.removeEventListener("keydown", onKey, true);
     };
   }, [menu]);
-
-  if (!image && setItems.length === 0) return null;
 
   function open(next: Menu) {
     setNotice(null);
@@ -90,46 +92,48 @@ export function HistoryGalleryActions({
   }
 
   const adding = menu === "add" || menu === "set";
-  const incoming = menu === "set" ? setItems : image ? [image] : [];
+  const incoming = menu === "set" ? setItems : items;
 
   return (
     <div className={`history-gallery-tools${placement === "below" ? " is-below" : ""}`} ref={rootRef}>
-      {image ? (
-        <button
-          type="button"
-          className="history-gallery-tool"
-          aria-expanded={menu === "add"}
-          aria-label="Add this to a gallery"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => open("add")}
-        >
-          Add
-        </button>
-      ) : null}
+      <button
+        type="button"
+        className="history-gallery-tool"
+        aria-expanded={menu === "add"}
+        disabled={empty}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => open("add")}
+      >
+        {addLabel}
+      </button>
       {showSet ? (
         <button
           type="button"
           className="history-gallery-tool"
           aria-expanded={menu === "set"}
-          aria-label="Add the selection to a gallery"
+          aria-label={`Add all ${setItems.length} to a gallery`}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => open("set")}
         >
-          {setLabel}
+          Add all {setItems.length}
         </button>
       ) : null}
       <button
         type="button"
         className="history-gallery-tool"
         aria-expanded={menu === "new"}
-        aria-label="New gallery"
+        disabled={empty && !showSet}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => open("new")}
       >
         New gallery
       </button>
       {adding ? (
-        <div className="history-gallery-pop" role="menu" aria-label={menu === "set" ? "Add set" : "Add image"}>
+        <div
+          className="history-gallery-pop"
+          role="menu"
+          aria-label={menu === "set" ? `Add all ${setItems.length} to a gallery` : addLabel}
+        >
           {noticeText ? (
             <p className="history-gallery-confirm" role="status">
               {noticeText}
@@ -166,8 +170,7 @@ export function HistoryGalleryActions({
           className="history-gallery-pop"
           onSubmit={(event) => {
             event.preventDefault();
-            if (image) void create([image]);
-            else void create(setItems);
+            void create(empty ? setItems : items);
           }}
         >
           {noticeText ? (
@@ -184,23 +187,25 @@ export function HistoryGalleryActions({
             onChange={(event) => setName(event.target.value)}
           />
           <div className="history-gallery-new-actions">
-            {image ? (
+            {!empty ? (
               <button type="submit" className="prompt-action" disabled={Boolean(pendingId) || !name.trim()}>
-                {pendingId === "new" ? "Creating…" : "This image"}
-              </button>
-            ) : setItems.length > 0 ? (
-              <button type="submit" className="prompt-action" disabled={Boolean(pendingId) || !name.trim()}>
-                {pendingId === "new" ? "Creating…" : "Create"}
+                {pendingId === "new"
+                  ? "Creating…"
+                  : showSet
+                    ? "This one"
+                    : items.length > 1
+                      ? `Create with ${items.length}`
+                      : "Create"}
               </button>
             ) : null}
             {showSet ? (
               <button
-                type="button"
+                type={empty ? "submit" : "button"}
                 className="prompt-action"
                 disabled={Boolean(pendingId) || !name.trim()}
-                onClick={() => void create(setItems)}
+                onClick={empty ? undefined : () => void create(setItems)}
               >
-                This set
+                All {setItems.length}
               </button>
             ) : null}
           </div>
