@@ -164,12 +164,16 @@ import {
 } from "./profiles";
 import {
   backfillMissingThumbnails,
+  BULK_DELETE_MAX_IDS,
   deleteAllUserMedia,
   deleteFailedGenerations,
   deleteStoredMedia,
+  findOwnedGenerations,
+  parseBulkDeleteIds,
   parseCleanupAction,
   parseFromOxenFlag,
   removeStudioGeneration,
+  removeStudioGenerations,
 } from "./library";
 import { chatReplyText, sanitizeChatRequest } from "./chat";
 import { GENERATION_MODES } from "./model-modes";
@@ -2508,6 +2512,32 @@ app.delete("/api/generations/:id", async (c) => {
   return c.json({ ok: true, ...result });
 });
 
+// One request for a whole selection, so the Oxen copies are removed together.
+app.post("/api/generations/delete", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ ids?: unknown; fromOxen?: unknown }>().catch(() => ({
+    ids: null,
+    fromOxen: null,
+  }));
+  const ids = parseBulkDeleteIds(body.ids);
+  if (!ids) {
+    throw new HTTPException(400, {
+      message: `Send 1 to ${BULK_DELETE_MAX_IDS} generation ids`,
+    });
+  }
+  const rows = await findOwnedGenerations(c.env, user.id, ids);
+  const result = await removeStudioGenerations(c.env, user.id, rows, {
+    apiKey: await getOxenKey(user, c.env.ENCRYPTION_KEY),
+    fromOxen: parseFromOxenFlag(body.fromOxen),
+  });
+  return c.json({
+    ok: true,
+    deleted: rows.length,
+    missing: ids.length - rows.length,
+    ...result,
+  });
+});
+
 app.post("/api/library/cleanup", async (c) => {
   const user = await requireUser(c);
   const body = await c.req.json<{ action?: unknown; fromOxen?: unknown }>().catch(() => ({
@@ -2528,6 +2558,7 @@ app.post("/api/library/cleanup", async (c) => {
         built: 0,
         remaining: false,
         oxenDeleted: 0,
+        oxenAlreadyGone: 0,
         oxenFailed: 0,
       });
     }
@@ -2541,6 +2572,7 @@ app.post("/api/library/cleanup", async (c) => {
         built: result.built,
         remaining: result.remaining,
         oxenDeleted: 0,
+        oxenAlreadyGone: 0,
         oxenFailed: 0,
       });
     }
@@ -2556,6 +2588,7 @@ app.post("/api/library/cleanup", async (c) => {
         remaining: false,
         r2Deleted: result.r2Deleted,
         oxenDeleted: result.oxenDeleted,
+        oxenAlreadyGone: result.oxenAlreadyGone,
         oxenFailed: result.oxenFailed,
       });
     }

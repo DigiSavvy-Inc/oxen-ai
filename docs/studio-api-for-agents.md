@@ -110,6 +110,16 @@ On `succeeded`, `generation.resultUrl` is the media URL (a signed Studio URL onc
 
 `POST /api/generate` refuses a reference whose link has expired. `POST /api/media/renew` with `{ "urls": [...] }` (up to 64) returns a new link for each of your own files that Studio signed, `null` for a link it will not renew, and any other URL unchanged. The Studio UI does this before it submits.
 
+### 6. Delete
+
+`DELETE /api/generations/<id>` removes one generation from Studio (the row, its tags, and its R2 files) and cancels it on Oxen when it is still running. Add `?fromOxen=1` to also remove the file from the Oxen repo.
+
+`POST /api/generations/delete` with `{ "ids": ["..."], "fromOxen": true }` does the same for 1 to 200 ids in one pass, and removes the Oxen files with one commit per repo. Use it for more than one item.
+
+Both answer `{ "ok": true, "oxenDeleted", "oxenAlreadyGone", "oxenFailed" }`; the bulk route adds `deleted` and `missing` (ids that are not yours or no longer exist). `oxenDeleted` counts files Oxen confirmed it removed, `oxenAlreadyGone` counts files, workspaces, or repos that were not there, and `oxenFailed` counts files Oxen could not remove. The Studio delete happens whatever Oxen answers.
+
+Removing a file from the Oxen repo takes it off the branch. It does not lower billed Oxen storage, because the repo history keeps the bytes. Deleting the repository on Oxen is what frees them.
+
 ## Limits
 
 - Count is 1–4 per request. It does not carry over; send `num_generations` every time (the UI resets to 1 when the model changes).

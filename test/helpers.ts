@@ -63,8 +63,8 @@ export function createMockR2(): {
         },
       };
     },
-    async delete(key: string) {
-      store.delete(key);
+    async delete(keys: string | string[]) {
+      for (const key of Array.isArray(keys) ? keys : [keys]) store.delete(key);
     },
     async head(key: string) {
       const obj = store.get(key);
