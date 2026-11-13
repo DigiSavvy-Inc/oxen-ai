@@ -8,6 +8,7 @@ export type GalleryDraftItem = {
   key: string;
   url: string;
   role?: MediaRole;
+  label?: string;
 };
 
 /**

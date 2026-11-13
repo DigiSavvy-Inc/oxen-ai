@@ -1,3 +1,4 @@
+import { reservedGalleryHandle } from "../../worker/gallery-handle";
 import { mentionToken, type MediaSlot } from "./api";
 
 export type MentionItem = {
@@ -32,11 +33,26 @@ export type PromptMention = {
   index: number;
 };
 
+export type NamePromptMention = {
+  start: number;
+  end: number;
+  token: string;
+  handle: string;
+  /** Null for @Handle. Empty string for a trailing dot with no label yet. */
+  label: string | null;
+};
+
 export type PromptHighlightPart =
   | { type: "text"; value: string }
   | { type: "mention"; mention: PromptMention };
 
+export type PromptPart =
+  | { type: "text"; value: string }
+  | { type: "mention"; mention: PromptMention }
+  | { type: "name"; mention: NamePromptMention };
+
 const MENTION_TOKEN_RE = /@(Image|Video|Audio)(\d+)/gi;
+const NAME_MENTION_RE = /@([A-Za-z][A-Za-z0-9]*)(\.[A-Za-z0-9]*)?/g;
 
 function kindFromToken(raw: string): MediaSlot["kind"] | null {
   const kind = raw.toLowerCase();
@@ -66,6 +82,65 @@ export function parsePromptMentions(text: string): PromptMention[] {
     });
   }
   return mentions;
+}
+
+function overlapsMention(start: number, end: number, mentions: readonly PromptMention[]): boolean {
+  return mentions.some((mention) => start < mention.end && end > mention.start);
+}
+
+/** @Handle and @Handle.label. Numbered @Image1 tokens and reserved handles are left out. */
+export function parseNameMentions(text: string): NamePromptMention[] {
+  const numbered = parsePromptMentions(text);
+  const mentions: NamePromptMention[] = [];
+  const pattern = new RegExp(NAME_MENTION_RE.source, "g");
+  for (const match of text.matchAll(pattern)) {
+    if (match.index == null) continue;
+    const handle = match[1] ?? "";
+    if (!handle || reservedGalleryHandle(handle)) continue;
+    const start = match.index;
+    const end = start + match[0].length;
+    const next = text[end];
+    if (next && /[A-Za-z0-9.]/.test(next)) continue;
+    if (overlapsMention(start, end, numbered)) continue;
+    const dotted = match[2];
+    const label = dotted == null ? null : dotted.slice(1);
+    mentions.push({
+      start,
+      end,
+      token: match[0],
+      handle,
+      label,
+    });
+  }
+  return mentions;
+}
+
+export function promptParts(text: string): PromptPart[] {
+  const numbered = parsePromptMentions(text).map((mention) => ({
+    type: "mention" as const,
+    mention,
+    start: mention.start,
+    end: mention.end,
+  }));
+  const names = parseNameMentions(text).map((mention) => ({
+    type: "name" as const,
+    mention,
+    start: mention.start,
+    end: mention.end,
+  }));
+  const marks = [...numbered, ...names].sort((a, b) => a.start - b.start || a.end - b.end);
+  if (marks.length === 0) return text ? [{ type: "text", value: text }] : [];
+  const parts: PromptPart[] = [];
+  let cursor = 0;
+  for (const mark of marks) {
+    if (mark.start < cursor) continue;
+    if (mark.start > cursor) parts.push({ type: "text", value: text.slice(cursor, mark.start) });
+    if (mark.type === "mention") parts.push({ type: "mention", mention: mark.mention });
+    else parts.push({ type: "name", mention: mark.mention });
+    cursor = mark.end;
+  }
+  if (cursor < text.length) parts.push({ type: "text", value: text.slice(cursor) });
+  return parts;
 }
 
 export function mentionAtOffset(text: string, offset: number): PromptMention | null {
@@ -181,7 +256,7 @@ export function mentionAtCaret(
   caret: number,
 ): { start: number; query: string } | null {
   const before = text.slice(0, caret);
-  const match = before.match(/@([A-Za-z0-9]*)$/);
+  const match = before.match(/@([A-Za-z0-9]*(?:\.[A-Za-z0-9]*)?)$/);
   if (!match) return null;
   return { start: caret - match[0].length, query: (match[1] ?? "").toLowerCase() };
 }
@@ -248,7 +323,7 @@ export function tokenForItem<T extends MentionItem>(attachments: T[], item: T, i
 export function promptContainsToken(text: string, token: string): boolean {
   if (!token) return false;
   const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(?:^|[^A-Za-z0-9])${escaped}(?!\\d)`).test(text);
+  return new RegExp(`(?:^|[^A-Za-z0-9])${escaped}(?![A-Za-z0-9.])`).test(text);
 }
 
 /**
@@ -359,6 +434,17 @@ export function deleteMentionToken(
   caret: number,
   direction: "backward" | "forward",
 ): { next: string; caret: number } | null {
+  const names = parseNameMentions(text);
+  const name =
+    direction === "backward"
+      ? (names.find((item) => caret > item.start && caret <= item.end) ??
+        (text[caret - 1] === " " ? names.find((item) => item.end === caret - 1) : undefined))
+      : names.find((item) => caret >= item.start && caret < item.end);
+  if (name) {
+    let end = name.end;
+    if (text[end] === " ") end += 1;
+    return { next: `${text.slice(0, name.start)}${text.slice(end)}`, caret: name.start };
+  }
   const mentions = parsePromptMentions(text);
   const mention =
     direction === "backward"

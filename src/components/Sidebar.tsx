@@ -151,10 +151,23 @@ function fitSlides(items: Generation[]): FitSlide[] {
   });
 }
 
-function ExpandPrompt({ prompt, model, mode }: { prompt: string; model: string; mode: string }) {
+function ExpandPrompt({
+  prompt,
+  written,
+  model,
+  mode,
+}: {
+  prompt: string;
+  written?: string | null;
+  model: string;
+  mode: string;
+}) {
   const [open, setOpen] = useState(false);
   const modelName = model.trim();
-  const hasPrompt = prompt.trim().length > 0;
+  const wrote = written?.trim() ?? "";
+  const sent = prompt.trim();
+  const hasPrompt = wrote.length > 0 || sent.length > 0;
+  const showSent = wrote.length > 0 && sent.length > 0 && wrote !== sent;
   if (!hasPrompt && !modelName) return null;
   return (
     <div className="history-prompt">
@@ -178,7 +191,13 @@ function ExpandPrompt({ prompt, model, mode }: { prompt: string; model: string; 
       {hasPrompt ? (
         <div className={`history-prompt-panel${open ? " is-open" : ""}`}>
           <div className="history-prompt-panel-inner">
-            <CopyPrompt prompt={prompt} className="history-prompt-quote" />
+            <CopyPrompt prompt={wrote || sent} className="history-prompt-quote" />
+            {showSent ? (
+              <>
+                <p className="history-prompt-sent">Sent</p>
+                <CopyPrompt prompt={sent} className="history-prompt-quote" />
+              </>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -254,7 +273,12 @@ export function Sidebar({
   attachSupported,
   createGalleryOpen,
   galleryName,
+  galleryHandle,
+  galleryTake,
   onGalleryNameChange,
+  onGalleryHandleChange,
+  onGalleryTakeChange,
+  onGalleryLabelChange,
   galleryItems,
   gallerySaving,
   galleryAdding,
@@ -316,7 +340,12 @@ export function Sidebar({
   attachSupported?: (item: Generation) => boolean;
   createGalleryOpen: boolean;
   galleryName: string;
+  galleryHandle: string;
+  galleryTake: number;
   onGalleryNameChange: (value: string) => void;
+  onGalleryHandleChange: (value: string) => void;
+  onGalleryTakeChange: (value: number) => void;
+  onGalleryLabelChange: (index: number, label: string) => void;
   galleryItems: GalleryDraftItem[];
   gallerySaving: boolean;
   galleryAdding: boolean;
@@ -714,6 +743,11 @@ export function Sidebar({
           detail={galleryDetail}
           galleryId={galleryId}
           name={galleryName}
+          handle={galleryHandle}
+          take={galleryTake}
+          onHandleChange={onGalleryHandleChange}
+          onTakeChange={onGalleryTakeChange}
+          onLabelChange={onGalleryLabelChange}
           items={galleryItems}
           saving={gallerySaving}
           status={galleryStatus}
@@ -995,7 +1029,12 @@ export function Sidebar({
                           </div>
                         ) : null}
                         {preview.prompt || preview.model ? (
-                          <ExpandPrompt prompt={preview.prompt ?? ""} model={preview.model} mode={preview.mode} />
+                          <ExpandPrompt
+                            prompt={preview.prompt ?? ""}
+                            written={preview.writtenPrompt}
+                            model={preview.model}
+                            mode={preview.mode}
+                          />
                         ) : null}
                         {expandVisible.fitOpen && canFit && preview.resultUrl ? (
                           <FullSizeMedia

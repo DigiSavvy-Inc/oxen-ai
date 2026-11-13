@@ -12,12 +12,24 @@ export type GalleryPreviewJson = {
   mediaUrl: string | null;
 };
 
+export type GalleryMentionItemJson = {
+  key: string;
+  kind: GalleryKind;
+  name: string;
+  role: string | null;
+  label: string | null;
+  thumbUrl: string | null;
+};
+
 export type GalleryCardJson = {
   id: string;
   name: string;
+  handle: string;
+  takeCount: number;
   updatedAt: number;
   count: number;
   previews: GalleryPreviewJson[];
+  items: GalleryMentionItemJson[];
 };
 
 /** Thumbs on each gallery card. Same count as a history page. */
@@ -78,6 +90,8 @@ export async function presentGallery(
 ): Promise<{
   id: string;
   name: string;
+  handle: string;
+  takeCount: number;
   updatedAt: number;
   items: Array<StoredGalleryItem & { url: string; thumbUrl: string | null }>;
 }> {
@@ -96,7 +110,14 @@ export async function presentGallery(
       };
     }),
   );
-  return { id: gallery.id, name: gallery.name, updatedAt: gallery.updatedAt, items };
+  return {
+    id: gallery.id,
+    name: gallery.name,
+    handle: gallery.handle,
+    takeCount: gallery.takeCount,
+    updatedAt: gallery.updatedAt,
+    items,
+  };
 }
 
 export async function presentGalleryList(
@@ -118,14 +139,27 @@ export async function presentGalleryList(
     loaded.flatMap((entry) => entry.items.slice(0, PREVIEW_COUNT).map((item) => item.key)),
   );
   return Promise.all(
-    loaded.map(async ({ gallery, items }) => ({
-      id: gallery.id,
-      name: gallery.name,
-      updatedAt: gallery.updatedAt,
-      count: items.length,
-      previews: await Promise.all(
+    loaded.map(async ({ gallery, items }) => {
+      const previews = await Promise.all(
         items.slice(0, PREVIEW_COUNT).map((item) => previewFor(env, item, thumbs)),
-      ),
-    })),
+      );
+      return {
+        id: gallery.id,
+        name: gallery.name,
+        handle: gallery.handle,
+        takeCount: gallery.takeCount,
+        updatedAt: gallery.updatedAt,
+        count: items.length,
+        previews,
+        items: items.map((item, index) => ({
+          key: item.key,
+          kind: item.kind,
+          name: item.name,
+          role: item.role,
+          label: item.label,
+          thumbUrl: previews[index]?.thumbUrl ?? null,
+        })),
+      };
+    }),
   );
 }

@@ -113,6 +113,7 @@ import {
   acceptGalleryName,
   deleteGallery,
   getGallery,
+  GalleryRejected,
   ownedMediaKey,
   saveGallery,
 } from "./galleries";
@@ -141,6 +142,7 @@ import {
   updateStyle,
 } from "./projects";
 import { acceptComposerDefaults, acceptComposerDraft } from "./project-draft";
+import { parseJobParams } from "./job-record";
 import { acceptBasePrompt, acceptJobCost, acceptJobRefs, listProjectJobs } from "./project-jobs";
 import { acceptAppliedLooks, acceptLookGroup, acceptLookIds, looksFromParams } from "./looks";
 import { parseServedThumbWidth, resizeServedImage } from "./gallery-thumbs";
@@ -636,6 +638,7 @@ function toGenerationJson(
     draftTaskId: draftMetaFromParams(row.params_json)?.draftTaskId ?? null,
     draftExpiresAt: draftMetaFromParams(row.params_json)?.draftExpiresAt ?? null,
     looks: looksFromParams(row.params_json),
+    writtenPrompt: acceptBasePrompt(parseJobParams(row.params_json)?.studio_prompt),
   };
 }
 
@@ -1384,7 +1387,13 @@ app.delete("/api/galleries/:id", async (c) => {
 
 app.post("/api/galleries", async (c) => {
   const user = await requireUser(c);
-  const body = await c.req.json<{ id?: unknown; name?: unknown; items?: unknown }>();
+  const body = await c.req.json<{
+    id?: unknown;
+    name?: unknown;
+    items?: unknown;
+    handle?: unknown;
+    takeCount?: unknown;
+  }>();
   const id = typeof body.id === "string" ? body.id : null;
   const profileId = id ? null : await ensureDefaultProfile(c.env.DB, user.id);
   const gallery = await saveGallery(c.env.DB, user.id, {
@@ -1392,6 +1401,11 @@ app.post("/api/galleries", async (c) => {
     name: body.name,
     items: body.items,
     profileId,
+    handle: body.handle,
+    takeCount: body.takeCount,
+  }).catch((err: unknown) => {
+    if (err instanceof GalleryRejected) throw new HTTPException(400, { message: err.message });
+    throw err;
   });
   if (!gallery) {
     const named = acceptGalleryName(body.name);
@@ -2183,13 +2197,13 @@ app.post("/api/generate", async (c) => {
   const appliedLooks = draftTaskId ? [] : acceptAppliedLooks(body.looks);
   const studioRecord: Record<string, unknown> = {};
   if (appliedLooks.length > 0) studioRecord.studio_looks = appliedLooks;
+  const basePrompt = acceptBasePrompt(body.base_prompt);
+  if (basePrompt && basePrompt !== storedPrompt) studioRecord.studio_prompt = basePrompt;
   if (projectId) {
     const refs = acceptJobRefs(user.id, body.refs);
     const cost = acceptJobCost(body.estimated_cost);
-    const basePrompt = acceptBasePrompt(body.base_prompt);
     if (refs.length > 0) studioRecord.studio_refs = refs;
     if (cost != null) studioRecord.studio_cost = cost;
-    if (basePrompt && basePrompt !== storedPrompt) studioRecord.studio_prompt = basePrompt;
   }
   const storedPayload: Record<string, unknown> = { ...payload, ...studioRecord };
   const saved = [];

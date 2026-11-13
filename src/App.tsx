@@ -72,6 +72,7 @@ import {
   type GenerationMode,
   type ModelControls,
   type OxenModel,
+  type Gallery,
   type GalleryItem,
   type GallerySummary,
   type ProjectJob,
@@ -151,6 +152,16 @@ import { appliedLooks, joinLooks, toggleLookId } from "../worker/looks";
 import { DEFAULT_HISTORY_PAGE_SIZE } from "../worker/history-page-size";
 import { DEFAULT_VIDEO_THUMB_SECONDS } from "../worker/video-thumb";
 import { deliveryForRun } from "./lib/model-prompt";
+import { defaultGalleryHandle } from "../worker/gallery-handle";
+import {
+  expandNameText,
+  mentionedGalleryIds,
+  namePlanNotice,
+  planNameAttachments,
+  removeNameToken,
+  type NameCatalogGallery,
+  type NameCatalogItem,
+} from "./lib/name-mentions";
 
 type StagedMedia = {
   file?: File;
@@ -218,6 +229,7 @@ function draftFromGalleryItem(item: GalleryItem): GalleryDraftItem {
     key: item.key,
     url: item.url,
     role: item.kind === "audio" ? undefined : item.role ? normalizeMediaRole(item.role) : undefined,
+    label: item.label ?? undefined,
   };
 }
 
@@ -275,7 +287,11 @@ export default function App() {
   const [gallerySummaries, setGallerySummaries] = useState<GallerySummary[]>([]);
   const [galleryId, setGalleryId] = useState<string | null>(null);
   const [galleryName, setGalleryName] = useState("");
+  const [galleryHandle, setGalleryHandle] = useState("");
+  const [galleryTake, setGalleryTake] = useState(1);
   const [galleryItems, setGalleryItems] = useState<GalleryDraftItem[]>([]);
+  const [galleryDetails, setGalleryDetails] = useState<Map<string, Gallery>>(new Map());
+  const [nameRoles, setNameRoles] = useState<Record<string, MediaRole>>({});
   const [gallerySaving, setGallerySaving] = useState(false);
   const [galleryAdding, setGalleryAdding] = useState(false);
   const [galleryStatus, setGalleryStatus] = useState<string | null>(null);
@@ -330,6 +346,7 @@ export default function App() {
   const draftPending = useRef<{ projectId: string; draft: ComposerDraft } | null>(null);
   const composerDraftRef = useRef<ComposerDraft>({ prompt: "", mode: null, model: "", settings: {} });
   const stagedRef = useRef(staged);
+  const nameFetchSkip = useRef(new Set<string>());
   stagedRef.current = staged;
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
@@ -1431,40 +1448,167 @@ export default function App() {
     setShots([]);
   }
 
+  const nameCatalog = useMemo((): NameCatalogGallery[] => {
+    const galleries: NameCatalogGallery[] = [];
+    for (const summary of gallerySummaries) {
+      const detail = galleryDetails.get(summary.id);
+      const fresh = detail && detail.updatedAt === summary.updatedAt ? detail : null;
+      const handle = (fresh?.handle || summary.handle || "").trim();
+      if (!handle) continue;
+      const source = fresh?.items ?? summary.items ?? [];
+      const items: NameCatalogItem[] = source.map((item) => ({
+        key: item.key,
+        kind: item.kind,
+        name: item.name,
+        role: item.role ?? null,
+        label: item.label ?? null,
+        url: "url" in item ? (item.url ?? null) : null,
+        thumbUrl: item.thumbUrl ?? null,
+      }));
+      galleries.push({
+        id: summary.id,
+        name: summary.name,
+        handle,
+        take: fresh?.takeCount || summary.takeCount || 1,
+        items,
+      });
+    }
+    return galleries;
+  }, [galleryDetails, gallerySummaries]);
+  const imageCap = capForKind("image");
+  const videoCap = capForKind("video");
+  const audioCap = capForKind("audio");
+  const namesOn = Boolean(mode && mode !== "chat" && controls?.mentions);
+  const namePlan = useMemo(
+    () =>
+      planNameAttachments({
+        prompt: namesOn ? prompt : "",
+        galleries: namesOn ? nameCatalog : [],
+        hand: staged.map((item) => ({ key: item.key, kind: item.kind, number: item.number })),
+        caps: { image: imageCap, video: videoCap, audio: audioCap },
+      }),
+    [audioCap, imageCap, nameCatalog, namesOn, prompt, staged, videoCap],
+  );
+  const shown = useMemo(() => {
+    const marks = new Map(namePlan.marks.map((mark) => [mark.key, mark.token]));
+    const hand = staged.map((item) => ({
+      name: item.name,
+      preview: item.preview,
+      kind: item.kind,
+      role: item.role,
+      number: item.number,
+      key: item.key,
+      url: item.url,
+      via: item.key ? marks.get(item.key) : undefined,
+      origin: "hand" as const,
+    }));
+    const named = namePlan.files.map((file) => ({
+      name: file.name,
+      preview: file.thumbUrl || file.url || "",
+      kind: file.kind,
+      role: file.kind === "audio" ? undefined : (nameRoles[file.key] ?? file.role ?? undefined),
+      number: file.number,
+      key: file.key,
+      url: file.url ?? undefined,
+      via: file.token,
+      origin: "name" as const,
+    }));
+    return [...hand, ...named];
+  }, [namePlan, nameRoles, staged]);
+
+  useEffect(() => {
+    nameFetchSkip.current.clear();
+  }, [gallerySummaries]);
+
+  useEffect(() => {
+    if (!namesOn) return;
+    const ids = mentionedGalleryIds(prompt, nameCatalog).filter((id) => {
+      if (nameFetchSkip.current.has(id)) return false;
+      const detail = galleryDetails.get(id);
+      const summary = gallerySummaries.find((item) => item.id === id);
+      return !detail || !summary || detail.updatedAt !== summary.updatedAt;
+    });
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      ids.map(async (id) => {
+        try {
+          return (await api.gallery(id)).gallery;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((loaded) => {
+      if (cancelled) return;
+      setGalleryDetails((prev) => {
+        const next = new Map(prev);
+        let changed = false;
+        loaded.forEach((gallery, index) => {
+          const id = ids[index];
+          if (!id) return;
+          if (gallery) {
+            next.set(gallery.id, gallery);
+            changed = true;
+          } else nameFetchSkip.current.add(id);
+        });
+        return changed ? next : prev;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [galleryDetails, gallerySummaries, nameCatalog, namesOn, prompt]);
+
   function castItemForStaged(item: StagedMedia | undefined): CastItem | null {
     if (!item || item.number == null) return null;
     return castItems.find((entry) => entry.kind === item.kind && entry.number === item.number) ?? null;
   }
 
   function onClearAttachment(kind: "image" | "video" | "audio", index: number) {
+    const ofKind = shown.filter((item) => item.kind === kind);
+    const target = ofKind[index];
+    if (target?.origin === "name" && target.via) {
+      setPrompt(removeNameToken(prompt, target.via));
+      return;
+    }
+    const handIndex = ofKind.slice(0, index + 1).filter((item) => item.origin === "hand").length - 1;
+    if (handIndex < 0) return;
     if (projectStaging) {
-      const target = castItemForStaged(staged.filter((item) => item.kind === kind)[index]);
-      if (target) projectRemoveItem(target);
+      const castTarget = castItemForStaged(staged.filter((item) => item.kind === kind)[handIndex]);
+      if (castTarget) projectRemoveItem(castTarget);
       return;
     }
     setStaged((prev) => {
-      const ofKind = prev.filter((item) => item.kind === kind);
-      const target = ofKind[index];
-      if (target?.preview) releasePreview(target.preview);
+      const kindItems = prev.filter((item) => item.kind === kind);
+      const removed = kindItems[handIndex];
+      if (removed?.preview) releasePreview(removed.preview);
       let seen = 0;
       return prev.filter((item) => {
         if (item.kind !== kind) return true;
         const current = seen;
         seen += 1;
-        return current !== index;
+        return current !== handIndex;
       });
     });
   }
 
   function onAttachmentRoleChange(index: number, role: MediaRole) {
+    const target = shown[index];
+    if (!target || target.kind === "audio") return;
+    if (target.origin === "name" && target.key) {
+      setNameRoles((prev) => ({ ...prev, [target.key!]: role }));
+      return;
+    }
+    const handIndex = shown.slice(0, index + 1).filter((item) => item.origin === "hand").length - 1;
+    if (handIndex < 0) return;
     if (projectStaging) {
-      const target = castItemForStaged(staged[index]);
-      if (target && target.kind !== "audio") void commitCast(castWithItemRole(castEntries, target, role));
+      const castTarget = castItemForStaged(staged[handIndex]);
+      if (castTarget && castTarget.kind !== "audio") void commitCast(castWithItemRole(castEntries, castTarget, role));
       return;
     }
     setStaged((prev) =>
       prev.map((item, itemIndex) => {
-        if (itemIndex !== index || item.kind === "audio") return item;
+        if (itemIndex !== handIndex || item.kind === "audio") return item;
         return { ...item, role };
       }),
     );
@@ -1472,14 +1616,17 @@ export default function App() {
 
   function onReorderAttachments(from: number, to: number) {
     if (projectStaging) return;
+    if (shown[from]?.origin === "name") return;
+    const handCount = shown.filter((item) => item.origin === "hand").length;
+    if (from < 0 || from >= handCount || to < 0 || to >= handCount) return;
     const next = moveItem(staged, from, to);
     if (next === staged) return;
     setStaged(next);
   }
 
-  const imageCount = staged.filter((item) => item.kind === "image").length;
-  const videoCount = staged.filter((item) => item.kind === "video").length;
-  const audioCount = staged.filter((item) => item.kind === "audio").length;
+  const imageCount = shown.filter((item) => item.kind === "image").length;
+  const videoCount = shown.filter((item) => item.kind === "video").length;
+  const audioCount = shown.filter((item) => item.kind === "audio").length;
   const peekKind = peek ? kindFromMediaType(peek.mediaType) : null;
   const peekAttachSupported = peekKind ? capForKind(peekKind) > 0 : false;
   const readyMedia = useMemo(() => completedMedia(libraryItems), [libraryItems]);
@@ -1508,7 +1655,9 @@ export default function App() {
           (!slotRequired(controls, "audio", mode) || audioCount > 0)),
   );
   const unattachedMention =
-    mode && mode !== "chat" && controls?.mentions ? missingMention(prompt, staged) : null;
+    mode && mode !== "chat" && controls?.mentions
+      ? (missingMention(prompt, staged) ?? namePlan.unresolved[0]?.token ?? null)
+      : null;
   const generateBlock = unattachedMention
     ? `The prompt mentions ${unattachedMention}, which isn’t attached. Attach it in the references or take it out of the prompt.`
     : null;
@@ -1538,9 +1687,20 @@ export default function App() {
     }
   }
 
+  function onGalleryNameChange(value: string) {
+    setGalleryHandle((current) => {
+      const previous = defaultGalleryHandle(galleryName);
+      if (!current || current === previous) return defaultGalleryHandle(value);
+      return current;
+    });
+    setGalleryName(value);
+  }
+
   function onGalleryNew() {
     setGalleryId(null);
     setGalleryName("");
+    setGalleryHandle("");
+    setGalleryTake(1);
     setGalleryItems([]);
     setGalleryStatus(null);
     setGallerySkipped([]);
@@ -1615,10 +1775,15 @@ export default function App() {
       const saved = await api.saveGallery({
         id: galleryId,
         name,
+        handle: galleryHandle,
+        takeCount: galleryTake,
         items: galleryPayload(items),
       });
       setGalleryId(saved.gallery.id);
       setGalleryName(saved.gallery.name);
+      setGalleryHandle(saved.gallery.handle);
+      setGalleryTake(saved.gallery.takeCount);
+      setGalleryDetails((prev) => new Map(prev).set(saved.gallery.id, saved.gallery));
       // The set changed while this save was in flight: keep what is on screen.
       if (galleryEdit.current === edit) {
         setGalleryItems(keepDraftIds(items, saved.gallery.items.map(draftFromGalleryItem)));
@@ -1721,7 +1886,10 @@ export default function App() {
       galleryAutosave.current = false;
       setGalleryId(gallery.id);
       setGalleryName(gallery.name);
+      setGalleryHandle(gallery.handle);
+      setGalleryTake(gallery.takeCount || 1);
       setGalleryItems(gallery.items.map(draftFromGalleryItem));
+      setGalleryDetails((prev) => new Map(prev).set(gallery.id, gallery));
     } catch (err) {
       setGalleryStatus(err instanceof Error ? err.message : "Couldn’t load that gallery");
     }
@@ -1781,6 +1949,8 @@ export default function App() {
       if (target === galleryId) {
         setGalleryId(null);
         setGalleryName("");
+        setGalleryHandle("");
+        setGalleryTake(1);
         setGalleryItems([]);
       }
       const listed = await api.galleries();
@@ -1819,10 +1989,23 @@ export default function App() {
         if (extra.length === 0) note = "Those items are already in that gallery";
         else if (accepted.length < extra.length) note = `A gallery holds ${GALLERY_ITEM_CAP} items`;
         if (accepted.length > 0) {
+          const used = new Set(
+            gallery.items.flatMap((item) => (item.label ? [item.label.toLowerCase()] : [])),
+          );
+          const labeled = accepted.map((item) => {
+            const key = item.label?.toLowerCase();
+            if (!key || !used.has(key)) {
+              if (key) used.add(key);
+              return item;
+            }
+            return { ...item, label: null };
+          });
           await api.saveGallery({
             id: gallery.id,
             name: gallery.name,
-            items: [...galleryPayload(gallery.items), ...accepted],
+            handle: gallery.handle,
+            takeCount: gallery.takeCount,
+            items: [...galleryPayload(gallery.items), ...labeled],
           });
         } else if (input.mode === "copy") {
           setGalleryStatus(note);
@@ -1831,7 +2014,13 @@ export default function App() {
       } else {
         const name = input.newName.trim();
         if (!name) return false;
-        const accepted = payload.slice(0, GALLERY_ITEM_CAP);
+        const usedLabels = new Set<string>();
+        const accepted = payload.slice(0, GALLERY_ITEM_CAP).map((item) => {
+          const key = item.label?.trim().toLowerCase();
+          if (!key || usedLabels.has(key)) return { ...item, label: null };
+          usedLabels.add(key);
+          return item;
+        });
         if (accepted.length < payload.length) note = `A gallery holds ${GALLERY_ITEM_CAP} items`;
         await api.saveGallery({ name, items: accepted });
       }
@@ -1841,10 +2030,14 @@ export default function App() {
         const saved = await api.saveGallery({
           id: galleryId,
           name: galleryName.trim() || "Gallery",
+          handle: galleryHandle,
+          takeCount: galleryTake,
           items: galleryPayload(next),
         });
         setGalleryId(saved.gallery.id);
         setGalleryName(saved.gallery.name);
+        setGalleryHandle(saved.gallery.handle);
+        setGalleryTake(saved.gallery.takeCount);
         setGalleryItems(saved.gallery.items.map(draftFromGalleryItem));
       }
       const listed = await api.galleries();
@@ -1860,14 +2053,21 @@ export default function App() {
   }
 
   function galleryPayload(
-    items: { kind: GalleryItem["kind"]; name: string; key: string; role?: string | null }[],
+    items: { kind: GalleryItem["kind"]; name: string; key: string; role?: string | null; label?: string | null }[],
   ) {
     return items.map((item) => ({
       kind: item.kind,
       name: item.name,
       key: item.key,
       role: item.kind === "audio" ? null : normalizeMediaRole(item.role),
+      label: item.label?.trim() ? item.label.trim() : null,
     }));
+  }
+
+  function onGalleryLabelChange(index: number, label: string) {
+    setGalleryItems((prev) =>
+      prev.map((item, itemIndex) => (itemIndex === index ? { ...item, label: label || undefined } : item)),
+    );
   }
 
   function onGalleryRoleChange(index: number, role: MediaRole) {
@@ -2704,14 +2904,18 @@ export default function App() {
       ...(imageRouted ? (["image"] as const) : []),
       ...(videoRouted ? (["video"] as const) : []),
     ];
-    return deliveryForRun({
-      prompt,
+    const scene = namesOn ? namePlan.expanded : prompt;
+    const result = deliveryForRun({
+      prompt: scene,
       lookBlock: joinLooks(activeLooks),
-      attachments: staged.map((item) => ({ name: item.name, kind: item.kind, role: item.role })),
+      attachments: shown.map((item) => ({ name: item.name, kind: item.kind, role: item.role, number: item.number })),
       routedKinds,
       faceFirst: imageRouted || videoRouted,
     });
-  }, [activeLooks, imageRouted, prompt, staged, videoRouted]);
+    const notice = namesOn ? namePlanNotice(namePlan) : null;
+    if (!notice) return result;
+    return { prompt: result.prompt, notes: [...result.notes, notice] };
+  }, [activeLooks, imageRouted, namePlan, namesOn, prompt, shown, videoRouted]);
 
   function toggleLook(id: string) {
     setLookIds((prev) => toggleLookId(prev, id));
@@ -2802,11 +3006,55 @@ export default function App() {
       const imageRoles: MediaRole[] = [];
       const videoRoles: MediaRole[] = [];
       const jobRefs: { kind: "image" | "video" | "audio"; number: number; role: MediaRole | null; name: string; key: string }[] = [];
-      const sendable = [
-        ...takeStagedOfKind(staged, "image", capForKind("image")),
-        ...takeStagedOfKind(staged, "video", capForKind("video")),
-        ...takeStagedOfKind(staged, "audio", capForKind("audio")),
-      ];
+      let namedFiles = namePlan.files;
+      if (namesOn && namedFiles.some((file) => !file.url)) {
+        const missingIds = [...new Set(namedFiles.filter((file) => !file.url).map((file) => file.galleryId))];
+        const loaded = await Promise.all(
+          missingIds.map(async (id) => {
+            try {
+              return (await api.gallery(id)).gallery;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        const urls = new Map<string, string>();
+        for (const gallery of loaded) {
+          if (!gallery) continue;
+          for (const item of gallery.items) {
+            if (item.url) urls.set(item.key, item.url);
+          }
+        }
+        namedFiles = namedFiles.flatMap((file) => {
+          const url = file.url || urls.get(file.key);
+          return url ? [{ ...file, url }] : [];
+        });
+      }
+      const sendable: {
+        kind: "image" | "video" | "audio";
+        name: string;
+        url?: string;
+        file?: File;
+        key?: string;
+        role?: MediaRole | "scene" | null;
+        number?: number;
+      }[] = [];
+      for (const kind of ["image", "video", "audio"] as const) {
+        const hand = takeStagedOfKind(staged, kind, capForKind(kind));
+        const room = Math.max(0, capForKind(kind) - hand.length);
+        const extra = namedFiles.filter((file) => file.kind === kind).slice(0, room);
+        sendable.push(
+          ...hand,
+          ...extra.map((file) => ({
+            kind: file.kind,
+            name: file.name,
+            url: file.url ?? undefined,
+            key: file.key,
+            role: nameRoles[file.key] ?? file.role,
+            number: file.number,
+          })),
+        );
+      }
       for (const item of sendable) {
         let url = item.url ?? "";
         let key = item.key;
@@ -2838,7 +3086,9 @@ export default function App() {
       const extraShots = shots
         .filter((shot) => shot.prompt.trim())
         .map((shot) => ({
-          prompt: shot.prompt.trim(),
+          prompt: namesOn
+            ? expandNameText(shot.prompt.trim(), namePlan.kept, namePlan.removed)
+            : shot.prompt.trim(),
           duration: Number(shot.duration) || Number(duration) || 5,
         }));
       const multiPrompt =
@@ -2930,7 +3180,9 @@ export default function App() {
           quality,
         });
         if (estimated.amount != null) payload.estimated_cost = estimated.amount;
-        if (prompt.trim()) payload.base_prompt = prompt.trim();
+      }
+      if (prompt.trim() && prompt.trim() !== delivery.prompt.trim()) {
+        payload.base_prompt = prompt.trim();
       }
 
       const { generations: created } = await api.generate(payload);
@@ -3181,7 +3433,12 @@ export default function App() {
         }}
         createGalleryOpen={createGalleryOpen}
         galleryName={galleryName}
-        onGalleryNameChange={setGalleryName}
+        galleryHandle={galleryHandle}
+        galleryTake={galleryTake}
+        onGalleryNameChange={onGalleryNameChange}
+        onGalleryHandleChange={setGalleryHandle}
+        onGalleryTakeChange={setGalleryTake}
+        onGalleryLabelChange={onGalleryLabelChange}
         galleryItems={galleryItems}
         gallerySaving={gallerySaving}
         galleryAdding={galleryAdding}
@@ -3469,13 +3726,19 @@ export default function App() {
             onSafetyCheckerChange={rememberParam(setSafetyCheckerOn)}
             moderation={moderation}
             onModerationChange={rememberParam(setModeration)}
-            attachments={staged.map((item) => ({
+            attachments={shown.map((item) => ({
               name: item.name,
               preview: item.preview,
               kind: item.kind,
               role: item.role,
               number: item.number,
+              via: item.via,
+              origin: item.origin,
             }))}
+            mentionGalleries={nameCatalog}
+            missingNameStarts={namePlan.unresolved.map((mention) => mention.start)}
+            nameHovers={namePlan.hovers}
+            nameNotice={namesOn ? namePlanNotice(namePlan) : null}
             onAddFiles={onAddFiles}
             onClearAttachment={onClearAttachment}
             onReorderAttachments={onReorderAttachments}

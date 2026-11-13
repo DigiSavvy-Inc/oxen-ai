@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { app } from "../worker/index";
 import { SESSION_COOKIE } from "../worker/auth";
+import { defaultGalleryHandle } from "../worker/gallery-handle";
 import {
   acceptGalleryItems,
   acceptGalleryName,
+  GalleryRejected,
   GALLERY_MAX_ITEMS,
   ownedMediaKey,
   getGallery,
@@ -32,6 +34,9 @@ type GalleryRow = {
   name: string;
   created_at: number;
   updated_at: number;
+  profile_id: string | null;
+  handle: string | null;
+  take_count: number;
 };
 
 type ItemRow = {
@@ -43,6 +48,7 @@ type ItemRow = {
   media_key: string;
   position: number;
   role: string | null;
+  label: string | null;
 };
 
 function galleriesDb(options?: { missingRole?: boolean }) {
@@ -55,7 +61,24 @@ function galleriesDb(options?: { missingRole?: boolean }) {
         bind(...args: unknown[]) {
           return {
             async all() {
-              if (missingRole) throw new Error("no such column: role");
+              if (missingRole && /\brole\b/.test(sql)) throw new Error("no such column: role");
+              if (sql.includes("COLLATE NOCASE")) {
+                const userId = String(args[0]);
+                const handle = String(args[1]).toLowerCase();
+                const exceptId = String(args[2] ?? "");
+                const profile = args[3] == null ? "" : String(args[3]);
+                return {
+                  results: galleries
+                    .filter(
+                      (row) =>
+                        row.user_id === userId &&
+                        (row.handle ?? "").toLowerCase() === handle &&
+                        row.id !== exceptId &&
+                        (row.profile_id ?? "") === profile,
+                    )
+                    .map((row) => ({ id: row.id })),
+                };
+              }
               if (sql.includes("FROM galleries")) {
                 const userId = String(args[0]);
                 let matched = galleries.filter((row) => row.user_id === userId);
@@ -72,6 +95,9 @@ function galleriesDb(options?: { missingRole?: boolean }) {
                     id: row.id,
                     name: row.name,
                     updated_at: row.updated_at,
+                    ...(sql.includes("handle")
+                      ? { handle: row.handle, take_count: row.take_count, profile_id: row.profile_id }
+                      : {}),
                   })),
                 };
               }
@@ -89,6 +115,7 @@ function galleriesDb(options?: { missingRole?: boolean }) {
                       media_key: row.media_key,
                       position: row.position,
                       ...(sql.includes("role") ? { role: row.role } : {}),
+                      ...(sql.includes("label") ? { label: row.label } : {}),
                     })),
                 };
               }
@@ -108,18 +135,29 @@ function galleriesDb(options?: { missingRole?: boolean }) {
             async run() {
               if (missingRole) throw new Error("no such column: role");
               if (sql.includes("INSERT INTO galleries")) {
+                const withHandle = sql.includes("handle");
                 galleries.push({
                   id: String(args[0]),
                   user_id: String(args[1]),
                   name: String(args[2]),
                   created_at: Number(args[3]),
                   updated_at: Number(args[4]),
+                  profile_id: args.length > 5 && args[5] != null ? String(args[5]) : null,
+                  handle: withHandle && args[6] != null ? String(args[6]) : null,
+                  take_count: withHandle ? Number(args[7] ?? 1) : 1,
                 });
               } else if (sql.includes("UPDATE galleries")) {
-                const row = galleries.find((item) => item.id === args[2] && item.user_id === args[3]);
+                const withHandle = sql.includes("handle");
+                const row = withHandle
+                  ? galleries.find((item) => item.id === args[4] && item.user_id === args[5])
+                  : galleries.find((item) => item.id === args[2] && item.user_id === args[3]);
                 if (row) {
                   row.name = String(args[0]);
-                  row.updated_at = Number(args[1]);
+                  row.updated_at = withHandle ? Number(args[3]) : Number(args[1]);
+                  if (withHandle) {
+                    row.handle = args[1] == null ? null : String(args[1]);
+                    row.take_count = Number(args[2] ?? 1);
+                  }
                 }
               } else if (sql.includes("INSERT INTO gallery_items")) {
                 items.push({
@@ -131,6 +169,7 @@ function galleriesDb(options?: { missingRole?: boolean }) {
                   media_key: String(args[5]),
                   position: Number(args[6]),
                   role: sql.includes("role") ? (args[7] == null ? null : String(args[7])) : null,
+                  label: sql.includes("label") ? (args[8] == null ? null : String(args[8])) : null,
                 });
               } else if (sql.includes("DELETE FROM gallery_items")) {
                 const galleryId = String(args[0]);
@@ -224,11 +263,11 @@ describe("galleries", () => {
         { kind: "image", name: "face.png", key: "u/user-1/e.png" },
       ]),
     ).toEqual([
-      { kind: "image", name: "room.png", key: "u/user-1/a.png", role: "background" },
-      { kind: "image", name: "prop.png", key: "u/user-1/b.png", role: "object" },
-      { kind: "video", name: "plate.mp4", key: "u/user-1/c.mp4", role: "style" },
-      { kind: "audio", name: "bed.mp3", key: "u/user-1/d.mp3", role: null },
-      { kind: "image", name: "face.png", key: "u/user-1/e.png", role: "character" },
+      { kind: "image", name: "room.png", key: "u/user-1/a.png", role: "background", label: null },
+      { kind: "image", name: "prop.png", key: "u/user-1/b.png", role: "object", label: null },
+      { kind: "video", name: "plate.mp4", key: "u/user-1/c.mp4", role: "style", label: null },
+      { kind: "audio", name: "bed.mp3", key: "u/user-1/d.mp3", role: null, label: null },
+      { kind: "image", name: "face.png", key: "u/user-1/e.png", role: "character", label: null },
     ]);
   });
 
@@ -257,6 +296,42 @@ describe("galleries", () => {
     expect(fallback?.items[0]?.role).toBe("object");
     const reread = await getGallery(legacy.db, TEST_USER.id, fallback!.id);
     expect(reread?.items[0]?.role).toBeNull();
+  });
+
+  it("defaults the handle, keeps a take, and rejects a duplicate handle or label", async () => {
+    const { db } = galleriesDb();
+    const saved = await saveGallery(db, TEST_USER.id, {
+      name: "Maya Chen",
+      profileId: "profile-1",
+      takeCount: 3,
+      items: [
+        { kind: "image", name: "face.png", key: "u/user-1/galleries/face.png", label: "wide" },
+        { kind: "image", name: "turn.png", key: "u/user-1/galleries/turn.png" },
+      ],
+    });
+    expect(saved?.handle).toBe("MayaChen");
+    expect(saved?.takeCount).toBe(3);
+    expect(defaultGalleryHandle("Maya Chen")).toBe("MayaChen");
+    expect(defaultGalleryHandle("Image")).toBe("");
+    const loaded = await getGallery(db, TEST_USER.id, saved!.id);
+    expect(loaded?.items.map((item) => item.label)).toEqual(["wide", null]);
+    await expect(
+      saveGallery(db, TEST_USER.id, {
+        name: "Ma ya Chen",
+        profileId: "profile-1",
+        items: [{ kind: "image", name: "a.png", key: "u/user-1/galleries/a.png" }],
+      }),
+    ).rejects.toBeInstanceOf(GalleryRejected);
+    await expect(
+      saveGallery(db, TEST_USER.id, {
+        id: saved!.id,
+        name: "Maya Chen",
+        items: [
+          { kind: "image", name: "face.png", key: "u/user-1/galleries/face.png", label: "wide" },
+          { kind: "image", name: "turn.png", key: "u/user-1/galleries/turn.png", label: "Wide" },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "label" });
   });
 
   it("requires a signed-in user on the gallery routes", async () => {

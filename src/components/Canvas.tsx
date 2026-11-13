@@ -456,7 +456,15 @@ export function Canvas({
             </div>
           ) : null}
         </div>
-        {generation.prompt ? <CopyPrompt prompt={generation.prompt} /> : null}
+        {generation.writtenPrompt && generation.writtenPrompt !== generation.prompt ? (
+          <>
+            <CopyPrompt prompt={generation.writtenPrompt} />
+            <p className="history-prompt-sent">Sent</p>
+            {generation.prompt ? <CopyPrompt prompt={generation.prompt} /> : null}
+          </>
+        ) : generation.prompt ? (
+          <CopyPrompt prompt={generation.prompt} />
+        ) : null}
         <TagEditor
           tags={generation.tags ?? []}
           onChange={(tags) => onTagsChange(generation.id, tags)}

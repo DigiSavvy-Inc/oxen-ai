@@ -7,6 +7,7 @@ import { fileDragOffered, historyDragOffered, readHistoryDrag } from "../lib/his
 import { useTileReorder } from "../lib/tile-reorder";
 import type { MediaRole } from "../../worker/schema";
 import { FullSizeMedia } from "./FullSizeMedia";
+import { GalleryMentionFields } from "./GalleryMentionFields";
 import { GalleryRoleSelect } from "./GalleryRoleSelect";
 import { GallerySections } from "./GallerySections";
 import { GalleryThumb } from "./GalleryThumb";
@@ -23,6 +24,11 @@ type Props = {
   detail: boolean;
   galleryId: string | null;
   name: string;
+  handle: string;
+  take: number;
+  onHandleChange: (value: string) => void;
+  onTakeChange: (value: number) => void;
+  onLabelChange: (index: number, label: string) => void;
   items: GalleryDraftItem[];
   saving: boolean;
   adding: boolean;
@@ -205,6 +211,12 @@ export function GalleryBrowser(props: Props) {
           onChange={(event) => props.onNameChange(event.target.value)}
         />
       </div>
+      <GalleryMentionFields
+        handle={props.handle}
+        take={props.take}
+        onHandleChange={props.onHandleChange}
+        onTakeChange={props.onTakeChange}
+      />
       <div className="gallery-manage-actions">
         <button type="button" className="ghost-btn" disabled={!canSave} onClick={props.onSave}>
           {props.saving ? "Saving…" : "Save"}
@@ -339,6 +351,7 @@ export function GalleryBrowser(props: Props) {
               className={`gallery-manage-tile${selected.includes(item.id) ? " is-selected" : ""}${drag.dragging ? " is-dragging" : ""}${drag.side ? ` is-drop-${drag.side}` : ""}`}
               {...drag.handlers}
             >
+              <div className="gallery-manage-frame">
               {(item.kind === "image" || item.kind === "video") && item.url ? (
                 <button
                   type="button"
@@ -422,6 +435,17 @@ export function GalleryBrowser(props: Props) {
                   </button>
                 ) : null}
               </div>
+              </div>
+              <input
+                className="field gallery-item-label"
+                value={item.label ?? ""}
+                placeholder="Label"
+                aria-label={`Label for ${item.name}`}
+                spellCheck={false}
+                onChange={(event) =>
+                  props.onLabelChange(index, event.target.value.replace(/[^A-Za-z0-9]/g, "").slice(0, 24))
+                }
+              />
             </div>
             );
           }}

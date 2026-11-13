@@ -177,6 +177,8 @@ export type Generation = {
   projectId?: string | null;
   /** Looks applied when this run was sent, ids and names. */
   looks?: AppliedLook[];
+  /** The prompt as written, when it differs from the prompt that was sent. */
+  writtenPrompt?: string | null;
 };
 
 export type SavedPrompt = {
@@ -193,12 +195,24 @@ export type GalleryPreview = {
   mediaUrl?: string | null;
 };
 
+export type GalleryMentionItem = {
+  key: string;
+  kind: "image" | "video" | "audio";
+  name: string;
+  role: string | null;
+  label: string | null;
+  thumbUrl: string | null;
+};
+
 export type GallerySummary = {
   id: string;
   name: string;
   updatedAt: number;
   count?: number;
   previews?: GalleryPreview[];
+  handle?: string;
+  takeCount?: number;
+  items?: GalleryMentionItem[];
 };
 
 export type GalleryItem = {
@@ -209,11 +223,14 @@ export type GalleryItem = {
   url: string;
   thumbUrl?: string | null;
   role?: string | null;
+  label?: string | null;
 };
 
 export type Gallery = {
   id: string;
   name: string;
+  handle: string;
+  takeCount: number;
   updatedAt: number;
   items: GalleryItem[];
 };
@@ -644,7 +661,9 @@ export const api = {
   saveGallery: (body: {
     id?: string | null;
     name: string;
-    items: { kind: GalleryItem["kind"]; name: string; key: string; role?: string | null }[];
+    handle?: string;
+    takeCount?: number;
+    items: { kind: GalleryItem["kind"]; name: string; key: string; role?: string | null; label?: string | null }[];
   }) =>
     fetch("/api/galleries", {
       method: "POST",
