@@ -806,9 +806,16 @@ export function Composer(props: Props) {
               className={`gallery-toggle${galleryOpen ? " active" : ""}`}
               aria-expanded={galleryOpen}
               aria-controls="media-library"
+              aria-keyshortcuts="Meta+Shift+G"
+              title="Gallery (⌘⇧G)"
               onClick={() => props.onGalleryToggle?.()}
             >
               Gallery
+              <span className="nav-shortcut" aria-hidden>
+                <kbd>⌘</kbd>
+                <kbd>⇧</kbd>
+                <kbd>G</kbd>
+              </span>
             </button>
           ) : null}
         </div>

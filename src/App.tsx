@@ -129,6 +129,7 @@ import {
 import { insertAttachMentions, moveItem } from "./lib/mentions";
 import { keepDraftIds, type GalleryDraftItem } from "./lib/gallery-draft";
 import { escapeTaken } from "./lib/escape-layer";
+import { galleryChordTaken } from "./lib/shortcut-layer";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 import { captureVideoLastFrame } from "./lib/last-frame";
 import { preferredAspectRatio, showGetLastFrame, takeStagedOfKind } from "./lib/params";
@@ -335,6 +336,7 @@ export default function App() {
   const lastFrameAttempted = useRef(new Set<string>());
   const createGalleryOpenRef = useRef(false);
   const cancelCreateGalleryRef = useRef<() => void>(() => {});
+  const toggleGalleryPanelRef = useRef<() => void>(() => {});
   /** Counts edits made inside an open gallery, so a save that returns late does not undo a newer one. */
   const galleryEdit = useRef(0);
   const galleryAutosave = useRef(false);
@@ -429,6 +431,7 @@ export default function App() {
     setLibraryPane("galleries");
     setLibraryOpen(true);
   }
+  toggleGalleryPanelRef.current = toggleGalleryPanel;
 
   function openProjectsPane() {
     if (projectsOpen) {
@@ -860,6 +863,12 @@ export default function App() {
         setLibraryOpen(false);
         setProjectsOpen(false);
         setShowSettings(true);
+        return;
+      }
+      if (event.code === "KeyG") {
+        if (galleryChordTaken(event)) return;
+        event.preventDefault();
+        toggleGalleryPanelRef.current();
       }
     }
     window.addEventListener("keydown", onKey);

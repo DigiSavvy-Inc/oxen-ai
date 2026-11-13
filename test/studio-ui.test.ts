@@ -1510,12 +1510,16 @@ describe("account profile switch", () => {
 });
 
 describe("nav shortcuts", () => {
-  it("toggles the library with Command Shift L and opens settings with Command Shift comma", () => {
+  it("toggles the library with Command Shift L, the gallery with Command Shift G, and opens settings with Command Shift comma", () => {
     const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
     const menu = readFileSync(new URL("../src/components/AccountMenu.tsx", import.meta.url), "utf8");
+    const composer = readFileSync(new URL("../src/components/Composer.tsx", import.meta.url), "utf8");
     expect(app).toContain('event.code === "KeyL"');
+    expect(app).toContain('event.code === "KeyG"');
     expect(app).toContain('event.code === "Comma"');
+    expect(app).toContain("galleryChordTaken(event)");
     expect(app).toContain("Meta+Shift+L");
+    expect(composer).toContain("Meta+Shift+G");
     expect(menu).toContain("Meta+Shift+Comma");
     expect(menu).toContain("menu-shortcut");
   });

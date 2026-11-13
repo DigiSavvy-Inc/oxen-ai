@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { escapeTaken } from "../src/lib/escape-layer";
+import { galleryChordTaken } from "../src/lib/shortcut-layer";
 import { keepDraftIds } from "../src/lib/gallery-draft";
 import { moveItem } from "../src/lib/mentions";
 import { insertBeforeAt, reorderTarget, tileDropSide } from "../src/lib/tile-reorder";
@@ -106,6 +107,61 @@ describe("escape closes the topmost layer first", () => {
     const handler = app.slice(app.indexOf('if (event.key === "Escape") {'), app.indexOf('event.code === "KeyL"'));
     expect(handler.indexOf("if (escapeTaken(event)) return;")).toBeGreaterThan(-1);
     expect(handler.indexOf("if (escapeTaken(event)) return;")).toBeLessThan(handler.indexOf("closeLibrary()"));
+  });
+});
+
+describe("gallery chord", () => {
+  function field(tagName: string) {
+    return { tagName, closest: () => null };
+  }
+
+  it("stays with a text field, the prompt, and any input", () => {
+    expect(galleryChordTaken({ defaultPrevented: false, target: field("TEXTAREA") })).toBe(true);
+    expect(galleryChordTaken({ defaultPrevented: false, target: field("input") })).toBe(true);
+    expect(galleryChordTaken({ defaultPrevented: false, target: field("SELECT") })).toBe(true);
+    expect(galleryChordTaken({ defaultPrevented: false, target: { isContentEditable: true } })).toBe(true);
+    expect(
+      galleryChordTaken({
+        defaultPrevented: false,
+        target: { tagName: "DIV", getAttribute: (name: string) => (name === "role" ? "textbox" : null) },
+      }),
+    ).toBe(true);
+    expect(
+      galleryChordTaken({
+        defaultPrevented: false,
+        target: { closest: (selector: string) => (selector.includes("textarea") ? field("TEXTAREA") : null) },
+      }),
+    ).toBe(true);
+  });
+
+  it("stays with an open menu that already uses the key, and takes a plain key otherwise", () => {
+    const menu = (shortcut: string | null) => ({
+      tagName: "DIV",
+      closest: (selector: string) => (selector.includes("role='menu'") ? menu(shortcut) : null),
+      getAttribute: (name: string) => (name === "aria-keyshortcuts" ? shortcut : null),
+      querySelectorAll: () => [],
+    });
+    expect(galleryChordTaken({ defaultPrevented: true, target: { tagName: "BUTTON" } })).toBe(true);
+    expect(galleryChordTaken({ defaultPrevented: false, target: menu("Meta+Shift+G") })).toBe(true);
+    expect(galleryChordTaken({ defaultPrevented: false, target: menu("Control+G") })).toBe(true);
+    expect(galleryChordTaken({ defaultPrevented: false, target: menu("Meta+Shift+Comma") })).toBe(false);
+    expect(galleryChordTaken({ defaultPrevented: false, target: menu(null) })).toBe(false);
+    expect(galleryChordTaken({ defaultPrevented: false, target: { tagName: "BUTTON", closest: () => null } })).toBe(false);
+    expect(galleryChordTaken({ defaultPrevented: false, target: null })).toBe(false);
+  });
+
+  it("is what the window handler asks before it takes the key, and the gallery control shows the chord", () => {
+    const app = source("../src/App.tsx");
+    const composer = source("../src/components/Composer.tsx");
+    const docs = source("../src/lib/docs.ts");
+    const branch = app.slice(app.indexOf('event.code === "KeyG"'), app.indexOf('window.addEventListener("keydown", onKey)'));
+    expect(branch.indexOf("if (galleryChordTaken(event)) return;")).toBeGreaterThan(-1);
+    expect(branch.indexOf("if (galleryChordTaken(event)) return;")).toBeLessThan(branch.indexOf("event.preventDefault()"));
+    expect(branch).toContain("toggleGalleryPanelRef.current()");
+    expect(composer).toContain('aria-keyshortcuts="Meta+Shift+G"');
+    expect(composer).toContain("Gallery (⌘⇧G)");
+    expect(composer).toContain("<kbd>G</kbd>");
+    expect(docs).toContain("⌘⇧G opens and closes the gallery.");
   });
 });
 

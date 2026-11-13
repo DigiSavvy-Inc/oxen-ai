@@ -3197,6 +3197,9 @@ button.history-expand-preview {
 
 .gallery-toggle {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: 1px solid var(--border);
   background: var(--neutral-1);
   color: var(--text);
