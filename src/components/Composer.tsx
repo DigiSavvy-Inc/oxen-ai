@@ -41,6 +41,7 @@ import {
   type PromptMention,
 } from "../lib/mentions";
 import { shortenFileName } from "../lib/files";
+import { copyPromptText } from "../lib/clipboard";
 import { prependMissingBindings, referenceBindingText, referenceRoleTitle } from "../lib/reference-roles";
 import { GALLERY_ITEM_DRAG_TYPE, galleryItemsForDrop, isGalleryItemDrag } from "../lib/gallery-attach";
 import { acceptedMediaKinds, fileAcceptValue, mediaKindPhrase, attachKindCap } from "../lib/library-refs";
@@ -562,6 +563,7 @@ export function Composer(props: Props) {
           value={promptDraft.body}
           aria-label="Prompt text"
           rows={3}
+          onCopy={copyPromptText}
           onChange={(event) =>
             setPromptDraft((draft) => (draft ? { ...draft, body: event.target.value } : draft))
           }
@@ -833,6 +835,7 @@ export function Composer(props: Props) {
             <textarea
               ref={promptRef}
               value={props.prompt}
+              onCopy={copyPromptText}
               role="combobox"
               aria-autocomplete="list"
               aria-expanded={showMentions}

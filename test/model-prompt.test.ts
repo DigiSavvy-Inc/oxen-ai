@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { composeModelPrompt, deliveryForRun } from "../src/lib/model-prompt";
+import { promptTextForCopy } from "../src/lib/reference-roles";
 import { shareExpiresAt, shareIsOpen } from "../worker/projects";
 
 describe("model prompt", () => {
@@ -12,6 +13,14 @@ describe("model prompt", () => {
     expect(sent).toBe(
       "Shot on 35mm.\n\n@Image1 is not a face. Use it only for the outfit, body, prop, or pose named in this prompt.\n\nHold still.",
     );
+    expect(promptTextForCopy(sent)).toBe("Shot on 35mm.\n\nHold still.");
+  });
+
+  it("still sends role lines that were written into the prompt", () => {
+    const written = "@Image2 is a face only.\n@Image3 is a face only.\n\nHold still.";
+    const sent = composeModelPrompt(written, "Shot on 35mm.", "@Image2 is a face only.\n@Image3 is a face only.");
+    expect(sent).toBe("Shot on 35mm.\n\n@Image2 is a face only.\n@Image3 is a face only.\n\nHold still.");
+    expect(promptTextForCopy(written)).toBe("Hold still.");
   });
 
   it("explains an outfit as an object when the model has no role inputs", () => {

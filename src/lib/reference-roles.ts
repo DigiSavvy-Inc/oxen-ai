@@ -71,6 +71,40 @@ export function referenceBindingText(
   return lines.join("\n");
 }
 
+const MENTION_TOKEN = /^@(?:Image|Video|Audio)\d+$/;
+
+/**
+ * A line Insert bindings would write: one role sentence, or the shared voice line.
+ * The check uses those same sentences, so a wording change stays in one place.
+ */
+export function isReferenceBindingLine(line: string): boolean {
+  const text = line.trim();
+  const role = text.match(/^(@(?:Image|Video|Audio)\d+) (.*)$/);
+  if (role) {
+    const token = role[1] ?? "";
+    if (!token.startsWith("@Audio")) {
+      const kind = token.startsWith("@Video") ? "video" : "image";
+      for (const mediaRole of ["character", "background", "object", "style"] as const) {
+        if (referenceBindingLine(kind, mediaRole, token) === text) return true;
+      }
+    }
+  }
+  const tokens = text.match(/@(?:Image|Video|Audio)\d+/g);
+  if (!tokens || tokens.length < 2) return false;
+  if (!tokens.every((token) => MENTION_TOKEN.test(token))) return false;
+  return voiceBindingLine(tokens) === text;
+}
+
+/**
+ * The prompt as the user wrote it. A copy leaves out role lines from Insert bindings.
+ * The field and the request keep those lines.
+ */
+export function promptTextForCopy(text: string): string {
+  if (!text.split("\n").some((line) => isReferenceBindingLine(line))) return text;
+  const kept = text.split("\n").filter((line) => !isReferenceBindingLine(line));
+  return kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
+}
+
 /** Prepend binding lines that are not already in the prompt. Exact lines are left alone. */
 export function prependMissingBindings(
   prompt: string,

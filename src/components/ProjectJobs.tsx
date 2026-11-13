@@ -16,6 +16,7 @@ import {
 import { runModes } from "../lib/mode-icons";
 import { jobStatus } from "../../worker/job-record";
 import { referenceRoleLabel } from "../../worker/schema";
+import { copyPromptText } from "../lib/clipboard";
 import { GalleryThumb } from "./GalleryThumb";
 import { Loader } from "./Loader";
 import { ModeIcons, ModelName } from "./ModeIcon";
@@ -243,7 +244,7 @@ export function ProjectJobs(props: Props) {
                     </button>
                   </div>
                   <h4 className="job-heading">Sent</h4>
-                  <pre className="job-prompt">{job.prompt}</pre>
+                  <pre className="job-prompt" onCopy={copyPromptText}>{job.prompt}</pre>
                   {job.looks.length > 0 ? (
                     <ul className="look-chips job-looks" aria-label="Looks applied">
                       {job.looks.map((look, index) => (

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { copyText } from "../lib/clipboard";
+import { copyPromptText, copyText } from "../lib/clipboard";
+import { promptTextForCopy } from "../lib/reference-roles";
 
 function CopyIcon() {
   return (
@@ -50,14 +51,14 @@ export function CopyPrompt({
   const [copied, setCopied] = useState(false);
 
   async function onCopy() {
-    const ok = await copyText(prompt);
+    const ok = await copyText(promptTextForCopy(prompt));
     if (!ok) return;
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   }
 
   return (
-    <div className={`prompt-quote${className ? ` ${className}` : ""}`}>
+    <div className={`prompt-quote${className ? ` ${className}` : ""}`} onCopy={copyPromptText}>
       <p className="prompt-quote-text">{prompt}</p>
       <button
         type="button"

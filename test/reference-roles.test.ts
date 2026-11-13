@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   prependMissingBindings,
+  promptTextForCopy,
   referenceBindingText,
   referenceRoleTitle,
 } from "../src/lib/reference-roles";
@@ -81,5 +82,29 @@ describe("reference bindings", () => {
     });
     expect(prependMissingBindings(block, block)).toBeNull();
     expect(prependMissingBindings("shot", "")).toBeNull();
+  });
+
+  it("copies the prompt without the role lines Insert bindings writes in front", () => {
+    const block = referenceBindingText(wrestling, { faceFirst: true, roleKinds: ["image", "video"] });
+    const written = prependMissingBindings("They hold still.", block);
+    expect(written?.next.startsWith("@Image1 is a face only.")).toBe(true);
+    expect(promptTextForCopy(written?.next ?? "")).toBe("They hold still.");
+    expect(promptTextForCopy("  They hold still.  ")).toBe("  They hold still.  ");
+    expect(promptTextForCopy("Say that @Image2 is a face only, then hold.")).toBe(
+      "Say that @Image2 is a face only, then hold.",
+    );
+  });
+
+  it("drops a role-line block that sits under a look and keeps both the look and the prompt", () => {
+    const sent = [
+      "Shot on 35mm.",
+      "",
+      "@Image2 is a face only.",
+      "@Image3 is a face only.",
+      "@Image4 is a face only.",
+      "",
+      "They hold still.",
+    ].join("\n");
+    expect(promptTextForCopy(sent)).toBe("Shot on 35mm.\n\nThey hold still.");
   });
 });

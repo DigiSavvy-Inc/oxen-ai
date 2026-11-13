@@ -1292,9 +1292,23 @@ describe("copy prompt", () => {
   it("puts a copy control next to saved prompts on the canvas and library peek", () => {
     const canvas = readFileSync(new URL("../src/components/Canvas.tsx", import.meta.url), "utf8");
     const peek = readFileSync(new URL("../src/components/LibraryPeek.tsx", import.meta.url), "utf8");
+    const history = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
+    const copy = readFileSync(new URL("../src/components/CopyPrompt.tsx", import.meta.url), "utf8");
+    const composer = readFileSync(new URL("../src/components/Composer.tsx", import.meta.url), "utf8");
+    const brief = readFileSync(new URL("../src/components/ProjectBrief.tsx", import.meta.url), "utf8");
+    const jobs = readFileSync(new URL("../src/components/ProjectJobs.tsx", import.meta.url), "utf8");
     expect(canvas).toContain("<CopyPrompt");
     expect(peek).toContain("<CopyPrompt");
     expect(peek).toContain('className="library-peek-prompt"');
+    expect(history).toContain("<CopyPrompt");
+    expect(copy).toContain("promptTextForCopy(prompt)");
+    expect(copy).toContain("onCopy={copyPromptText}");
+    expect(composer).toContain("onCopy={copyPromptText}");
+    expect(brief).toContain("onCopy={copyPromptText}");
+    expect(jobs).toContain("onCopy={copyPromptText}");
+    const delivery = composer.slice(composer.indexOf('className="model-delivery"'));
+    expect(delivery.includes("model-delivery")).toBe(true);
+    expect(delivery).not.toContain("copyPromptText");
   });
 });
 

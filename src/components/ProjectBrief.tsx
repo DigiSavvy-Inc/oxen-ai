@@ -8,6 +8,7 @@ import {
   type ComposerOrigin,
 } from "../lib/project-model";
 import { appliedLooks, PROJECT_LOOKS_MAX, sortLooks } from "../../worker/looks";
+import { copyPromptText } from "../lib/clipboard";
 import { ModelMenu } from "./ModelMenu";
 
 type Props = {
@@ -81,6 +82,7 @@ export function ProjectBrief(props: Props) {
           rows={6}
           value={props.prompt}
           maxLength={8000}
+          onCopy={copyPromptText}
           placeholder="The part that stays the same across scenes: the mentions, the staging, the style notes."
           onChange={(event) => props.onPromptChange(event.target.value)}
         />
