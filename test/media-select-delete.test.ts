@@ -84,6 +84,35 @@ describe("selection in an opened group", () => {
     expect(prunePicked(["a1", "a2", "b1"], ["a2", "b1", "c1"])).toEqual(["a2", "b1"]);
   });
 
+  it("puts Clear right after Attach on the library selection bar, and it drops every tick", () => {
+    const sidebar = source("../src/components/Sidebar.tsx");
+    const clear = sidebar.slice(sidebar.indexOf("function clearPicked"), sidebar.indexOf("function pickGroup"));
+    expect(clear).toContain("setPicked([])");
+    const bar = sidebar.slice(sidebar.indexOf('className="history-bulk"'), sidebar.indexOf('ref={historyRef}'));
+    // Rendered only while something is ticked, with the same button style as Download and Attach.
+    expect(sidebar).toContain("{livePicked.length > 0 && !groupOwnsPicks ? (\n        <div className=\"history-bulk\">");
+    expect(bar).toContain('<button type="button" className="ghost-btn" title="Clear the selection" onClick={clearPicked}>');
+    const order = ["Download\"}", "onClick={attachPicked}", "onClick={clearPicked}", "<HistoryGalleryActions", "<DeleteMenu"].map(
+      (mark) => bar.indexOf(mark),
+    );
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it("puts the same Clear after Attach on an open gallery's selection bar", () => {
+    const gallery = source("../src/components/GalleryBrowser.tsx");
+    const clear = gallery.slice(gallery.indexOf("function clearSelected"), gallery.indexOf("function toggleAll"));
+    expect(clear).toContain("setSelected([])");
+    const bar = gallery.slice(gallery.indexOf('className="gallery-bulk"'), gallery.indexOf("Destination gallery"));
+    expect(gallery).toContain("{selectedItems.length > 0 ? (\n        <div className=\"gallery-bulk\">");
+    const attach = bar.indexOf("props.onAttach(selectedItems)");
+    const cleared = bar.indexOf("onClick={clearSelected}");
+    const remove = bar.indexOf("Remove from gallery");
+    expect(attach).toBeGreaterThan(-1);
+    expect(cleared).toBeGreaterThan(attach);
+    expect(remove).toBeGreaterThan(cleared);
+  });
+
   it("gives every image in the opened group a checkbox and one action bar", () => {
     const sidebar = source("../src/components/Sidebar.tsx");
     const frame = sidebar.slice(

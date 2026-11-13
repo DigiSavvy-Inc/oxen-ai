@@ -120,6 +120,11 @@ export function GalleryBrowser(props: Props) {
     setSelected((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
   }
 
+  function clearSelected() {
+    setConfirmSelected(false);
+    setSelected([]);
+  }
+
   function toggleAll() {
     setConfirmSelected(false);
     setSelected(allSelected ? [] : props.items.map((item) => item.id));
@@ -243,6 +248,9 @@ export function GalleryBrowser(props: Props) {
             onClick={() => props.onAttach(selectedItems)}
           >
             Attach
+          </button>
+          <button type="button" className="ghost-btn" title="Clear the selection" onClick={clearSelected}>
+            Clear
           </button>
           {confirmSelected ? (
             <button

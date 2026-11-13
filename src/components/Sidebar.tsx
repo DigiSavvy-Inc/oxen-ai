@@ -422,6 +422,11 @@ export function Sidebar({
     setPicked((current) => togglePicked(prunePicked(current, pageIds), ids));
   }
 
+  function clearPicked() {
+    setBulkNote(null);
+    setPicked([]);
+  }
+
   function pickGroup(ids: string[], on: boolean) {
     setBulkNote(null);
     setPicked((current) => {
@@ -822,6 +827,9 @@ export function Sidebar({
               Attach
             </button>
           ) : null}
+          <button type="button" className="ghost-btn" title="Clear the selection" onClick={clearPicked}>
+            Clear
+          </button>
           {pickedDrafts.length > 0 ? (
             <HistoryGalleryActions
               items={pickedDrafts}
