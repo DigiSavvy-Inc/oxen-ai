@@ -91,6 +91,8 @@ npm run build && npx wrangler deploy --keep-vars \
 
 `PUBLIC_BASE_URL` must be the HTTPS origin Oxen can fetch. Signed media URLs last 12 hours.
 
+After a deploy, `scripts/deploy-notify.sh https://YOUR_DOMAIN` can tell a bot or a person to run the short after-deploy check in [docs/smoke-checklist.md](docs/smoke-checklist.md). It does nothing unless `DEPLOY_HOOK_URL` is set.
+
 `OXEN_BILLING_URL` is where Buy Credits goes. If you omit it, the link points at DigiSavvy’s Oxen billing page.
 
 Notifications are optional. Generate a VAPID key pair, store the private key with `wrangler secret put VAPID_PRIVATE_KEY`, and pass `VAPID_PUBLIC_KEY` as a variable. `VAPID_SUBJECT` can be a `mailto:` address or your origin.
