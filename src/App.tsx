@@ -131,6 +131,7 @@ import {
   type HistoryGalleryItem,
   type HistoryGalleryNotice,
 } from "./lib/gallery-history";
+import { slotChoices as usableSlotChoices, slotFilesFromItems, type SlotAddItem, type SlotAddNotice } from "./lib/slot-add";
 import { insertAttachMentions, insertPlainMention, moveItem } from "./lib/mentions";
 import { keepDraftIds, type GalleryDraftItem } from "./lib/gallery-draft";
 import { escapeTaken } from "./lib/escape-layer";
@@ -1556,6 +1557,8 @@ export default function App() {
     const everywhere = slots.filter((slot) => slot.projectId == null).map(slotCatalogEntry);
     return orderedNameCatalog({ project: projectEntries, everywhere, galleries });
   }, [activeProject, galleryDetails, gallerySummaries, shareName, slots]);
+  const slotProjectId = shareName ? null : (activeProject?.id ?? null);
+  const addSlotChoices = useMemo(() => usableSlotChoices(slots, slotProjectId), [slots, slotProjectId]);
   const imageCap = capForKind("image");
   const videoCap = capForKind("video");
   const audioCap = capForKind("audio");
@@ -2904,6 +2907,32 @@ export default function App() {
     patchSlot(id, { files });
   }
 
+  /** Add to slot from a selection bar. The server appends, skips repeats, and keeps what fits. */
+  async function addItemsToSlot(id: string, items: SlotAddItem[], created = false): Promise<SlotAddNotice> {
+    const files = slotFilesFromItems(items);
+    if (files.length === 0) return { kind: "error", message: "Those files aren’t ready to add yet." };
+    try {
+      const { slot, added, already, full } = await api.appendSlotFiles(id, files);
+      rememberSlot(slot);
+      return { kind: "added", name: slot.name, added, already, full, created };
+    } catch (err) {
+      return { kind: "error", message: err instanceof Error ? err.message : "Couldn’t add to that slot" };
+    }
+  }
+
+  async function createSlotWithItems(name: string, items: SlotAddItem[]): Promise<SlotAddNotice> {
+    if (slotFilesFromItems(items).length === 0) {
+      return { kind: "error", message: "Those files aren’t ready to add yet." };
+    }
+    try {
+      const { slot } = await api.createSlot({ name, projectId: slotProjectId });
+      rememberSlot(slot);
+      return await addItemsToSlot(slot.id, items, true);
+    } catch (err) {
+      return { kind: "error", message: err instanceof Error ? err.message : "Couldn’t add that slot" };
+    }
+  }
+
   function dropSlotFiles(id: string, files: File[]) {
     void uploadSlotFiles(files)
       .then((uploaded) => addSlotFiles(id, uploaded))
@@ -3779,6 +3808,9 @@ export default function App() {
         onGalleryPlace={onGalleryPlace}
         onHistoryAddToGallery={addHistoryToGallery}
         onHistoryCreateGallery={createHistoryGallery}
+        slotChoices={addSlotChoices}
+        onAddToSlot={addItemsToSlot}
+        onCreateSlot={createSlotWithItems}
         managingGallery={managingGallery}
         onManagingGallery={setManagingGallery}
         pane={libraryPane}

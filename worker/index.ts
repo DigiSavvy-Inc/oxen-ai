@@ -129,6 +129,7 @@ import { deleteGalleryFiles, parseGalleryFileKeys } from "./gallery-delete";
 import { GALLERY_MAX_ITEMS } from "./gallery-limits";
 import { presentGallery, presentGalleryList } from "./gallery-present";
 import {
+  appendSlotFiles,
   createSlot,
   deleteSlot,
   listSlots,
@@ -1585,6 +1586,21 @@ app.delete("/api/slots/:id", async (c) => {
   const removed = await deleteSlot(c.env.DB, user.id, profileId, c.req.param("id"));
   if (!removed) throw new HTTPException(404, { message: "Slot not found" });
   return c.json({ ok: true });
+});
+
+app.post("/api/slots/:id/files", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  if (!profileId) throw new HTTPException(404, { message: "Slot not found" });
+  const body = await c.req.json<{ files?: unknown }>();
+  const result = await appendSlotFiles(c.env, user.id, profileId, c.req.param("id"), body.files).catch(
+    (err: unknown) => {
+      if (err instanceof SlotRejected) throw new HTTPException(400, { message: err.message });
+      throw err;
+    },
+  );
+  if (!result) throw new HTTPException(404, { message: "Slot not found" });
+  return c.json(result);
 });
 
 app.post("/api/slots/:id/as-gallery", async (c) => {

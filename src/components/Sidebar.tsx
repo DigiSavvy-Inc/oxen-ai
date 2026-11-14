@@ -33,6 +33,7 @@ import {
 import { writeHistoryDrag } from "../lib/history-drag";
 import type { DeleteScope } from "../lib/media-delete";
 import { prunePicked, selectionInsideGroup, togglePicked } from "../lib/media-selection";
+import type { SlotAddItem, SlotAddNotice, SlotChoice } from "../lib/slot-add";
 import { runModes } from "../lib/mode-icons";
 import { suggestTags } from "../lib/tags";
 import { CopyPrompt } from "./CopyPrompt";
@@ -42,6 +43,7 @@ import { DownloadButton } from "./DownloadButton";
 import { DeleteMenu, TrashIcon } from "./DeleteMenu";
 import { HistoryGalleryActions } from "./HistoryGalleryActions";
 import { HistoryGroupBar } from "./HistoryGroupBar";
+import { SlotAddActions } from "./SlotAddActions";
 import { ExpandCorners, FullSizeMedia, type FitSlide } from "./FullSizeMedia";
 import { Loader } from "./Loader";
 import { PanelPlaceSwitch } from "./PanelPlace";
@@ -309,6 +311,9 @@ export function Sidebar({
   onGalleryPlace,
   onHistoryAddToGallery,
   onHistoryCreateGallery,
+  slotChoices,
+  onAddToSlot,
+  onCreateSlot,
   managingGallery,
   onManagingGallery,
   pane,
@@ -377,6 +382,10 @@ export function Sidebar({
   onGalleryPlace: (input: GalleryPlace) => Promise<boolean>;
   onHistoryAddToGallery: (galleryId: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
   onHistoryCreateGallery: (name: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
+  /** Slots usable right now, for Add to slot on the selection bars. */
+  slotChoices: SlotChoice[];
+  onAddToSlot: (slotId: string, items: SlotAddItem[]) => Promise<SlotAddNotice>;
+  onCreateSlot: (name: string, items: SlotAddItem[]) => Promise<SlotAddNotice>;
   /** True while one gallery is open in the panel; false shows the list of galleries. */
   managingGallery: boolean;
   onManagingGallery: (value: boolean) => void;
@@ -741,6 +750,9 @@ export function Sidebar({
 
       {galleriesOpen ? (
         <GalleryBrowser
+          slotChoices={slotChoices}
+          onAddToSlot={onAddToSlot}
+          onCreateSlot={onCreateSlot}
           summaries={gallerySummaries}
           detail={galleryDetail}
           galleryId={galleryId}
@@ -873,6 +885,15 @@ export function Sidebar({
               summaries={gallerySummaries}
               onAdd={onHistoryAddToGallery}
               onCreate={onHistoryCreateGallery}
+              placement="below"
+            />
+          ) : null}
+          {pickedDrafts.length > 0 ? (
+            <SlotAddActions
+              items={pickedDrafts}
+              slots={slotChoices}
+              onAdd={onAddToSlot}
+              onCreate={onCreateSlot}
               placement="below"
             />
           ) : null}
@@ -1061,6 +1082,9 @@ export function Sidebar({
                         summaries={gallerySummaries}
                         onAdd={onHistoryAddToGallery}
                         onCreate={onHistoryCreateGallery}
+                        slotChoices={slotChoices}
+                        onAddToSlot={onAddToSlot}
+                        onCreateSlot={onCreateSlot}
                         onDelete={onDelete ? deleteIds : undefined}
                       />
                     </div>

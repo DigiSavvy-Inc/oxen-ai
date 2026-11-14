@@ -129,9 +129,17 @@ function acceptHandle(raw: unknown, name: string): string {
   return handle;
 }
 
-export function acceptSlotFiles(userId: string, raw: unknown): SlotFileInput[] {
+/**
+ * Files one append request may offer: a full library page of groups with four outputs each.
+ * Only what fits under SLOT_FILES_MAX is kept.
+ */
+export const SLOT_APPEND_MAX = 400;
+
+export function acceptSlotFiles(userId: string, raw: unknown, max = SLOT_FILES_MAX): SlotFileInput[] {
   if (!Array.isArray(raw)) throw new SlotRejected("file", "A slot’s files have to be a list.");
-  if (raw.length > SLOT_FILES_MAX) throw new SlotRejected("limit", "A slot holds 12 files.");
+  if (raw.length > max) {
+    throw new SlotRejected("limit", max === SLOT_FILES_MAX ? "A slot holds 12 files." : `Add up to ${max} files at once.`);
+  }
   const files: SlotFileInput[] = [];
   const labels = new Set<string>();
   const keys = new Set<string>();
@@ -604,6 +612,114 @@ export async function deleteSlot(db: D1Database, userId: string, profileId: stri
   await db.prepare(`DELETE FROM slot_files WHERE slot_id = ? AND user_id = ?`).bind(id, userId).run();
   await db.prepare(`DELETE FROM slots WHERE id = ? AND user_id = ?`).bind(id, userId).run();
   return true;
+}
+
+export type SlotAppendResult = {
+  slot: SlotJson;
+  added: number;
+  /** Already in the slot, so skipped. */
+  already: number;
+  /** Did not fit under SLOT_FILES_MAX. */
+  full: number;
+};
+
+/**
+ * Add files to the end of a slot's own files, in the order given. A file already in the slot is
+ * skipped. Each insert checks the key and the cap in the same statement, so two quick adds can't
+ * duplicate a file or go past 12, and what fits is kept when the rest does not.
+ */
+export async function appendSlotFiles(
+  env: Env,
+  userId: string,
+  profileId: string,
+  id: string,
+  raw: unknown,
+): Promise<SlotAppendResult | null> {
+  const current = await slotRow(env.DB, userId, id);
+  if (!current || (current.profile_id ?? "") !== profileId) return null;
+  if (current.gallery_id) {
+    const gallery = await getGallery(env.DB, userId, current.gallery_id);
+    if (gallery) {
+      throw new SlotRejected("file", `This slot uses the gallery ${gallery.name}. Its files come from there.`);
+    }
+    // The linked gallery was deleted, so the slot keeps its own files again.
+    await env.DB
+      .prepare(`UPDATE slots SET gallery_id = NULL WHERE id = ? AND user_id = ?`)
+      .bind(id, userId)
+      .run();
+  }
+  const incoming = acceptSlotFiles(userId, raw, SLOT_APPEND_MAX);
+  let added = 0;
+  let already = 0;
+  let full = 0;
+  // Set once the slot is full. The rest are only sorted into already-in or did-not-fit.
+  let heldKeys: Set<string> | null = null;
+  for (const file of incoming) {
+    if (heldKeys) {
+      if (heldKeys.has(file.key)) already += 1;
+      else full += 1;
+      continue;
+    }
+    const result = await env.DB
+      .prepare(
+        `INSERT INTO slot_files (id, slot_id, user_id, kind, name, media_key, label, role, position)
+         SELECT ?, ?, ?, ?, ?, ?,
+           CASE WHEN EXISTS (
+             SELECT 1 FROM slot_files WHERE slot_id = ? AND label = ? COLLATE NOCASE
+           ) THEN NULL ELSE ? END,
+           ?,
+           (SELECT COALESCE(MAX(position), -1) + 1 FROM slot_files WHERE slot_id = ?)
+         WHERE NOT EXISTS (SELECT 1 FROM slot_files WHERE slot_id = ? AND media_key = ?)
+           AND (SELECT COUNT(*) FROM slot_files WHERE slot_id = ?) < ?`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        id,
+        userId,
+        file.kind,
+        file.name,
+        file.key,
+        id,
+        file.label,
+        file.label,
+        file.role,
+        id,
+        id,
+        file.key,
+        id,
+        SLOT_FILES_MAX,
+      )
+      .run();
+    if (Number(result.meta?.changes ?? 0) > 0) {
+      added += 1;
+      continue;
+    }
+    const present = await env.DB
+      .prepare(`SELECT 1 AS n FROM slot_files WHERE slot_id = ? AND media_key = ? LIMIT 1`)
+      .bind(id, file.key)
+      .first<{ n: number }>();
+    if (present) {
+      already += 1;
+      continue;
+    }
+    full += 1;
+    const { results } = await env.DB
+      .prepare(`SELECT media_key FROM slot_files WHERE slot_id = ?`)
+      .bind(id)
+      .all<{ media_key: string }>();
+    heldKeys = new Set((results ?? []).map((row) => row.media_key));
+  }
+  if (added > 0) {
+    await env.DB
+      .prepare(`UPDATE slots SET updated_at = ? WHERE id = ? AND user_id = ?`)
+      .bind(Math.floor(Date.now() / 1000), id, userId)
+      .run();
+  }
+  const row = await slotRow(env.DB, userId, id);
+  if (!row) return null;
+  const [slot] = await presentSlots(env, userId, [row]);
+  if (!slot) return null;
+  return { slot, added, already, full };
 }
 
 /** Drop slot files that pointed at media this user just deleted. */

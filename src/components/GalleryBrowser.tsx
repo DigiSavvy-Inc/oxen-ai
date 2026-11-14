@@ -5,6 +5,7 @@ import type { GalleryDraftItem } from "../lib/gallery-draft";
 import { gallerySwipeSlides } from "../lib/gallery-slides";
 import { fileDragOffered, historyDragOffered, readHistoryDrag } from "../lib/history-drag";
 import type { DeleteScope } from "../lib/media-delete";
+import type { SlotAddItem, SlotAddNotice, SlotChoice } from "../lib/slot-add";
 import { useTileReorder } from "../lib/tile-reorder";
 import type { MediaRole } from "../../worker/schema";
 import { DeleteMenu } from "./DeleteMenu";
@@ -13,6 +14,7 @@ import { GalleryMentionFields } from "./GalleryMentionFields";
 import { GalleryRoleSelect } from "./GalleryRoleSelect";
 import { GallerySections } from "./GallerySections";
 import { GalleryThumb } from "./GalleryThumb";
+import { SlotAddActions } from "./SlotAddActions";
 
 export type GalleryPlace = {
   ids: string[];
@@ -58,6 +60,9 @@ type Props = {
   /** Deletes the files themselves, from Studio or from Studio and Oxen. */
   onDeleteFiles: (ids: string[], scope: DeleteScope) => Promise<boolean>;
   onPlaceSelected: (input: GalleryPlace) => Promise<boolean>;
+  slotChoices: SlotChoice[];
+  onAddToSlot: (slotId: string, items: SlotAddItem[]) => Promise<SlotAddNotice>;
+  onCreateSlot: (name: string, items: SlotAddItem[]) => Promise<SlotAddNotice>;
 };
 
 export function GalleryBrowser(props: Props) {
@@ -276,6 +281,15 @@ export function GalleryBrowser(props: Props) {
           <button type="button" className="ghost-btn" title="Clear the selection" onClick={clearSelected}>
             Clear
           </button>
+          <SlotAddActions
+            items={deletable}
+            label={deletable.length === 1 ? "Add to slot" : `Add ${deletable.length} to slot`}
+            slots={props.slotChoices}
+            onAdd={props.onAddToSlot}
+            onCreate={props.onCreateSlot}
+            placement="below"
+            buttonClassName="ghost-btn"
+          />
           {confirmSelected ? (
             <button
               type="button"

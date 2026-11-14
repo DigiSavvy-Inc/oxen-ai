@@ -12,10 +12,13 @@ import {
   actionLabel,
   actionTargets,
   addToGalleryLabel,
+  addToSlotLabel,
   selectionSummary,
 } from "../lib/media-selection";
+import type { SlotAddItem, SlotAddNotice, SlotChoice } from "../lib/slot-add";
 import { DeleteMenu } from "./DeleteMenu";
 import { HistoryGalleryActions } from "./HistoryGalleryActions";
+import { SlotAddActions } from "./SlotAddActions";
 
 function kindLabel(item: Generation): "image" | "video" | "audio" {
   if (item.mediaType === "video") return "video";
@@ -38,6 +41,9 @@ export function HistoryGroupBar({
   summaries,
   onAdd,
   onCreate,
+  slotChoices,
+  onAddToSlot,
+  onCreateSlot,
   onDelete,
 }: {
   items: Generation[];
@@ -51,6 +57,9 @@ export function HistoryGroupBar({
   summaries: GallerySummary[];
   onAdd: (galleryId: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
   onCreate: (name: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
+  slotChoices?: SlotChoice[];
+  onAddToSlot?: (slotId: string, items: SlotAddItem[]) => Promise<SlotAddNotice>;
+  onCreateSlot?: (name: string, items: SlotAddItem[]) => Promise<SlotAddNotice>;
   onDelete?: (ids: string[], scope: DeleteScope) => void;
 }) {
   const [note, setNote] = useState<{ text: string; key: string } | null>(null);
@@ -159,6 +168,15 @@ export function HistoryGroupBar({
           onAdd={onAdd}
           onCreate={onCreate}
         />
+        {slotChoices && onAddToSlot && onCreateSlot ? (
+          <SlotAddActions
+            items={historyItemsForGallery(targetItems)}
+            label={addToSlotLabel(targets)}
+            slots={slotChoices}
+            onAdd={onAddToSlot}
+            onCreate={onCreateSlot}
+          />
+        ) : null}
         <button
           type="button"
           className="history-gallery-tool"
