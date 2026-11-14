@@ -1699,6 +1699,7 @@ describe("Seedance image-to-video enqueue", () => {
           duration: "auto",
           resolution: "1080p",
           draft: true,
+          aspect_ratio: "1:1",
           first_frame: "https://cdn.example.com/media/start.png",
           last_frame: "https://cdn.example.com/media/end.png",
           first_frame_has_face: true,
@@ -1732,6 +1733,8 @@ describe("Seedance image-to-video enqueue", () => {
     expect(queued?.tail_image_url).toBe("https://cdn.example.com/media/end.png");
     expect(queued?.input_image_has_face).toBe(true);
     expect(queued?.tail_image_url_has_face).toBeUndefined();
+    // The shape follows the first frame. Seedance rejects a ratio here.
+    expect(queued?.aspect_ratio).toBeUndefined();
     expect(queued?.input_images).toBeUndefined();
   });
 });

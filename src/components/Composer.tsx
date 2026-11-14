@@ -357,7 +357,7 @@ export function Composer(props: Props) {
     : null;
   const taskHint = taskHintBase && durationLocked ? `${taskHintBase} Length stays on Auto.` : taskHintBase;
   const showAspect =
-    props.mode === "text-to-audio"
+    props.mode === "text-to-audio" || props.controls?.frames
       ? Boolean(props.controls?.aspectRatios && props.controls.aspectRatios.length > 0)
       : aspectOptions.length > 0;
   const durationControl =

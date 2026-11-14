@@ -2387,7 +2387,9 @@ app.post("/api/generate", async (c) => {
     draft: !draftTaskId && controls.draft ? body.draft === true : undefined,
     multi_prompt: draftTaskId ? undefined : shots,
     aspect_ratio:
-      meta.mediaType === "audio" && !controls.aspectRatios?.length
+      // A frames model with no ratio choice takes its shape from the first frame
+      // and rejects a ratio outright.
+      (meta.mediaType === "audio" || frames) && !controls.aspectRatios?.length
         ? undefined
         : lockedAspectRatio(
             controls.aspectLock,
