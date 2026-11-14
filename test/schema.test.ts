@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assignFrames,
   clampDuration,
   lockedResolution,
   mapMediaUrls,
@@ -880,5 +881,79 @@ describe("parseGenerationListScope", () => {
   it("accepts active in-flight jobs and rejects unknown scopes", () => {
     expect(parseGenerationListScope("active")).toBe("active");
     expect(parseGenerationListScope("all")).toBeNull();
+  });
+});
+
+describe("first and last frames", () => {
+  const seedanceI2v = {
+    id: "bytedance-seedance-2-5-image-to-video",
+    request_schema: {
+      type: "object",
+      required: ["prompt", "input_image"],
+      properties: {
+        prompt: { type: "string" },
+        input_image: { type: "string", title: "Start Frame" },
+        input_image_has_face: { type: "boolean", default: false },
+        tail_image_url: { type: "string", title: "End Frame" },
+        tail_image_url_has_face: { type: "boolean", default: false },
+      },
+    },
+  };
+  const klingReference = {
+    id: "kling-video-v4-0-reference-to-video",
+    request_schema: {
+      type: "object",
+      required: ["prompt"],
+      properties: {
+        prompt: { type: "string" },
+        input_image: { type: "string" },
+        tail_image_url: { type: "string" },
+        input_images: { type: "array", items: { type: "string" }, maxItems: 10 },
+      },
+    },
+  };
+
+  it("reads a frames-only model: an end frame, face flags, and no reference list", () => {
+    expect(parseModelControls(seedanceI2v).frames).toEqual({
+      references: false,
+      firstFace: true,
+      lastFace: true,
+    });
+  });
+
+  it("reads a model that takes frames and references side by side", () => {
+    expect(parseModelControls(klingReference).frames).toEqual({
+      references: true,
+      firstFace: false,
+      lastFace: false,
+    });
+  });
+
+  it("reports no frames when the model has no end frame", () => {
+    expect(
+      parseModelControls({
+        id: "bytedance-seedance-2-5-reference-to-video",
+        request_schema: {
+          type: "object",
+          properties: { input_images: { type: "array", items: { type: "string" }, maxItems: 30 } },
+        },
+      }).frames,
+    ).toBeNull();
+  });
+
+  it("fills first then last by order on a frames-only model, so dragging swaps them", () => {
+    expect(assignFrames([null, null], { references: false })).toEqual(["first", "last"]);
+    expect(assignFrames([null], { references: false })).toEqual(["first"]);
+    expect(assignFrames([null, null, null], { references: false })).toEqual(["first", "last", null]);
+  });
+
+  it("leaves images as references until one is marked, when the model takes references", () => {
+    expect(assignFrames([null, null], { references: true })).toEqual([null, null]);
+    expect(assignFrames([null, "last", "first"], { references: true })).toEqual([null, "last", "first"]);
+  });
+
+  it("gives a frame to one image only", () => {
+    expect(assignFrames(["first", "first"], { references: true })).toEqual(["first", null]);
+    expect(assignFrames([null, "first"], null)).toEqual([null, null]);
   });
 });

@@ -72,6 +72,9 @@ export type EnqueueBody = {
   duration?: number | string;
   seed?: number;
   input_image?: string | string[];
+  tail_image_url?: string;
+  input_image_has_face?: boolean;
+  tail_image_url_has_face?: boolean;
   input_images?: string[];
   input_face_images?: string[];
   input_video?: string;
@@ -242,6 +245,7 @@ export function paramsJsonForStorage(payload: Record<string, unknown>): string {
   if (utf8Bytes(json) <= D1_MAX_TEXT_BYTES) return json;
   const slim: Record<string, unknown> = { ...stored, media_omitted: true };
   delete slim.input_image;
+  delete slim.tail_image_url;
   delete slim.input_images;
   delete slim.input_face_images;
   delete slim.input_video;
@@ -442,6 +446,11 @@ export function buildEnqueuePayload(
       }
       assignIfPresent(payload, "safety_tolerance", body.safety_tolerance);
       if (mediaType === "video") {
+        assignIfPresent(payload, "tail_image_url", body.tail_image_url);
+        if (body.input_image_has_face != null) payload.input_image_has_face = body.input_image_has_face;
+        if (body.tail_image_url_has_face != null) {
+          payload.tail_image_url_has_face = body.tail_image_url_has_face;
+        }
         assignIfPresent(payload, "input_video", body.input_video);
         assignIfPresent(payload, "input_videos", body.input_videos);
         assignIfPresent(payload, "input_face_videos", body.input_face_videos);

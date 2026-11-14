@@ -535,7 +535,7 @@ function fallbackModels(mode: GenerationMode): OxenModel[] {
         id: "bytedance-seedance-2-5-image-to-video",
         display_name: "Seedance 2.5 Image-to-Video",
         endpoint: "/videos/generate",
-        capabilities: { input: ["text", "image", "audio"], output: ["video"] },
+        capabilities: { input: ["text", "image"], output: ["video"] },
       },
       {
         id: "bytedance-seedance-2-5-reference-to-video",
@@ -2102,6 +2102,12 @@ app.post("/api/generate", async (c) => {
     generate_audio?: boolean;
     draft?: boolean;
     get_last_frame?: boolean;
+    /** The image the video starts on, for a model with start and end frames. */
+    first_frame?: string;
+    /** The image the video ends on. Needs a first frame. */
+    last_frame?: string;
+    first_frame_has_face?: boolean;
+    last_frame_has_face?: boolean;
     num_generations?: number;
     quality?: string;
     resolution?: string;
@@ -2189,10 +2195,25 @@ app.post("/api/generate", async (c) => {
     apiKey,
     db: c.env.DB,
   };
+  const frames = controls.frames;
+  const firstFrameRef = frames ? (body.first_frame?.trim() ?? "") : "";
+  const lastFrameRef = frames ? (body.last_frame?.trim() ?? "") : "";
   let imageUrls: string[];
   let videoUrls: string[];
   let audioUrls: string[];
+  let frameUrls: string[];
   try {
+    const frameRefs = [firstFrameRef, lastFrameRef].filter(Boolean);
+    frameUrls = await resolveRefsForOxen(
+      c.env.MEDIA,
+      frameRefs,
+      c.env.IMAGES,
+      frameRefs.map(() => true),
+      {
+        ...signing,
+        fitImageRatio: modelId.toLowerCase().includes("seedance") ? SEEDANCE_IMAGE_RATIO : undefined,
+      },
+    );
     imageUrls = await resolveRefsForOxen(
       c.env.MEDIA,
       imageRefs.urls,
@@ -2228,10 +2249,16 @@ app.post("/api/generate", async (c) => {
     throw err;
   }
 
+  const firstFrameUrl = firstFrameRef ? frameUrls[0] : undefined;
+  const lastFrameUrl = lastFrameRef ? frameUrls[firstFrameRef ? 1 : 0] : undefined;
+  // With a first frame named, `images` are references only and stay out of the frame field.
+  const referenceSlots = firstFrameUrl
+    ? controls.slots.filter((slot) => slot.field !== "input_image")
+    : controls.slots;
   const mapped =
     controls.slots.length > 0
       ? mapMediaUrls(
-          controls.slots,
+          referenceSlots,
           {
             image: imageUrls,
             video: videoUrls,
@@ -2258,8 +2285,14 @@ app.post("/api/generate", async (c) => {
   if (!draftTaskId && !shots && !promptText) {
     throw new HTTPException(400, { message: "prompt is required" });
   }
-  if (!draftTaskId && needsImage && imageUrls.length === 0) {
-    throw new HTTPException(400, { message: "input_image is required for this mode" });
+  if (!draftTaskId && needsImage && imageUrls.length === 0 && !firstFrameUrl) {
+    throw new HTTPException(400, {
+      message: frames ? "Add a first frame for this model" : "input_image is required for this mode",
+    });
+  }
+  const startFrameUrl = firstFrameUrl ?? asSingleString(mapped.input_image);
+  if (!draftTaskId && lastFrameUrl && !startFrameUrl) {
+    throw new HTTPException(400, { message: "A last frame needs a first frame" });
   }
   if (!draftTaskId && needsVideo && videoUrls.length === 0) {
     throw new HTTPException(400, { message: "input_video is required for this mode" });
@@ -2393,7 +2426,14 @@ app.post("/api/generate", async (c) => {
     enable_safety_checker: enableSafetyChecker,
     safety_tolerance: safetyTolerance,
     input_image:
-      mapped.input_image ?? (useFallback && imageUrls.length === 1 ? imageUrls[0] : undefined),
+      firstFrameUrl ??
+      mapped.input_image ??
+      (useFallback && imageUrls.length === 1 ? imageUrls[0] : undefined),
+    tail_image_url: meta.mediaType === "video" ? lastFrameUrl : undefined,
+    input_image_has_face:
+      frames?.firstFace && startFrameUrl && body.first_frame_has_face === true ? true : undefined,
+    tail_image_url_has_face:
+      frames?.lastFace && lastFrameUrl && body.last_frame_has_face === true ? true : undefined,
     input_images:
       asStringList(mapped.input_images) ??
       (useFallback && imageUrls.length > 1 ? imageUrls : undefined),

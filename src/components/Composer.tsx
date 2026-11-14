@@ -79,7 +79,13 @@ type AttachItem = {
   /** @Handle or @Handle.label when this chip came from a name mention. */
   via?: string;
   origin?: "hand" | "name";
+  /** This image is the frame the video starts or ends on. */
+  frame?: "first" | "last" | null;
 };
+
+function frameLabel(frame: "first" | "last"): string {
+  return frame === "first" ? "First frame" : "Last frame";
+}
 
 function faceFieldForKind(kind: AttachItem["kind"]): "input_face_images" | "input_face_videos" | null {
   switch (kind) {
@@ -229,6 +235,9 @@ type Props = {
   onAddFiles: (files: FileList | File[] | null) => void;
   onClearAttachment: (kind: "image" | "video" | "audio", index: number) => void;
   onAttachmentRoleChange: (index: number, role: MediaRole) => void;
+  onAttachmentFrameChange?: (index: number, frame: "first" | "last" | "ref") => void;
+  frameFace?: { first: boolean; last: boolean };
+  onFrameFaceChange?: (frame: "first" | "last", on: boolean) => void;
   onReorderAttachments: (from: number, to: number) => void;
   busy: boolean;
   error: string | null;
@@ -306,6 +315,7 @@ export function Composer(props: Props) {
   const fileAccept = fileAcceptValue(acceptedKinds);
   const dropPhrase = mediaKindPhrase(acceptedKinds);
   const audioCount = props.attachments.filter((item) => item.kind === "audio").length;
+  const imageCount = props.attachments.filter((item) => item.kind === "image").length;
   const galleryAvailable = modeHasReferenceGallery(props.mode);
   const galleryOpen = galleryAvailable && props.galleryOpen === true;
   const showDropzone =
@@ -1340,6 +1350,12 @@ export function Composer(props: Props) {
                     (slot) => slot.kind === item.kind && !slot.field.includes("face"),
                   ),
               );
+              const frames = props.controls?.frames ?? null;
+              const frameHasFace = item.frame
+                ? item.frame === "first"
+                  ? frames?.firstFace
+                  : frames?.lastFace
+                : false;
               const referenceRole = normalizeMediaRole(item.role);
               const showSlot =
                 dragIndex != null &&
@@ -1354,7 +1370,7 @@ export function Composer(props: Props) {
                     </div>
                   ) : null}
                   <div
-                    className={`attach-chip${dragIndex === index ? " is-dragging" : ""}`}
+                    className={`attach-chip${dragIndex === index ? " is-dragging" : ""}${item.frame ? ` is-frame is-frame-${item.frame}` : ""}`}
                     draggable={item.origin !== "name"}
                     onDragStart={(event) => {
                       if ((event.target as HTMLElement).closest("button, select")) {
@@ -1399,14 +1415,49 @@ export function Composer(props: Props) {
                       ) : null}
                     </div>
                     <span className="attach-chip-copy">
-                      <span className="attach-chip-token">{mentionChipLabel(token)}</span>
+                      <span className="attach-chip-token">
+                        {item.frame ? frameLabel(item.frame) : mentionChipLabel(token)}
+                      </span>
                       {item.via ? <span className="attach-chip-via">{item.via}</span> : null}
                       <span className="attach-chip-name">{shortenFileName(item.name)}</span>
                       <span className="attach-name-tip" role="tooltip">
                         {item.name}
                       </span>
                     </span>
-                    {showRole ? (
+                    {frames?.references && item.kind === "image" && item.origin !== "name" ? (
+                      <select
+                        className="attach-role is-plain"
+                        aria-label={`Use ${token} as`}
+                        title="A first or last frame is followed exactly. A reference only guides the look."
+                        value={item.frame ?? "ref"}
+                        onChange={(event) =>
+                          props.onAttachmentFrameChange?.(
+                            index,
+                            event.target.value === "first" || event.target.value === "last"
+                              ? event.target.value
+                              : "ref",
+                          )
+                        }
+                      >
+                        <option value="ref">Reference</option>
+                        <option value="first">First frame</option>
+                        <option value="last">Last frame</option>
+                      </select>
+                    ) : null}
+                    {item.frame && frameHasFace ? (
+                      <label
+                        className="attach-face"
+                        title="Turn on when this frame shows a real person’s face. The model may block it otherwise."
+                      >
+                        <input
+                          type="checkbox"
+                          checked={Boolean(props.frameFace?.[item.frame])}
+                          onChange={(event) => props.onFrameFaceChange?.(item.frame!, event.target.checked)}
+                        />
+                        Real face
+                      </label>
+                    ) : null}
+                    {showRole && !item.frame ? (
                       <select
                         className={`attach-role${referenceRoleUsesFace(referenceRole) ? "" : " is-plain"}`}
                         aria-label={`Reference role for ${token}`}
@@ -1450,6 +1501,13 @@ export function Composer(props: Props) {
               >
                 Insert bindings
               </button>
+            ) : null}
+            {props.controls?.frames && !props.controls.frames.references ? (
+              <span className="attach-count">
+                {imageCount < 2
+                  ? "Add a second image for the last frame."
+                  : "Drag to swap first and last."}
+              </span>
             ) : null}
             {audioMax > 1 ? (
               <span className="attach-count">

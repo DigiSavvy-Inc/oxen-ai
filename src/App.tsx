@@ -139,6 +139,7 @@ import { galleryChordTaken } from "./lib/shortcut-layer";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 import { captureVideoLastFrame } from "./lib/last-frame";
 import { preferredAspectRatio, showGetLastFrame, takeStagedOfKind } from "./lib/params";
+import { assignFrames, type FrameTag } from "../worker/schema";
 import {
   applyControlLock,
   durationFieldValue,
@@ -182,6 +183,11 @@ type StagedMedia = {
   /** Project-owned reference number while a project is open. */
   number?: number;
 };
+
+/** Stable handle for a staged file, used to remember its frame choice. */
+function stagedId(item: StagedMedia): string {
+  return item.key ?? item.preview;
+}
 
 const LIBRARY_LOAD_TIMEOUT_MS = 20_000;
 
@@ -324,6 +330,9 @@ export default function App() {
   const [galleryItems, setGalleryItems] = useState<GalleryDraftItem[]>([]);
   const [galleryDetails, setGalleryDetails] = useState<Map<string, Gallery>>(new Map());
   const [nameRoles, setNameRoles] = useState<Record<string, MediaRole>>({});
+  /** First or last frame picked on a chip, keyed by the staged file. */
+  const [frameChoices, setFrameChoices] = useState<Record<string, FrameTag | "ref">>({});
+  const [frameFace, setFrameFace] = useState<{ first: boolean; last: boolean }>({ first: false, last: false });
   const [gallerySaving, setGallerySaving] = useState(false);
   const [galleryAdding, setGalleryAdding] = useState(false);
   const [galleryStatus, setGalleryStatus] = useState<string | null>(null);
@@ -1330,6 +1339,8 @@ export default function App() {
   }
 
   function mentionAllowed(kind: "image" | "video" | "audio") {
+    // Frames are followed as given. The prompt does not cite them.
+    if (kind === "image" && controls?.frames && !controls.frames.references) return false;
     const kinds = controls?.mentionKinds;
     if (!kinds) return true;
     return kinds.includes(kind);
@@ -1559,6 +1570,8 @@ export default function App() {
   }, [activeProject, galleryDetails, gallerySummaries, shareName, slots]);
   const slotProjectId = shareName ? null : (activeProject?.id ?? null);
   const addSlotChoices = useMemo(() => usableSlotChoices(slots, slotProjectId), [slots, slotProjectId]);
+  const frames = controls?.frames ?? null;
+  const framesOnly = Boolean(frames && !frames.references);
   const imageCap = capForKind("image");
   const videoCap = capForKind("video");
   const audioCap = capForKind("audio");
@@ -1575,10 +1588,19 @@ export default function App() {
         prompt: namesOn ? prompt : "",
         galleries: namesOn ? planCatalog : [],
         hand: staged.map((item) => ({ key: item.key, kind: item.kind, number: item.number })),
-        caps: { image: imageCap, video: videoCap, audio: audioCap },
+        // A frames-only model takes no references, so a name adds its note and no image.
+        caps: { image: framesOnly ? 0 : imageCap, video: videoCap, audio: audioCap },
       }),
-    [audioCap, imageCap, namesOn, planCatalog, prompt, staged, videoCap],
+    [audioCap, framesOnly, imageCap, namesOn, planCatalog, prompt, staged, videoCap],
   );
+  const stagedFrames = useMemo(() => {
+    const images = takeStagedOfKind(staged, "image", imageCap);
+    const tags = assignFrames(
+      images.map((item) => (frames?.references ? (frameChoices[stagedId(item)] ?? null) : null)),
+      frames,
+    );
+    return new Map(images.map((item, index) => [item, tags[index] ?? null]));
+  }, [frameChoices, frames, imageCap, staged]);
   const shown = useMemo(() => {
     const marks = new Map(namePlan.marks.map((mark) => [mark.key, mark.token]));
     const hand = staged.map((item) => ({
@@ -1590,6 +1612,7 @@ export default function App() {
       key: item.key,
       url: item.url,
       via: item.key ? marks.get(item.key) : undefined,
+      frame: stagedFrames.get(item) ?? null,
       origin: "hand" as const,
     }));
     const named = namePlan.files.map((file) => ({
@@ -1601,10 +1624,11 @@ export default function App() {
       key: file.key,
       url: file.url ?? undefined,
       via: file.token,
+      frame: null,
       origin: "name" as const,
     }));
     return [...hand, ...named];
-  }, [namePlan, nameRoles, staged]);
+  }, [namePlan, nameRoles, staged, stagedFrames]);
 
   useEffect(() => {
     nameFetchSkip.current.clear();
@@ -1679,6 +1703,24 @@ export default function App() {
         seen += 1;
         return current !== handIndex;
       });
+    });
+  }
+
+  function onAttachmentFrameChange(index: number, frame: FrameTag | "ref") {
+    const target = shown[index];
+    if (!target || target.origin !== "hand" || target.kind !== "image") return;
+    const handIndex = shown.slice(0, index + 1).filter((item) => item.origin === "hand").length - 1;
+    const item = staged[handIndex];
+    if (!item) return;
+    const id = stagedId(item);
+    setFrameChoices((prev) => {
+      const next: Record<string, FrameTag | "ref"> = {};
+      // One first frame and one last frame: picking it here takes it from the other chip.
+      for (const [key, value] of Object.entries(prev)) {
+        if (key !== id && value !== frame) next[key] = value;
+      }
+      if (frame !== "ref") next[id] = frame;
+      return next;
     });
   }
 
@@ -3312,6 +3354,8 @@ export default function App() {
       const audios: string[] = [];
       const imageRoles: MediaRole[] = [];
       const videoRoles: MediaRole[] = [];
+      let firstFrame = "";
+      let lastFrame = "";
       const jobRefs: { kind: "image" | "video" | "audio"; number: number; role: MediaRole | null; name: string; key: string }[] = [];
       let namedFiles = namePlan.files;
       if (namesOn && namedFiles.some((file) => !file.url)) {
@@ -3347,13 +3391,14 @@ export default function App() {
         key?: string;
         role?: MediaRole | "scene" | null;
         number?: number;
+        frame?: FrameTag | null;
       }[] = [];
       for (const kind of ["image", "video", "audio"] as const) {
         const hand = takeStagedOfKind(staged, kind, capForKind(kind));
         const room = Math.max(0, capForKind(kind) - hand.length);
         const extra = namedFiles.filter((file) => file.kind === kind).slice(0, room);
         sendable.push(
-          ...hand,
+          ...hand.map((item) => ({ ...item, frame: stagedFrames.get(item) ?? null })),
           ...extra.map((file) => ({
             kind: file.kind,
             name: file.name,
@@ -3383,7 +3428,9 @@ export default function App() {
             key,
           });
         }
-        if (item.kind === "image") {
+        if (item.kind === "image" && item.frame === "first") firstFrame = url;
+        else if (item.kind === "image" && item.frame === "last") lastFrame = url;
+        else if (item.kind === "image") {
           images.push(url);
           imageRoles.push(role);
         } else if (item.kind === "video") {
@@ -3470,6 +3517,14 @@ export default function App() {
       if (images.length) {
         payload.images = images;
         if (modelHasFaceSlot("image")) payload.image_roles = imageRoles;
+      }
+      if (firstFrame) {
+        payload.first_frame = firstFrame;
+        if (frames?.firstFace && frameFace.first) payload.first_frame_has_face = true;
+      }
+      if (lastFrame) {
+        payload.last_frame = lastFrame;
+        if (frames?.lastFace && frameFace.last) payload.last_frame_has_face = true;
       }
       if (videos.length) {
         payload.videos = videos;
@@ -4071,6 +4126,9 @@ export default function App() {
               if (lock && lock.tasks.includes(value)) setAspectRatio(lock.value);
             }}
             onAttachmentRoleChange={onAttachmentRoleChange}
+            onAttachmentFrameChange={onAttachmentFrameChange}
+            frameFace={frameFace}
+            onFrameFaceChange={(frame, on) => setFrameFace((prev) => ({ ...prev, [frame]: on }))}
             sampleRate={sampleRate}
             onSampleRateChange={rememberParam(setSampleRate)}
             speed={speed}
@@ -4094,6 +4152,7 @@ export default function App() {
               role: item.role,
               number: item.number,
               via: item.via,
+              frame: item.frame,
               origin: item.origin,
             }))}
             mentionGalleries={planCatalog}

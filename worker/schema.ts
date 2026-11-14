@@ -133,9 +133,65 @@ export type ModelControls = {
   durationLock: ControlLock | null;
   /** Resolution `x-lock` while draft is on. Seedance locks this to 480p. */
   resolutionDraftLock: string | null;
+  /** Start and end frame inputs. Null when the model has no end frame. */
+  frames: FrameControls | null;
 };
 
 export type ControlLock = { value: string; tasks: string[] };
+
+/**
+ * A model with a start frame (`input_image`, one URL) and an end frame
+ * (`tail_image_url`). The model follows these exactly, unlike a reference.
+ */
+export type FrameControls = {
+  /** The model also takes reference images, in a separate list. */
+  references: boolean;
+  /** `input_image_has_face` exists. Real faces may be blocked unless it is on. */
+  firstFace: boolean;
+  /** `tail_image_url_has_face` exists. */
+  lastFace: boolean;
+};
+
+export type FrameTag = "first" | "last";
+
+/**
+ * Which staged images are the first and last frame. A chosen tag wins. On a
+ * model with no reference list, untagged images fill first, then last, in order.
+ * `ref` keeps an image out of the frames.
+ */
+export function assignFrames(
+  choices: (FrameTag | "ref" | null | undefined)[],
+  frames: Pick<FrameControls, "references"> | null | undefined,
+): (FrameTag | null)[] {
+  if (!frames) return choices.map(() => null);
+  const out: (FrameTag | null)[] = choices.map(() => null);
+  const taken = new Set<FrameTag>();
+  choices.forEach((choice, index) => {
+    if ((choice === "first" || choice === "last") && !taken.has(choice)) {
+      out[index] = choice;
+      taken.add(choice);
+    }
+  });
+  if (frames.references) return out;
+  choices.forEach((choice, index) => {
+    if (choice != null) return;
+    const next: FrameTag | null = !taken.has("first") ? "first" : !taken.has("last") ? "last" : null;
+    if (!next) return;
+    out[index] = next;
+    taken.add(next);
+  });
+  return out;
+}
+
+function frameControls(root: JsonSchema, slots: MediaSlot[]): FrameControls | null {
+  if (!property(root, "tail_image_url")) return null;
+  if (!slots.some((slot) => slot.field === "input_image" && !slot.asArray)) return null;
+  return {
+    references: slots.some((slot) => slot.kind === "image" && slot.field !== "input_image"),
+    firstFace: Boolean(property(root, "input_image_has_face")),
+    lastFace: Boolean(property(root, "tail_image_url_has_face")),
+  };
+}
 
 const FIELD_KIND: Record<MediaField, MediaKind> = {
   input_image: "image",
@@ -1062,6 +1118,7 @@ export function parseModelControls(model: OxenModel): ModelControls {
     aspectLock,
     durationLock,
     resolutionDraftLock: draftLockedValue(property(root, "resolution")),
+    frames: frameControls(root, nextSlots),
   };
 }
 

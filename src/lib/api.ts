@@ -105,6 +105,8 @@ export type ModelControls = {
   durationLock?: { value: string; tasks: string[] } | null;
   /** Resolution sent while draft is on. Seedance locks this to 480p. */
   resolutionDraftLock?: string | null;
+  /** Start and end frame inputs. Null or missing when the model has no end frame. */
+  frames?: { references: boolean; firstFace: boolean; lastFace: boolean } | null;
 };
 
 export type SharedOxenParams = {

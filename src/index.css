@@ -4614,6 +4614,31 @@ select.attach-role {
   font-weight: 500;
 }
 
+/* The frame a video starts or ends on. Followed exactly, unlike a reference. */
+.attach-chip.is-frame {
+  border-color: var(--text);
+}
+
+.attach-chip.is-frame .attach-chip-token::before {
+  content: "▶ ";
+  font-size: 9px;
+}
+
+.attach-chip.is-frame-last .attach-chip-token::before {
+  content: "■ ";
+}
+
+.attach-face {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
 .attach-chip-name {
   max-width: 148px;
   overflow: hidden;

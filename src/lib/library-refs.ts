@@ -61,7 +61,10 @@ function modeMinForKind(mode: GenerationMode | null | undefined, kind: MediaKind
   }
 }
 
-type CapControls = Pick<ModelControls, "slots"> & { imageVideoExclusive?: boolean };
+type CapControls = Pick<ModelControls, "slots"> & {
+  imageVideoExclusive?: boolean;
+  frames?: ModelControls["frames"];
+};
 
 /** Keyframes and continuation stay on different modes and cannot be combined. */
 function exclusiveKindCap(
@@ -87,6 +90,8 @@ export function mediaKindCap(
     const exclusive = exclusiveKindCap(controls, mode, kind);
     if (exclusive != null) return exclusive;
   }
+  // A frames-only model takes a first and a last frame, and no references.
+  if (kind === "image" && controls?.frames && !controls.frames.references) return 2;
   const fromSlots = slotMax(controls, kind);
   const modeMin = modeMinForKind(mode, kind);
   if (fromSlots > 0) return Math.max(fromSlots, modeMin);
