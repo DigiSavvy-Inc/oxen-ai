@@ -58,6 +58,8 @@ Local uploads are sent as data URIs because `PUBLIC_BASE_URL` is empty. That is 
 
 CI lints, tests, and builds. It does not deploy. You deploy with Wrangler.
 
+The step-by-step version, with a settings reference and troubleshooting, is in [docs/cloudflare-setup.md](docs/cloudflare-setup.md).
+
 Create a new GitHub OAuth app. Give it one callback: `https://YOUR_DOMAIN/api/auth/callback`. Do not point that callback at `*.workers.dev`.
 
 ```bash
