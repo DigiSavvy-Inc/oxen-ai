@@ -51,6 +51,10 @@ export function addToGalleryLabel(targets: ActionTargets): string {
   return targets.fromSelection ? `Add ${targets.ids.length} to gallery` : "Add to gallery";
 }
 
+export function addToSlotLabel(targets: ActionTargets): string {
+  return targets.fromSelection ? `Add ${targets.ids.length} to slot` : "Add to slot";
+}
+
 /** The line beside Select all: what the actions will take. */
 export function selectionSummary(
   targets: ActionTargets,

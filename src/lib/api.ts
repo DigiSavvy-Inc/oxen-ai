@@ -801,6 +801,17 @@ export const api = {
     fetch(`/api/slots/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
       parseJson<{ ok: boolean }>(r),
     ),
+  appendSlotFiles: (id: string, files: SlotFileInput[]) =>
+    fetch(`/api/slots/${encodeURIComponent(id)}/files`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files }),
+    }).then((r) =>
+      parseJson<{ slot: StudioSlot; added: number; already: number; full: number }>(r).then((data) => ({
+        ...data,
+        slot: readSlot(data.slot),
+      })),
+    ),
   saveSlotAsGallery: (id: string) =>
     fetch(`/api/slots/${encodeURIComponent(id)}/as-gallery`, { method: "POST" }).then((r) =>
       parseJson<{ slot: StudioSlot; gallery: Gallery }>(r).then((data) => ({

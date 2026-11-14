@@ -4,12 +4,14 @@ import { describe, expect, it } from "vitest";
 import { deleteGallery, GalleryRejected, saveGallery } from "../worker/galleries";
 import { createProject, deleteProject, getProject, readShare, createShare } from "../worker/projects";
 import {
+  appendSlotFiles,
   createSlot,
   deleteSlot,
   forgetSlotFiles,
   listSlots,
   saveProjectSlotsAsGallery,
   saveSlotAsGallery,
+  SLOT_FILES_MAX,
   SlotRejected,
   updateSlot,
 } from "../worker/slots";
@@ -248,5 +250,103 @@ describe("slots", () => {
     expect(view).toMatchObject({ name: "Film" });
     expect(view && "slots" in view).toBe(false);
     expect(view && "slotHandles" in view).toBe(false);
+  });
+});
+
+describe("appendSlotFiles", () => {
+  it("adds after the slot's own files in selection order and skips files already there", async () => {
+    const { env } = openDb();
+    const slot = await createSlot(env, USER, PROFILE, { name: "Maya", files: [image("a.png", "a.png")] });
+    const result = await appendSlotFiles(env, USER, PROFILE, slot!.id, [
+      image("c.png", "c.png"),
+      image("a.png", "a.png"),
+      image("b.png", "b.png"),
+      image("c.png", "c.png"),
+    ]);
+    expect(result).toMatchObject({ added: 2, already: 1, full: 0 });
+    expect(result?.slot.files.map((file) => file.name)).toEqual(["a.png", "c.png", "b.png"]);
+    // A second add of the same files changes nothing, so a double click never duplicates.
+    const again = await appendSlotFiles(env, USER, PROFILE, slot!.id, [image("b.png", "b.png")]);
+    expect(again).toMatchObject({ added: 0, already: 1, full: 0 });
+    expect(again?.slot.files).toHaveLength(3);
+  });
+
+  it("adds what fits under the 12-file cap and counts the rest instead of failing", async () => {
+    const { env } = openDb();
+    const start = Array.from({ length: 10 }, (_, index) => image(`s${index}.png`, `s${index}.png`));
+    const slot = await createSlot(env, USER, PROFILE, { name: "Crowd", files: start });
+    const extra = Array.from({ length: 5 }, (_, index) => image(`x${index}.png`, `x${index}.png`));
+    const result = await appendSlotFiles(env, USER, PROFILE, slot!.id, [
+      image("s0.png", "s0.png"),
+      ...extra,
+      // Still counted as already in once the slot is full, not as one that did not fit.
+      image("s1.png", "s1.png"),
+    ]);
+    expect(result).toMatchObject({ added: 2, already: 2, full: 3 });
+    expect(result?.slot.files).toHaveLength(SLOT_FILES_MAX);
+    expect(result?.slot.files.slice(-2).map((file) => file.name)).toEqual(["x0.png", "x1.png"]);
+  });
+
+  it("keeps two adds that arrive together from going past the cap or overwriting each other", async () => {
+    const { env } = openDb();
+    const slot = await createSlot(env, USER, PROFILE, { name: "Pair" });
+    const first = Array.from({ length: 8 }, (_, index) => image(`p${index}.png`, `p${index}.png`));
+    const second = Array.from({ length: 8 }, (_, index) => image(`q${index}.png`, `q${index}.png`));
+    const [one, two] = await Promise.all([
+      appendSlotFiles(env, USER, PROFILE, slot!.id, first),
+      appendSlotFiles(env, USER, PROFILE, slot!.id, second),
+    ]);
+    expect((one?.added ?? 0) + (two?.added ?? 0)).toBe(SLOT_FILES_MAX);
+    expect((one?.full ?? 0) + (two?.full ?? 0)).toBe(4);
+    const [listed] = await listSlots(env, USER, PROFILE);
+    expect(listed?.files).toHaveLength(SLOT_FILES_MAX);
+    expect(new Set(listed?.files.map((file) => file.key)).size).toBe(SLOT_FILES_MAX);
+  });
+
+  it("drops a label the slot already uses instead of failing the add", async () => {
+    const { env } = openDb();
+    const slot = await createSlot(env, USER, PROFILE, { name: "Loft", files: [image("a.png", "a.png", "wide")] });
+    const result = await appendSlotFiles(env, USER, PROFILE, slot!.id, [image("b.png", "b.png", "wide")]);
+    expect(result?.added).toBe(1);
+    expect(result?.slot.files.map((file) => file.label)).toEqual(["wide", null]);
+  });
+
+  it("refuses files the user does not own and slots on another profile or account", async () => {
+    const { env, raw } = openDb();
+    const slot = await createSlot(env, USER, PROFILE, { name: "Maya" });
+    await expect(
+      appendSlotFiles(env, USER, PROFILE, slot!.id, [
+        image("mine.png", "mine.png"),
+        { kind: "image", name: "x.png", key: "u/other/x.png" },
+      ]),
+    ).rejects.toThrow(/files you own/);
+    const [untouched] = await listSlots(env, USER, PROFILE);
+    expect(untouched?.files).toEqual([]);
+    raw
+      .prepare(`INSERT INTO profiles (id, user_id, name, created_at, updated_at) VALUES ('profile-2', ?, 'Other', 1, 1)`)
+      .run(USER);
+    expect(await appendSlotFiles(env, USER, "profile-2", slot!.id, [image("a.png", "a.png")])).toBeNull();
+    expect(await appendSlotFiles(env, "u2", PROFILE, slot!.id, [image("a.png", "a.png")])).toBeNull();
+  });
+
+  it("refuses a slot linked to a gallery, naming the gallery", async () => {
+    const { env } = openDb();
+    const gallery = await saveGallery(env.DB, USER, {
+      name: "Loft",
+      handle: "Loft",
+      items: [image("floor.png", "floor.png")],
+      profileId: PROFILE,
+    });
+    const slot = await createSlot(env, USER, PROFILE, { name: "Room", galleryId: gallery!.id });
+    await expect(appendSlotFiles(env, USER, PROFILE, slot!.id, [image("a.png", "a.png")])).rejects.toThrow(
+      /uses the gallery Loft/,
+    );
+    const [listed] = await listSlots(env, USER, PROFILE);
+    expect(listed?.files.map((file) => file.name)).toEqual(["floor.png"]);
+    // Once that gallery is gone the slot takes files of its own again.
+    await deleteGallery(env.DB, USER, gallery!.id);
+    const result = await appendSlotFiles(env, USER, PROFILE, slot!.id, [image("a.png", "a.png")]);
+    expect(result?.added).toBe(1);
+    expect(result?.slot.galleryId).toBeNull();
   });
 });

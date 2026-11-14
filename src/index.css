@@ -1428,6 +1428,41 @@ button.history-expand-preview {
   padding: 4px 6px;
 }
 
+/* Add to slot sits right after Add to gallery instead of taking the free space. */
+.history-gallery-tools.history-slot-tools {
+  flex: 0 1 auto;
+  margin-left: 0;
+}
+
+.gallery-bulk .history-slot-tools .history-gallery-pop {
+  left: 0;
+  right: auto;
+}
+
+.history-slot-new {
+  display: flex;
+  gap: 4px;
+}
+
+.history-slot-new .field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.history-slot-tools .history-gallery-choice:disabled {
+  cursor: default;
+  color: var(--text-dim);
+}
+
+.history-slot-tools .history-gallery-choice:disabled:hover {
+  background: transparent;
+}
+
+.history-gallery-choice-status.is-muted {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
 .history-expand-attach:hover:not(:disabled) {
   background: var(--bg-hover);
 }
