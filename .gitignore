@@ -32,3 +32,8 @@ dist-ssr
 # macOS shell build output
 macos/.build
 macos/build
+
+# Browser test state and reports
+e2e/.state
+playwright-report
+test-results

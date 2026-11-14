@@ -111,6 +111,7 @@ setup is in [docs/mac-app.md](docs/mac-app.md), and the release steps are in
 | `npm run build` | Typecheck and production build |
 | `npm run lint` | oxlint |
 | `npm test` | Unit tests. No live Oxen or R2 calls |
+| `npm run test:e2e` | Browser tests against a throwaway local Studio. Run `npx playwright install chromium` once first |
 | `npm run db:migrate:local` | Apply D1 migrations locally |
 | `npm run deploy` | Build and `wrangler deploy` with whatever vars are already on the Worker |
 

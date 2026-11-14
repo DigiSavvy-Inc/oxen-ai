@@ -1,0 +1,12 @@
+{
+  "port": 5187,
+  "userId": "e2e-user",
+  "githubId": 424242,
+  "login": "e2e-tester",
+  "sessionId": "e2e-session",
+  "library": [
+    { "id": "e2e-gen-1", "fixture": "tile-1.png", "prompt": "red tile" },
+    { "id": "e2e-gen-2", "fixture": "tile-2.png", "prompt": "blue tile" },
+    { "id": "e2e-gen-3", "fixture": "tile-3.png", "prompt": "green tile" }
+  ]
+}
