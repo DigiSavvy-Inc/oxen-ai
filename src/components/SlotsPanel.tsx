@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from "react";
+import { useEffect, useState, type DragEvent } from "react";
 import type { GallerySummary, ProjectSummary, SlotFile, SlotFileInput, StudioSlot } from "../lib/api";
 import { filesFromList } from "../lib/files";
 import { fileDragOffered, historyDragOffered, readHistoryDrag } from "../lib/history-drag";
@@ -11,7 +11,7 @@ import { GalleryThumb } from "./GalleryThumb";
 import { Loader } from "./Loader";
 import { PanelPlaceSwitch } from "./PanelPlace";
 import { SlotGalleryPicker } from "./SlotGalleryPicker";
-import { openAfterChange, slotRowMeta, slotSource } from "../lib/slot-pick";
+import { findSlots, openAfterChange, SLOT_FIND_FROM, slotRowMeta, slotSource } from "../lib/slot-pick";
 
 type AttachedFile = {
   kind: "image" | "video" | "audio";
@@ -76,12 +76,20 @@ export function SlotsPanel(props: Props) {
     if (next !== openId) setOpenId(next);
   }
   const toggle = (id: string) => setOpenId((current) => (current === id ? null : id));
+  // A slot that opens, including one just added at the end of the list, comes into view.
+  useEffect(() => {
+    if (!openId) return;
+    document.getElementById(`slot-card-${openId}`)?.scrollIntoView({ block: "nearest" });
+  }, [openId]);
+  const [find, setFind] = useState("");
+  const finding = props.slots.length >= SLOT_FIND_FROM;
+  const shown = finding ? findSlots(props.slots, find) : props.slots;
   const active = props.projects.find((project) => project.id === props.activeProjectId) ?? null;
-  const everywhere = props.slots.filter((slot) => slot.projectId == null);
-  const projectSlots = active ? props.slots.filter((slot) => slot.projectId === active.id) : [];
+  const everywhere = shown.filter((slot) => slot.projectId == null);
+  const projectSlots = active ? shown.filter((slot) => slot.projectId === active.id) : [];
   const otherProjects = props.projects.filter((project) => project.id !== active?.id);
   const groupedOthers = otherProjects.flatMap((project) => {
-    const slots = props.slots.filter((slot) => slot.projectId === project.id);
+    const slots = shown.filter((slot) => slot.projectId === project.id);
     return slots.length > 0 ? [{ project, slots }] : [];
   });
 
@@ -148,6 +156,17 @@ export function SlotsPanel(props: Props) {
         {props.notice ? <p className="slot-notice">{props.notice}</p> : null}
         {props.loading ? <Loader label="Loading slots" /> : null}
         {!props.loading && props.slots.length === 0 ? <p className="slot-empty">No slots yet.</p> : null}
+        {finding ? (
+          <input
+            className="field slot-find"
+            type="search"
+            aria-label="Find a slot"
+            placeholder={`Find in ${props.slots.length} slots`}
+            value={find}
+            onChange={(event) => setFind(event.target.value)}
+          />
+        ) : null}
+        {finding && find.trim() && shown.length === 0 ? <p className="slot-empty">No slot matches.</p> : null}
         {active ? (
           <SlotGroup
             title={active.name}
@@ -163,7 +182,7 @@ export function SlotsPanel(props: Props) {
           <SlotGroup title="Everywhere" slots={everywhere} {...cardProps(props, setPickingId, openId, toggle)} />
         ) : null}
         {groupedOthers.length > 0 ? (
-          <details className="slot-folded">
+          <details className="slot-folded" open={finding && find.trim() ? true : undefined}>
             <summary>{active ? "Other projects" : "In projects"}</summary>
             {groupedOthers.map(({ project, slots }) => (
               <SlotGroup

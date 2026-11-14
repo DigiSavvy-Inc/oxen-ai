@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  findSlots,
   openAfterChange,
   pickAll,
   pickBlocked,
@@ -97,6 +98,18 @@ describe("slot picking", () => {
     expect(slotRowMeta({ ...linked, note: "" })).toBe("Whole gallery · 20 files");
     expect(slotRowMeta({ ...own(0), note: "warm skin" })).toBe("Text");
     expect(slotRowMeta({ ...own(0), note: "  " })).toBe("Empty");
+  });
+
+  it("finds slots by name or handle, ignoring case and a leading @", () => {
+    const slots = [
+      { name: "Dayang", handle: "Dayang" },
+      { name: "Dayan styles", handle: "DayanStyles" },
+      { name: "Gym wide", handle: "GymWide" },
+    ];
+    expect(findSlots(slots, "").length).toBe(3);
+    expect(findSlots(slots, "dayan").map((slot) => slot.handle)).toEqual(["Dayang", "DayanStyles"]);
+    expect(findSlots(slots, "@gymw").map((slot) => slot.handle)).toEqual(["GymWide"]);
+    expect(findSlots(slots, "nope")).toEqual([]);
   });
 
   it("opens a slot that was just added, and nothing on first load", () => {

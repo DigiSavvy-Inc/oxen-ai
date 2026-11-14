@@ -138,6 +138,18 @@ export function openAfterChange(
   return open && next.includes(open) ? open : null;
 }
 
+/** The find box appears once the list is long enough to need it. */
+export const SLOT_FIND_FROM = 7;
+
+/** Slots whose name or handle contains what was typed. A leading @ and letter case are ignored. */
+export function findSlots<T extends { name: string; handle: string }>(slots: readonly T[], query: string): T[] {
+  const needle = query.trim().replace(/^@/, "").toLowerCase();
+  if (!needle) return [...slots];
+  return slots.filter(
+    (slot) => slot.name.toLowerCase().includes(needle) || slot.handle.toLowerCase().includes(needle),
+  );
+}
+
 /** What the card says about where its files come from. */
 export function slotSource(slot: PickSlot & { galleryName: string | null; note: string }): string {
   if (slot.galleryId) {
