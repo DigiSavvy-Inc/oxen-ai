@@ -1439,6 +1439,20 @@ button.history-expand-preview {
   right: auto;
 }
 
+/* On a phone the button can sit mid-row with less room to its right than the menu is wide.
+   The menu then hangs off the bar's left edge instead, so it cannot run past the screen
+   and make the library scroll sideways. */
+@media (max-width: 520px) {
+  .gallery-bulk .history-slot-tools {
+    position: static;
+  }
+
+  .gallery-bulk .history-slot-tools .history-gallery-pop {
+    left: 12px;
+    max-width: calc(100% - 24px);
+  }
+}
+
 .history-slot-new {
   display: flex;
   gap: 4px;
