@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { app } from "../worker/index";
 import { createSignedMediaUrl } from "../worker/media";
@@ -43,10 +45,77 @@ describe("static asset headers (public/_headers)", () => {
   const rules = readFileSync(new URL("../public/_headers", import.meta.url), "utf8");
   const csp = rules.match(/Content-Security-Policy: (.+)/)?.[1] ?? "";
 
+  // Resolves the headers Cloudflare sends for a path, the way it reads this file: every
+  // matching block applies in file order, "! Name" drops what earlier blocks set, and a
+  // name set by two blocks is joined with a comma.
+  function headersFor(path: string): Map<string, string> {
+    const blocks: { pattern: string; lines: string[] }[] = [];
+    for (const raw of rules.split("\n")) {
+      if (!raw.trim() || raw.trim().startsWith("#")) continue;
+      if (/^\s/.test(raw)) blocks[blocks.length - 1].lines.push(raw.trim());
+      else blocks.push({ pattern: raw.trim(), lines: [] });
+    }
+    const headers = new Map<string, string>();
+    const setByFile = new Set<string>();
+    for (const { pattern, lines } of blocks) {
+      const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+      if (!new RegExp(`^${escaped}$`).test(path)) continue;
+      for (const line of lines.filter((l) => l.startsWith("! "))) headers.delete(line.slice(2).trim().toLowerCase());
+      for (const line of lines.filter((l) => !l.startsWith("! "))) {
+        const name = line.slice(0, line.indexOf(":")).trim().toLowerCase();
+        const value = line.slice(line.indexOf(":") + 1).trim();
+        const earlier = headers.get(name);
+        headers.set(name, setByFile.has(name) && earlier ? `${earlier}, ${value}` : value);
+        setByFile.add(name);
+      }
+    }
+    return headers;
+  }
+  const cacheControl = (path: string) => headersFor(path).get("cache-control");
+
   it("only runs same-origin scripts and cannot be framed", () => {
     expect(csp).toMatch(/script-src 'self';/);
     expect(csp).not.toMatch(/script-src[^;]*unsafe/);
     expect(csp).toContain("frame-ancestors 'none'");
+  });
+
+  // A proxy that may rewrite the page (Cloudflare's Web Analytics does) injects a third-party
+  // script the CSP then blocks on every load. no-transform tells it to leave the HTML alone.
+  it("tells proxies not to rewrite the page, and still revalidates every load", () => {
+    for (const path of ["/", "/index.html", "/gallery", "/slots/some-id"]) {
+      expect(cacheControl(path), path).toBe("public, max-age=0, must-revalidate, no-transform");
+    }
+  });
+
+  // no-transform also stops Cloudflare compressing the response and optimising images. On the
+  // JS and CSS bundle that is about 490 KB more on every first load, so only the HTML page may
+  // carry it. Every file in public/ is checked, so a new one cannot pick it up unnoticed.
+  it("keeps no-transform off everything that is not the page, so it is still compressed", () => {
+    const publicDir = fileURLToPath(new URL("../public/", import.meta.url));
+    const publicFiles = readdirSync(publicDir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name !== "_headers" && !entry.name.endsWith(".html"))
+      .map((entry) => `/${relative(publicDir, join(entry.parentPath, entry.name)).split(sep).join("/")}`);
+    expect(publicFiles).toEqual(
+      expect.arrayContaining(["/sw.js", "/favicon.svg", "/apple-touch-icon.png", "/icon-192.png", "/icon-512.png"]),
+    );
+    const notThePage = [
+      "/assets/index-BE0y26e2.js",
+      "/assets/index-5_9Rkcug.css",
+      "/assets/chunks/any-Dk3f.js",
+      ...publicFiles,
+    ];
+    for (const path of notThePage) {
+      expect(cacheControl(path), path).toBe("public, max-age=0, must-revalidate");
+      expect(cacheControl(path), path).not.toContain("no-transform");
+    }
+  });
+
+  it("gives every static response the same CSP and framing rules", () => {
+    for (const path of ["/", "/assets/index-BE0y26e2.js", "/sw.js", "/favicon.svg"]) {
+      const headers = headersFor(path);
+      expect(headers.get("content-security-policy"), path).toBe(csp);
+      expect(headers.get("x-frame-options"), path).toBe("DENY");
+    }
   });
 
   // Other digisavvy.dev sites are not all HTTPS; includeSubDomains would break them.
