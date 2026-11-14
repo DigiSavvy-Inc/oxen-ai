@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  openAfterChange,
   pickAll,
   pickBlocked,
   pickCount,
   pickedFiles,
   pickRoom,
   SLOT_PICK_MAX,
+  slotRowMeta,
   slotSource,
   togglePick,
   type PickItem,
@@ -86,6 +88,26 @@ describe("slot picking", () => {
     const picked = new Set([gallery[3]!.key, gallery[1]!.key]);
     expect(pickedFiles(linked, gallery, picked).map((file) => file.key)).toEqual([gallery[1]!.key, gallery[3]!.key]);
     expect(pickCount(linked, picked)).toEqual({ used: 2, max: 12 });
+  });
+
+  // The closed row is all a person sees of most slots, so it has to tell them apart.
+  it("sums up a closed slot row", () => {
+    expect(slotRowMeta({ ...own(1), note: "" })).toBe("1 file");
+    expect(slotRowMeta({ ...own(4), note: "ignored" })).toBe("4 files");
+    expect(slotRowMeta({ ...linked, note: "" })).toBe("Whole gallery · 20 files");
+    expect(slotRowMeta({ ...own(0), note: "warm skin" })).toBe("Text");
+    expect(slotRowMeta({ ...own(0), note: "  " })).toBe("Empty");
+  });
+
+  it("opens a slot that was just added, and nothing on first load", () => {
+    expect(openAfterChange(null, ["a", "b"], null)).toBeNull();
+    expect(openAfterChange(["a"], ["a", "b"], "a")).toBe("b");
+    expect(openAfterChange([], ["a"], null)).toBe("a");
+  });
+
+  it("keeps the open slot through a reorder and closes it when it is deleted", () => {
+    expect(openAfterChange(["a", "b"], ["b", "a"], "a")).toBe("a");
+    expect(openAfterChange(["a", "b"], ["b"], "a")).toBeNull();
   });
 
   it("says where a slot's files come from, and names a text slot", () => {

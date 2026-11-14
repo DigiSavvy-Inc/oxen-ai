@@ -11,7 +11,7 @@ import { GalleryThumb } from "./GalleryThumb";
 import { Loader } from "./Loader";
 import { PanelPlaceSwitch } from "./PanelPlace";
 import { SlotGalleryPicker } from "./SlotGalleryPicker";
-import { slotSource } from "../lib/slot-pick";
+import { openAfterChange, slotRowMeta, slotSource } from "../lib/slot-pick";
 
 type AttachedFile = {
   kind: "image" | "video" | "audio";
@@ -66,6 +66,16 @@ export function SlotsPanel(props: Props) {
   const [pickingId, setPickingId] = useState<string | null>(null);
   const picking = props.open ? (props.slots.find((slot) => slot.id === pickingId) ?? null) : null;
   if (pickingId && !picking) setPickingId(null);
+  // One slot open at a time; the rest stay as one-line rows.
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [known, setKnown] = useState<string[] | null>(null);
+  const ids = props.slots.map((slot) => slot.id);
+  if (!props.loading && (known === null || known.join("|") !== ids.join("|"))) {
+    setKnown(ids);
+    const next = openAfterChange(known, ids, openId);
+    if (next !== openId) setOpenId(next);
+  }
+  const toggle = (id: string) => setOpenId((current) => (current === id ? null : id));
   const active = props.projects.find((project) => project.id === props.activeProjectId) ?? null;
   const everywhere = props.slots.filter((slot) => slot.projectId == null);
   const projectSlots = active ? props.slots.filter((slot) => slot.projectId === active.id) : [];
@@ -146,11 +156,11 @@ export function SlotsPanel(props: Props) {
             onAdd={draft.trim() ? () => add(active.id) : undefined}
             onSave={() => props.onSaveProjectGallery(active.id)}
             canSave={projectSlots.some((slot) => !slot.galleryId && slot.files.length > 0)}
-            {...cardProps(props, setPickingId)}
+            {...cardProps(props, setPickingId, openId, toggle)}
           />
         ) : null}
         {everywhere.length > 0 ? (
-          <SlotGroup title="Everywhere" slots={everywhere} {...cardProps(props, setPickingId)} />
+          <SlotGroup title="Everywhere" slots={everywhere} {...cardProps(props, setPickingId, openId, toggle)} />
         ) : null}
         {groupedOthers.length > 0 ? (
           <details className="slot-folded">
@@ -162,7 +172,7 @@ export function SlotsPanel(props: Props) {
                 slots={slots}
                 onSave={() => props.onSaveProjectGallery(project.id)}
                 canSave={slots.some((slot) => !slot.galleryId && slot.files.length > 0)}
-                {...cardProps(props, setPickingId)}
+                {...cardProps(props, setPickingId, openId, toggle)}
               />
             ))}
           </details>
@@ -172,10 +182,12 @@ export function SlotsPanel(props: Props) {
   );
 }
 
-function cardProps(props: Props, onPick: (id: string) => void) {
+function cardProps(props: Props, onPick: (id: string) => void, openId: string | null, onToggle: (id: string) => void) {
   return {
     projects: props.projects,
     onPick,
+    openId,
+    onToggle,
     attached: props.attached,
     onPatch: props.onPatch,
     onDelete: props.onDelete,
@@ -218,6 +230,8 @@ function SlotGroup(
           slot={slot}
           projects={props.projects}
           onPick={props.onPick}
+          openId={props.openId}
+          onToggle={props.onToggle}
           attached={props.attached}
           onPatch={props.onPatch}
           onDelete={props.onDelete}
@@ -238,6 +252,8 @@ function SlotCard(
 ) {
   const { slot } = props;
   const linked = Boolean(slot.galleryId);
+  const open = props.openId === slot.id;
+  const cover = slot.files[0] ?? null;
   const [name, setName] = useState(slot.name);
   const [handle, setHandle] = useState(slot.handle);
   const [note, setNote] = useState(slot.note);
@@ -289,11 +305,50 @@ function SlotCard(
   return (
     <article
       id={`slot-card-${slot.id}`}
-      className={`slot-card${over ? " is-drop" : ""}`}
+      className={`slot-card${open ? " is-open" : ""}${over ? " is-drop" : ""}`}
       onDragOver={onDragOver}
       onDragLeave={() => setOver(false)}
       onDrop={onDrop}
     >
+      <div className="slot-row">
+        <button
+          type="button"
+          className="slot-row-toggle"
+          aria-expanded={open}
+          aria-controls={`slot-body-${slot.id}`}
+          onClick={() => props.onToggle(slot.id)}
+        >
+          <span className="slot-pick-thumb slot-row-thumb">
+            {cover ? (
+              <GalleryThumb kind={cover.kind} name={cover.name} preview={cover.thumbUrl || cover.url || ""} slot="strip" />
+            ) : (
+              <span className="slot-row-mark" aria-hidden="true">
+                {slot.note.trim() ? "T" : ""}
+              </span>
+            )}
+          </span>
+          <span className="slot-row-text">
+            <span className="slot-row-name">{slot.name}</span>
+            <span className="slot-row-meta">
+              @{slot.handle} · {slotRowMeta(slot)}
+            </span>
+          </span>
+          <span className="slot-row-chevron" aria-hidden="true">
+            ›
+          </span>
+        </button>
+        <button
+          type="button"
+          className="ghost-btn slot-insert"
+          aria-label={`Insert @${handle.trim() || slot.handle}`}
+          title={`Insert @${handle.trim() || slot.handle} at the cursor`}
+          onClick={() => props.onInsert(handle.trim() || slot.handle)}
+        >
+          Insert
+        </button>
+      </div>
+      {open ? (
+      <div className="slot-card-body" id={`slot-body-${slot.id}`}>
       <div className="slot-card-name">
         <input
           className="field"
@@ -306,9 +361,6 @@ function SlotCard(
             else setName(slot.name);
           }}
         />
-        <button type="button" className="ghost-btn slot-insert" onClick={() => props.onInsert(handle.trim() || slot.handle)}>
-          Insert @{handle.trim() || slot.handle}
-        </button>
       </div>
       <GalleryMentionFields
         handle={handle}
@@ -462,6 +514,8 @@ function SlotCard(
           Delete
         </button>
       </div>
+      </div>
+      ) : null}
     </article>
   );
 }

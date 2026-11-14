@@ -113,6 +113,31 @@ export function pickedFiles(slot: PickSlot, items: readonly PickItem[], picked: 
   return files;
 }
 
+/** The short line on a closed slot row: how much is in it, at a glance. */
+export function slotRowMeta(slot: PickSlot & { note: string }): string {
+  const n = slot.files.length;
+  const files = `${n} ${n === 1 ? "file" : "files"}`;
+  if (slot.galleryId) return `Whole gallery · ${files}`;
+  if (n > 0) return files;
+  return slot.note.trim() ? "Text" : "Empty";
+}
+
+/**
+ * Which slot is open after the list changes. A slot that was just added opens so it can be
+ * filled right away; otherwise the open one stays open, unless it is gone.
+ */
+export function openAfterChange(
+  prev: readonly string[] | null,
+  next: readonly string[],
+  open: string | null,
+): string | null {
+  if (prev) {
+    const added = next.filter((id) => !prev.includes(id));
+    if (added.length === 1) return added[0]!;
+  }
+  return open && next.includes(open) ? open : null;
+}
+
 /** What the card says about where its files come from. */
 export function slotSource(slot: PickSlot & { galleryName: string | null; note: string }): string {
   if (slot.galleryId) {
