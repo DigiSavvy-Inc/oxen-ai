@@ -64,6 +64,7 @@
   //   SESSION_SECRET
   //   MEDIA_SIGNING_KEY  (signs /api/media URLs; separate from ENCRYPTION_KEY)
   //   VAPID_PRIVATE_KEY
+  //   QA_LOGIN_SHA256  (optional; SHA-256 of the QA sign-in secret, see README. Unset = off)
   "vars": {
     "GITHUB_ORG": "DigiSavvy-Inc",
     "GITHUB_ADMINS": "",

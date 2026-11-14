@@ -24,6 +24,8 @@ export type Env = {
   VAPID_SUBJECT?: string;
   /** Buy Credits link. Defaults to the DigiSavvy Oxen billing page. */
   OXEN_BILLING_URL?: string;
+  /** SHA-256 (hex) of the QA sign-in secret. Unset means QA sign-in is off. See worker/qa-login.ts. */
+  QA_LOGIN_SHA256?: string;
 };
 
 export type UserRow = {

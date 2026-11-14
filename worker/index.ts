@@ -33,6 +33,16 @@ import {
   parseNativeChallenge,
   sealHandoff,
 } from "./native-auth";
+import {
+  QA_GITHUB_ID,
+  QA_HEADER,
+  QA_LOGIN,
+  QA_NAME,
+  QA_SESSION_TTL_SECONDS,
+  qaAttemptAllowed,
+  qaLoginHash,
+  qaSecretMatches,
+} from "./qa-login";
 import { creditBalanceResponse, fetchOxenCredits, OXEN_BILLING_URL } from "./credits";
 import {
   buildReferenceMediaUrl,
@@ -1120,6 +1130,38 @@ app.post("/api/auth/native", async (c) => {
   const ttl = Number(c.env.SESSION_TTL_SECONDS || 604800);
   const sessionId = await createSession(c.env.DB, handoff.userId, ttl, handoff.github);
   setCookie(c, SESSION_COOKIE, sessionId, sessionCookieOptions(ttl, isSecureRequest(c)));
+  return c.json({ ok: true });
+});
+
+// Sign-in for the after-deploy browser check. Off (404) unless QA_LOGIN_SHA256 is set.
+// It can only sign in the fixed QA user. See worker/qa-login.ts.
+app.post("/api/auth/qa-login", async (c) => {
+  if (!qaLoginHash(c.env)) {
+    throw new HTTPException(404, { message: "Not found" });
+  }
+  if (c.req.header(QA_HEADER) !== "1") {
+    throw new HTTPException(403, { message: "QA sign-in only" });
+  }
+  if (!(await qaAttemptAllowed(c.env.DB))) {
+    throw new HTTPException(429, { message: "Too many attempts. Try again in ten minutes." });
+  }
+  const body = await c.req.json<{ secret?: unknown }>().catch(() => null);
+  if (!(await qaSecretMatches(body?.secret, c.env))) {
+    throw new HTTPException(401, { message: "Unauthorized" });
+  }
+  const user = await upsertUser(c.env.DB, {
+    githubId: QA_GITHUB_ID,
+    login: QA_LOGIN,
+    name: QA_NAME,
+    avatarUrl: null,
+  });
+  const sessionId = await createSession(c.env.DB, user.id, QA_SESSION_TTL_SECONDS, null);
+  setCookie(
+    c,
+    SESSION_COOKIE,
+    sessionId,
+    sessionCookieOptions(QA_SESSION_TTL_SECONDS, isSecureRequest(c)),
+  );
   return c.json({ ok: true });
 });
 

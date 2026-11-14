@@ -95,6 +95,19 @@ After a deploy, `scripts/deploy-notify.sh https://YOUR_DOMAIN` can tell a bot or
 
 `OXEN_BILLING_URL` is where Buy Credits goes. If you omit it, the link points at DigiSavvy’s Oxen billing page.
 
+### Optional: sign-in for an automated browser check
+
+A bot that runs `docs/smoke-checklist.md` after a deploy cannot sign in with GitHub. To let one in, make a long random secret where the bot runs, keep it there, and give the Worker only its SHA-256:
+
+```bash
+openssl rand -base64 48 | tr -d '\n' > qa-secret && chmod 600 qa-secret
+shasum -a 256 < qa-secret | cut -d' ' -f1 | npx wrangler secret put QA_LOGIN_SHA256
+```
+
+That switches on `POST /api/auth/qa-login`. It signs in one fixed account, `studio_qa`, which is not an admin and is separate from every GitHub account. Sessions last two hours, and the route allows ten attempts every ten minutes. Without `QA_LOGIN_SHA256` the route returns 404.
+
+To switch it off, run `npx wrangler secret delete QA_LOGIN_SHA256`. Open QA sessions stop working on their next request. To change the secret, put a new hash; sessions from the old secret end within two hours.
+
 Notifications are optional. Generate a VAPID key pair, store the private key with `wrangler secret put VAPID_PRIVATE_KEY`, and pass `VAPID_PUBLIC_KEY` as a variable. `VAPID_SUBJECT` can be a `mailto:` address or your origin.
 
 The committed `wrangler.jsonc` is safe for local development: no production OAuth client id and no `PUBLIC_BASE_URL`. The D1 id in that file is DigiSavvy’s production database. Replace it before you deploy your own.

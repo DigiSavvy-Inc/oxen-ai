@@ -1,4 +1,5 @@
 import { decryptSecret, encryptSecret } from "./crypto";
+import { isQaUser, qaLoginHash } from "./qa-login";
 import type { Env, SessionUser, UserRow } from "./types";
 
 const SESSION_COOKIE = "oxen_session";
@@ -50,6 +51,8 @@ export function parseAdmins(env: Env): Set<string> {
  * matches the login. Prefer ids — a renamed or deleted login can be claimed by someone else.
  */
 export function isAdminUser(user: { githubId: number; login: string }, env: Env): boolean {
+  // The QA user is never an admin, whatever GITHUB_ADMINS lists.
+  if (isQaUser(user.githubId)) return false;
   const login = user.login.toLowerCase();
   for (const entry of parseAdmins(env)) {
     if (isNumericAdminEntry(entry) ? entry === String(user.githubId) : entry === login) return true;
@@ -356,6 +359,13 @@ export async function userHasAccess(
   options: { orgRecentlyConfirmed?: boolean } = {},
 ): Promise<AccessDecision> {
   const login = ghUser.login;
+  // The QA user exists only while QA sign-in is switched on. It is never an admin and
+  // never goes through the allowlist or the org check.
+  if (isQaUser(ghUser.id)) {
+    return qaLoginHash(env)
+      ? { allowed: true, revoke: false }
+      : { allowed: false, revoke: true, reason: "QA sign-in is off" };
+  }
   if (isAdminUser({ githubId: ghUser.id, login }, env)) {
     return { allowed: true, revoke: false };
   }
