@@ -1,4 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { app } from "../worker/index";
 import { createSignedMediaUrl } from "../worker/media";
@@ -85,21 +87,26 @@ describe("static asset headers (public/_headers)", () => {
     }
   });
 
-  // no-transform also stops Cloudflare compressing the response. On the JS and CSS bundle that
-  // is about 490 KB more on every first load, so only the HTML page may carry it.
+  // no-transform also stops Cloudflare compressing the response and optimising images. On the
+  // JS and CSS bundle that is about 490 KB more on every first load, so only the HTML page may
+  // carry it. Every file in public/ is checked, so a new one cannot pick it up unnoticed.
   it("keeps no-transform off everything that is not the page, so it is still compressed", () => {
-    const compressible = [
+    const publicDir = fileURLToPath(new URL("../public/", import.meta.url));
+    const publicFiles = readdirSync(publicDir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name !== "_headers" && !entry.name.endsWith(".html"))
+      .map((entry) => `/${relative(publicDir, join(entry.parentPath, entry.name)).split(sep).join("/")}`);
+    expect(publicFiles).toEqual(
+      expect.arrayContaining(["/sw.js", "/favicon.svg", "/apple-touch-icon.png", "/icon-192.png", "/icon-512.png"]),
+    );
+    const notThePage = [
       "/assets/index-BE0y26e2.js",
       "/assets/index-5_9Rkcug.css",
       "/assets/chunks/any-Dk3f.js",
-      "/sw.js",
-      ...readdirSync(new URL("../public/", import.meta.url))
-        .filter((name) => name.endsWith(".svg"))
-        .map((name) => `/${name}`),
+      ...publicFiles,
     ];
-    expect(compressible).toEqual(expect.arrayContaining(["/favicon.svg", "/icons.svg", "/oxen-logo.svg"]));
-    for (const path of compressible) {
+    for (const path of notThePage) {
       expect(cacheControl(path), path).toBe("public, max-age=0, must-revalidate");
+      expect(cacheControl(path), path).not.toContain("no-transform");
     }
   });
 
