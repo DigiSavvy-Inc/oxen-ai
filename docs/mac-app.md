@@ -27,7 +27,7 @@ You only do this once per version you install.
 
 1. The app asks for a **Studio address**. Enter the full URL of your deployment,
    starting with `https://`, and click **Open**.
-2. Click **Sign in with GitHub**. macOS asks whether Oxen Studio may use that site to
+2. Click **Continue with GitHub**. macOS asks whether Oxen Studio may use that site to
    sign in; click **Continue**.
 3. Finish the GitHub sign-in in the browser window that opens. Passkeys, GitHub Mobile,
    and authenticator codes all work there. The window closes and the app is signed in.
