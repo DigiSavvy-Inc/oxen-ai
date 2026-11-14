@@ -100,7 +100,8 @@ The committed `wrangler.jsonc` is safe for local development: no production OAut
 ## Mac app
 
 A native Mac shell lives in `macos/`. Download it from Releases or build it yourself;
-setup is in [docs/mac-app.md](docs/mac-app.md).
+setup is in [docs/mac-app.md](docs/mac-app.md), and the release steps are in
+[docs/mac-release.md](docs/mac-release.md).
 
 ## Scripts
 

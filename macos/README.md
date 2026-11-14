@@ -13,6 +13,7 @@ Needs only the Swift toolchain (Xcode Command Line Tools). Leave `STUDIO_URL` un
 the app asks for the address on first launch. `build.sh` lists the other options.
 
 Setup guide for people you share it with: [docs/mac-app.md](../docs/mac-app.md).
+Cutting a release: [docs/mac-release.md](../docs/mac-release.md).
 
 ## Sharing it
 
