@@ -25,6 +25,14 @@ import {
   upsertUser,
   userHasAccess,
 } from "./auth";
+import {
+  NATIVE_COOKIE,
+  NATIVE_HEADER,
+  NATIVE_SCHEME,
+  openHandoff,
+  parseNativeChallenge,
+  sealHandoff,
+} from "./native-auth";
 import { creditBalanceResponse, fetchOxenCredits, OXEN_BILLING_URL } from "./credits";
 import {
   buildReferenceMediaUrl,
@@ -310,7 +318,37 @@ function isSecureRequest(c: { req: { url: string }; env: Env }): boolean {
   return publicOrigin(c).startsWith("https://");
 }
 
-async function signInWithLocalGithub(c: Context<{ Bindings: Env; Variables: Variables }>) {
+/**
+ * Last step of every sign-in. The browser gets the session cookie; the Mac app gets a
+ * short-lived code to trade for one, because the cookie has to land in its own jar.
+ */
+async function completeSignIn(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  userId: string,
+  githubToken: string,
+  nativeChallenge: string | null,
+) {
+  const sealed = await sealGithubToken(githubToken, c.env.ENCRYPTION_KEY);
+  if (nativeChallenge) {
+    if (!c.env.ENCRYPTION_KEY?.trim()) {
+      throw new HTTPException(500, { message: "ENCRYPTION_KEY is not configured" });
+    }
+    const code = await sealHandoff(
+      { userId, github: sealed, challenge: nativeChallenge },
+      c.env.ENCRYPTION_KEY,
+    );
+    return c.redirect(`${NATIVE_SCHEME}://auth?code=${encodeURIComponent(code)}`);
+  }
+  const ttl = Number(c.env.SESSION_TTL_SECONDS || 604800);
+  const sessionId = await createSession(c.env.DB, userId, ttl, sealed);
+  setCookie(c, SESSION_COOKIE, sessionId, sessionCookieOptions(ttl, isSecureRequest(c)));
+  return c.redirect("/");
+}
+
+async function signInWithLocalGithub(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  nativeChallenge: string | null,
+) {
   const host = new URL(c.req.url).hostname;
   if (!isLoopbackHost(host)) {
     throw new HTTPException(500, {
@@ -350,11 +388,7 @@ async function signInWithLocalGithub(c: Context<{ Bindings: Env; Variables: Vari
     name: ghUser.name,
     avatarUrl: ghUser.avatar_url,
   });
-  const ttl = Number(c.env.SESSION_TTL_SECONDS || 604800);
-  const sealed = await sealGithubToken(token, c.env.ENCRYPTION_KEY);
-  const sessionId = await createSession(c.env.DB, user.id, ttl, sealed);
-  setCookie(c, SESSION_COOKIE, sessionId, sessionCookieOptions(ttl, isSecureRequest(c)));
-  return c.redirect("/");
+  return completeSignIn(c, user.id, token, nativeChallenge);
 }
 
 function fallbackModels(mode: GenerationMode): OxenModel[] {
@@ -989,11 +1023,25 @@ app.get("/api/auth/config", (c) => {
 });
 
 app.get("/api/auth/github", async (c) => {
+  // Set only when the Mac app starts the sign-in; it carries the PKCE challenge.
+  const nativeChallenge = parseNativeChallenge(c.req.query("native"));
   if (!oauthConfigured(c.env)) {
-    return signInWithLocalGithub(c);
+    return signInWithLocalGithub(c, nativeChallenge);
   }
   const redirectUri = `${publicOrigin(c)}/api/auth/callback`;
   const state = crypto.randomUUID();
+  if (nativeChallenge) {
+    setCookie(c, NATIVE_COOKIE, nativeChallenge, {
+      httpOnly: true,
+      secure: isSecureRequest(c),
+      sameSite: "Lax",
+      path: "/",
+      maxAge: 600,
+    });
+  } else {
+    // An abandoned app sign-in must not hijack the next ordinary browser sign-in.
+    deleteCookie(c, NATIVE_COOKIE, { path: "/" });
+  }
   setCookie(c, "oauth_state", state, {
     httpOnly: true,
     secure: isSecureRequest(c),
@@ -1014,6 +1062,8 @@ app.get("/api/auth/callback", async (c) => {
   const state = c.req.query("state");
   const stored = getCookie(c, "oauth_state");
   deleteCookie(c, "oauth_state", { path: "/" });
+  const nativeChallenge = parseNativeChallenge(getCookie(c, NATIVE_COOKIE));
+  deleteCookie(c, NATIVE_COOKIE, { path: "/" });
 
   if (!code || !state || !stored || state !== stored) {
     throw new HTTPException(400, { message: "Invalid OAuth state" });
@@ -1041,11 +1091,24 @@ app.get("/api/auth/callback", async (c) => {
     name: ghUser.name,
     avatarUrl: ghUser.avatar_url,
   });
+  return completeSignIn(c, user.id, accessToken, nativeChallenge);
+});
+
+// The Mac app trades its handoff code for the session cookie. The code is useless
+// without the verifier, and the custom header keeps browsers from posting here cross-site.
+app.post("/api/auth/native", async (c) => {
+  if (c.req.header(NATIVE_HEADER) !== "1") {
+    throw new HTTPException(403, { message: "Native sign-in only" });
+  }
+  const body = await c.req.json<{ code?: unknown; verifier?: unknown }>().catch(() => null);
+  const handoff = await openHandoff(body?.code, body?.verifier, c.env.ENCRYPTION_KEY ?? "");
+  if (!handoff) {
+    throw new HTTPException(400, { message: "Sign-in expired. Try again." });
+  }
   const ttl = Number(c.env.SESSION_TTL_SECONDS || 604800);
-  const sealed = await sealGithubToken(accessToken, c.env.ENCRYPTION_KEY);
-  const sessionId = await createSession(c.env.DB, user.id, ttl, sealed);
+  const sessionId = await createSession(c.env.DB, handoff.userId, ttl, handoff.github);
   setCookie(c, SESSION_COOKIE, sessionId, sessionCookieOptions(ttl, isSecureRequest(c)));
-  return c.redirect("/");
+  return c.json({ ok: true });
 });
 
 app.post("/api/auth/logout", async (c) => {

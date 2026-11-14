@@ -28,3 +28,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# macOS shell build output
+macos/.build
+macos/build
