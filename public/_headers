@@ -4,7 +4,10 @@
 # from hub.oxen.ai or provider CDNs; scripts stay same-origin only.
 # Cache-Control keeps the default (always revalidate) and adds no-transform, so a proxy
 # in front of the app cannot rewrite the page. Without it Cloudflare's Web Analytics adds
-# its beacon script to the HTML, and the CSP above then blocks it on every load.
+# its beacon script to the HTML, and the CSP below then blocks it on every load.
+# no-transform also switches off Cloudflare's compression, so the blocks after /* take it
+# back off everything that is not the HTML page: the JS and CSS bundle, the service worker
+# and the SVGs. Rules run in file order; "! Cache-Control" drops the value set by /*.
 /*
   Cache-Control: public, max-age=0, must-revalidate, no-transform
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' data: blob: https:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
@@ -13,3 +16,23 @@
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+/assets/*
+  ! Cache-Control
+  Cache-Control: public, max-age=0, must-revalidate
+
+/sw.js
+  ! Cache-Control
+  Cache-Control: public, max-age=0, must-revalidate
+
+/favicon.svg
+  ! Cache-Control
+  Cache-Control: public, max-age=0, must-revalidate
+
+/icons.svg
+  ! Cache-Control
+  Cache-Control: public, max-age=0, must-revalidate
+
+/oxen-logo.svg
+  ! Cache-Control
+  Cache-Control: public, max-age=0, must-revalidate
