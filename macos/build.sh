@@ -7,7 +7,8 @@
 # APP_NAME    default "Oxen Studio"
 # BUNDLE_ID   default studio.oxen.mac
 # ICON_SRC    square PNG, default ../public/icon-512.png
-# SIGN_ID     codesign identity, default "-" (ad-hoc: runs on this Mac only)
+# SIGN_ID     codesign identity, default "-" (ad-hoc; other Macs must approve it once)
+# ZIP=1       also write build/<APP_NAME>.zip for sharing
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -68,3 +69,9 @@ fi
 
 codesign --force --sign "$SIGN_ID" "$APP"
 echo "Built $PWD/$APP"
+
+if [ -n "${ZIP:-}" ]; then
+  # ditto keeps the signature and bundle metadata intact; plain zip can break both.
+  ditto -c -k --keepParent "$APP" "build/$APP_NAME.zip"
+  echo "Zipped $PWD/build/$APP_NAME.zip"
+fi

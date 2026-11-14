@@ -12,5 +12,13 @@ open "build/Oxen Studio.app"
 Needs only the Swift toolchain (Xcode Command Line Tools). Leave `STUDIO_URL` unset and
 the app asks for the address on first launch. `build.sh` lists the other options.
 
-The default build is ad-hoc signed and runs on the Mac that built it. To share it, sign
-with a Developer ID (`SIGN_ID`) and notarize.
+## Sharing it
+
+`ZIP=1 ./build.sh` also writes `build/Oxen Studio.zip`. The build is not notarized yet
+(#56), so macOS blocks the first launch on another Mac:
+
+1. Unzip and move **Oxen Studio** to Applications.
+2. Open it once; macOS says it cannot be verified. Click **Done**.
+3. System Settings → Privacy & Security → scroll to Security → **Open Anyway**.
+
+After that it opens normally.
