@@ -49,6 +49,13 @@ describe("static asset headers (public/_headers)", () => {
     expect(csp).toContain("frame-ancestors 'none'");
   });
 
+  // A proxy that may rewrite the page (Cloudflare's Web Analytics does) injects a third-party
+  // script the CSP then blocks on every load. no-transform tells it to leave the HTML alone.
+  it("tells proxies not to rewrite the page, and still revalidates every load", () => {
+    const cache = rules.match(/Cache-Control: (.+)/)?.[1] ?? "";
+    expect(cache.split(/,\s*/)).toEqual(expect.arrayContaining(["no-transform", "max-age=0", "must-revalidate"]));
+  });
+
   // Other digisavvy.dev sites are not all HTTPS; includeSubDomains would break them.
   it("sends HSTS without includeSubDomains", () => {
     expect(rules.match(/Strict-Transport-Security: (.+)/)?.[1]).toBe("max-age=31536000");

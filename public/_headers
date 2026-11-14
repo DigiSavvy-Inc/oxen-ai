@@ -2,7 +2,11 @@
 # HSTS omits includeSubDomains: other digisavvy.dev hosts are not all HTTPS-only.
 # img/media/connect allow https: because un-archived results and downloads can come
 # from hub.oxen.ai or provider CDNs; scripts stay same-origin only.
+# Cache-Control keeps the default (always revalidate) and adds no-transform, so a proxy
+# in front of the app cannot rewrite the page. Without it Cloudflare's Web Analytics adds
+# its beacon script to the HTML, and the CSP above then blocks it on every load.
 /*
+  Cache-Control: public, max-age=0, must-revalidate, no-transform
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; connect-src 'self' data: blob: https:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   Strict-Transport-Security: max-age=31536000
   X-Content-Type-Options: nosniff
