@@ -95,6 +95,11 @@ Notifications are optional. Generate a VAPID key pair, store the private key wit
 
 The committed `wrangler.jsonc` is safe for local development: no production OAuth client id and no `PUBLIC_BASE_URL`. The D1 id in that file is DigiSavvy’s production database. Replace it before you deploy your own.
 
+## Mac app
+
+A native Mac shell lives in `macos/`. Download it from Releases or build it yourself;
+setup is in [docs/mac-app.md](docs/mac-app.md).
+
 ## Scripts
 
 | Command | Description |

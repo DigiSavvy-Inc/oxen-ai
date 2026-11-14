@@ -12,6 +12,8 @@ open "build/Oxen Studio.app"
 Needs only the Swift toolchain (Xcode Command Line Tools). Leave `STUDIO_URL` unset and
 the app asks for the address on first launch. `build.sh` lists the other options.
 
+Setup guide for people you share it with: [docs/mac-app.md](../docs/mac-app.md).
+
 ## Sharing it
 
 `ZIP=1 ./build.sh` also writes `build/Oxen Studio.zip`. The build is not notarized yet
