@@ -37,7 +37,7 @@ export const GALLERY_LISTING_PREVIEW_COUNT = DEFAULT_HISTORY_PAGE_SIZE;
 const PREVIEW_COUNT = GALLERY_LISTING_PREVIEW_COUNT;
 const THUMB_CHUNK = 40;
 
-async function thumbKeyByResult(
+export async function thumbKeyByResult(
   db: D1Database,
   userId: string,
   keys: string[],

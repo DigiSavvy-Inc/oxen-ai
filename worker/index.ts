@@ -125,7 +125,18 @@ import {
   ownedMediaKey,
   saveGallery,
 } from "./galleries";
+import { deleteGalleryFiles, parseGalleryFileKeys } from "./gallery-delete";
+import { GALLERY_MAX_ITEMS } from "./gallery-limits";
 import { presentGallery, presentGalleryList } from "./gallery-present";
+import {
+  createSlot,
+  deleteSlot,
+  listSlots,
+  saveProjectSlotsAsGallery,
+  saveSlotAsGallery,
+  SlotRejected,
+  updateSlot,
+} from "./slots";
 import { acceptProjectBudget, acceptProjectCast } from "./project-cast";
 import { referenceModels } from "./reference-models";
 import {
@@ -1448,6 +1459,26 @@ app.delete("/api/galleries/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// Deletes the files themselves, not only their place in a gallery.
+app.post("/api/galleries/files/delete", async (c) => {
+  const user = await requireUser(c);
+  const body = await c.req.json<{ keys?: unknown; fromOxen?: unknown }>().catch(() => ({
+    keys: null,
+    fromOxen: null,
+  }));
+  const keys = parseGalleryFileKeys(user.id, body.keys);
+  if (!keys) {
+    throw new HTTPException(400, {
+      message: `Send 1 to ${GALLERY_MAX_ITEMS} files that belong to you`,
+    });
+  }
+  const result = await deleteGalleryFiles(c.env, user.id, keys, {
+    apiKey: await getOxenKey(user, c.env.ENCRYPTION_KEY),
+    fromOxen: parseFromOxenFlag(body.fromOxen),
+  });
+  return c.json({ ok: true, ...result });
+});
+
 app.post("/api/galleries", async (c) => {
   const user = await requireUser(c);
   const body = await c.req.json<{
@@ -1479,6 +1510,96 @@ app.post("/api/galleries", async (c) => {
     throw new HTTPException(400, { message: "Gallery needs a name and media that belong to you" });
   }
   return c.json({ gallery: await presentGallery(c.env, user.id, gallery) });
+});
+
+app.get("/api/slots", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  if (!profileId) return c.json({ slots: [] });
+  return c.json({ slots: await listSlots(c.env, user.id, profileId) });
+});
+
+app.post("/api/slots", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  if (!profileId) throw new HTTPException(400, { message: "A slot needs a profile" });
+  const body = await c.req.json<{
+    name?: unknown;
+    handle?: unknown;
+    takeCount?: unknown;
+    note?: unknown;
+    projectId?: unknown;
+    galleryId?: unknown;
+    files?: unknown;
+  }>();
+  const slot = await createSlot(c.env, user.id, profileId, body).catch((err: unknown) => {
+    if (err instanceof SlotRejected) throw new HTTPException(400, { message: err.message });
+    throw err;
+  });
+  if (!slot) throw new HTTPException(400, { message: "A slot needs a name" });
+  return c.json({ slot });
+});
+
+app.post("/api/slots/as-gallery", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  if (!profileId) throw new HTTPException(400, { message: "A slot needs a profile" });
+  const body = await c.req.json<{ projectId?: unknown }>();
+  const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+  if (!projectId) throw new HTTPException(400, { message: "Choose a project" });
+  const saved = await saveProjectSlotsAsGallery(c.env, user.id, profileId, projectId).catch((err: unknown) => {
+    if (err instanceof SlotRejected) throw new HTTPException(400, { message: err.message });
+    throw err;
+  });
+  if (!saved) throw new HTTPException(404, { message: "Project not found" });
+  const gallery = await getGallery(c.env.DB, user.id, saved.galleryId);
+  if (!gallery) throw new HTTPException(400, { message: "These slots have no files of their own" });
+  return c.json({ gallery: await presentGallery(c.env, user.id, gallery), omitted: saved.omitted });
+});
+
+app.patch("/api/slots/:id", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  if (!profileId) throw new HTTPException(400, { message: "A slot needs a profile" });
+  const body = await c.req.json<{
+    name?: unknown;
+    handle?: unknown;
+    takeCount?: unknown;
+    note?: unknown;
+    projectId?: unknown;
+    galleryId?: unknown;
+    files?: unknown;
+  }>();
+  const slot = await updateSlot(c.env, user.id, profileId, c.req.param("id"), body).catch((err: unknown) => {
+    if (err instanceof SlotRejected) throw new HTTPException(400, { message: err.message });
+    throw err;
+  });
+  if (!slot) throw new HTTPException(404, { message: "Slot not found" });
+  return c.json({ slot });
+});
+
+app.delete("/api/slots/:id", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  if (!profileId) throw new HTTPException(404, { message: "Slot not found" });
+  const removed = await deleteSlot(c.env.DB, user.id, profileId, c.req.param("id"));
+  if (!removed) throw new HTTPException(404, { message: "Slot not found" });
+  return c.json({ ok: true });
+});
+
+app.post("/api/slots/:id/as-gallery", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  if (!profileId) throw new HTTPException(400, { message: "A slot needs a profile" });
+  const saved = await saveSlotAsGallery(c.env, user.id, profileId, c.req.param("id")).catch((err: unknown) => {
+    if (err instanceof SlotRejected) throw new HTTPException(400, { message: err.message });
+    if (err instanceof GalleryRejected) throw new HTTPException(400, { message: err.message });
+    throw err;
+  });
+  if (!saved) throw new HTTPException(404, { message: "Slot not found" });
+  const gallery = await getGallery(c.env.DB, user.id, saved.galleryId);
+  if (!gallery) throw new HTTPException(400, { message: "This slot has no files to save" });
+  return c.json({ slot: saved.slot, gallery: await presentGallery(c.env, user.id, gallery) });
 });
 
 app.get("/api/projects", async (c) => {

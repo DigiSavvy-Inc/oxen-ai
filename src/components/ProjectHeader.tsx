@@ -16,6 +16,8 @@ type Props = {
   onOpen: (view: ProjectPanelView) => void;
   onNewJob: () => void;
   onClose: () => void;
+  slotHandles?: string[];
+  onOpenSlots?: () => void;
 };
 
 function lastRunLabel(project: StudioProject): string {
@@ -64,6 +66,22 @@ export function ProjectHeader(props: Props) {
           >
             {lastRunLabel(props.project)}
           </button>
+          {props.onOpenSlots ? (
+            <>
+              {" "}
+              ·{" "}
+              <button
+                type="button"
+                className="project-header-attached"
+                title="Open slots"
+                onClick={props.onOpenSlots}
+              >
+                {props.slotHandles && props.slotHandles.length > 0
+                  ? `Slots ${props.slotHandles.map((handle) => `@${handle}`).join(" ")}`
+                  : "Slots"}
+              </button>
+            </>
+          ) : null}
         </span>
       </div>
       <div className="project-header-actions">

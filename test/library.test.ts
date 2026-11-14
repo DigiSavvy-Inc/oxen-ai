@@ -127,6 +127,8 @@ describe("library cleanup", () => {
     expect(store.has("u/user-1/results/a.png")).toBe(false);
     expect(store.has("u/other/results/keep.png")).toBe(true);
     expect(db.generations).toHaveLength(0);
+    expect(db.statements.some((sql) => sql.includes("DELETE FROM slot_files"))).toBe(true);
+    expect(db.statements.some((sql) => sql.includes("DELETE FROM slots"))).toBe(true);
   });
 
   it("removes one item's Oxen copy and reports what Oxen did", async () => {

@@ -3,6 +3,9 @@ type Props = {
   take: number;
   onHandleChange: (value: string) => void;
   onTakeChange: (value: number) => void;
+  handleLabel?: string;
+  showTake?: boolean;
+  onHandleBlur?: () => void;
 };
 
 /** The @handle and how many items @handle attaches. Labels live on each item. */
@@ -15,12 +18,14 @@ export function GalleryMentionFields(props: Props) {
           className="field"
           value={props.handle}
           placeholder="Handle"
-          aria-label="Gallery handle"
+          aria-label={props.handleLabel ?? "Gallery handle"}
           spellCheck={false}
           autoCapitalize="off"
           onChange={(event) => props.onHandleChange(event.target.value.replace(/\s+/g, ""))}
+          onBlur={props.onHandleBlur}
         />
       </label>
+      {props.showTake === false ? null : (
       <label className="gallery-take-field">
         <span>Take</span>
         <select
@@ -36,6 +41,7 @@ export function GalleryMentionFields(props: Props) {
           ))}
         </select>
       </label>
+      )}
     </div>
   );
 }

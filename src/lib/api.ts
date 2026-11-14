@@ -249,6 +249,38 @@ export type ProfileState = {
 
 export type StudioLook = Look;
 
+export type SlotFile = {
+  id: string;
+  kind: "image" | "video" | "audio";
+  name: string;
+  key: string;
+  label: string | null;
+  role: MediaRole | null;
+  url: string | null;
+  thumbUrl: string | null;
+};
+
+export type StudioSlot = {
+  id: string;
+  name: string;
+  handle: string;
+  take: number;
+  note: string;
+  /** Null means the slot works everywhere. */
+  projectId: string | null;
+  galleryId: string | null;
+  galleryName: string | null;
+  files: SlotFile[];
+};
+
+export type SlotFileInput = {
+  kind: "image" | "video" | "audio";
+  name: string;
+  key: string;
+  label?: string | null;
+  role?: MediaRole | null;
+};
+
 export type ProjectSummary = {
   id: string;
   name: string;
@@ -337,6 +369,8 @@ export type StudioProject = {
   jobCount: number;
   lastRunAt: number | null;
   shares: ProjectShare[];
+  /** Handles of slots kept to this project. */
+  slotHandles?: string[];
 };
 
 export type SharedProject = {
@@ -453,6 +487,12 @@ function renewMediaLinks(urls: string[]): Promise<(string | null)[]> {
   })
     .then((r) => parseJson<{ urls: (string | null)[] }>(r))
     .then((data) => data.urls);
+}
+
+/** The slot record uses `take`. Older responses named the same field `takeCount`. */
+function readSlot(slot: StudioSlot & { takeCount?: number }): StudioSlot {
+  const take = Number.isInteger(slot.take) && slot.take >= 1 ? slot.take : (slot.takeCount ?? 1);
+  return { ...slot, take };
 }
 
 export const api = {
@@ -588,6 +628,21 @@ export const api = {
       (r) => parseJson<{ ok: boolean; oxenDeleted?: number; oxenAlreadyGone?: number; oxenFailed?: number }>(r),
     );
   },
+  /** Deletes gallery files themselves, by stored key. A gallery holds 96, so one request covers it. */
+  deleteGalleryFiles: (keys: string[], options?: { fromOxen?: boolean }) =>
+    fetch("/api/galleries/files/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keys, fromOxen: options?.fromOxen === true }),
+    }).then((r) =>
+      parseJson<{
+        ok: boolean;
+        deleted?: number;
+        oxenDeleted?: number;
+        oxenAlreadyGone?: number;
+        oxenFailed?: number;
+      }>(r),
+    ),
   /** One request for a whole selection, so Oxen removes the copies together. Up to 200 ids. */
   deleteGenerations: (ids: string[], options?: { fromOxen?: boolean }) =>
     fetch("/api/generations/delete", {
@@ -707,6 +762,58 @@ export const api = {
     fetch(`/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
       parseJson<{ ok: boolean }>(r),
     ),
+  slots: () =>
+    fetch("/api/slots")
+      .then((r) => parseJson<{ slots: StudioSlot[] }>(r))
+      .then((data) => ({ slots: data.slots.map(readSlot) })),
+  createSlot: (body: {
+    name: string;
+    handle?: string;
+    takeCount?: number;
+    note?: string;
+    projectId?: string | null;
+    galleryId?: string | null;
+    files?: SlotFileInput[];
+  }) =>
+    fetch("/api/slots", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => parseJson<{ slot: StudioSlot }>(r).then((data) => ({ slot: readSlot(data.slot) }))),
+  updateSlot: (
+    id: string,
+    patch: {
+      name?: string;
+      handle?: string;
+      takeCount?: number;
+      note?: string;
+      projectId?: string | null;
+      galleryId?: string | null;
+      files?: SlotFileInput[];
+    },
+  ) =>
+    fetch(`/api/slots/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }).then((r) => parseJson<{ slot: StudioSlot }>(r).then((data) => ({ slot: readSlot(data.slot) }))),
+  deleteSlot: (id: string) =>
+    fetch(`/api/slots/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
+      parseJson<{ ok: boolean }>(r),
+    ),
+  saveSlotAsGallery: (id: string) =>
+    fetch(`/api/slots/${encodeURIComponent(id)}/as-gallery`, { method: "POST" }).then((r) =>
+      parseJson<{ slot: StudioSlot; gallery: Gallery }>(r).then((data) => ({
+        slot: readSlot(data.slot),
+        gallery: data.gallery,
+      })),
+    ),
+  saveProjectSlotsAsGallery: (projectId: string) =>
+    fetch("/api/slots/as-gallery", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectId }),
+    }).then((r) => parseJson<{ gallery: Gallery; omitted: number }>(r)),
   createLook: (name: string, body: string, group: LookGroup | null) =>
     fetch("/api/styles", {
       method: "POST",

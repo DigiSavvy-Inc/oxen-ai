@@ -62,6 +62,7 @@ function galleriesDb(options?: { missingRole?: boolean }) {
           return {
             async all() {
               if (missingRole && /\brole\b/.test(sql)) throw new Error("no such column: role");
+              if (sql.includes("FROM slots")) return { results: [] };
               if (sql.includes("COLLATE NOCASE")) {
                 const userId = String(args[0]);
                 const handle = String(args[1]).toLowerCase();

@@ -19,6 +19,7 @@ import { ProjectCast } from "./components/ProjectCast";
 import { ProjectBrief } from "./components/ProjectBrief";
 import { ProjectJobs } from "./components/ProjectJobs";
 import { ProjectHeader, type ProjectPanelView } from "./components/ProjectHeader";
+import { SlotsPanel } from "./components/SlotsPanel";
 import {
   composerStateForNewJob,
   composerStateOnOpen,
@@ -84,6 +85,8 @@ import {
   type ProjectSummary,
   type StudioProject,
   type StudioLook,
+  type StudioSlot,
+  type SlotFileInput,
 } from "./lib/api";
 import {
   activeGenerationKey,
@@ -122,12 +125,13 @@ import { planGalleryAttach } from "./lib/gallery-attach";
 import { galleryPreviewIsImage } from "./lib/gallery-thumbs";
 import {
   appendHistoryToGallery,
+  historyItemForGallery,
   historyItemsForGallery,
   toggleHistoryInGallery,
   type HistoryGalleryItem,
   type HistoryGalleryNotice,
 } from "./lib/gallery-history";
-import { insertAttachMentions, moveItem } from "./lib/mentions";
+import { insertAttachMentions, insertPlainMention, moveItem } from "./lib/mentions";
 import { keepDraftIds, type GalleryDraftItem } from "./lib/gallery-draft";
 import { escapeTaken } from "./lib/escape-layer";
 import { galleryChordTaken } from "./lib/shortcut-layer";
@@ -156,7 +160,9 @@ import { defaultGalleryHandle } from "../worker/gallery-handle";
 import {
   expandNameText,
   mentionedGalleryIds,
+  orderedNameCatalog,
   namePlanNotice,
+  noteOnlyCatalog,
   planNameAttachments,
   removeNameToken,
   type NameCatalogGallery,
@@ -235,6 +241,27 @@ function draftFromGalleryItem(item: GalleryItem): GalleryDraftItem {
 
 const OXEN_KEY_UNREADABLE_MESSAGE = "Your saved Oxen API key can't be read. Re-enter it in Settings.";
 
+function slotCatalogEntry(slot: StudioSlot): NameCatalogGallery {
+  return {
+    id: slot.id,
+    name: slot.name,
+    handle: slot.handle,
+    take: slot.take,
+    note: slot.note,
+    source: "slot",
+    galleryId: slot.galleryId,
+    items: slot.files.map((file) => ({
+      key: file.key,
+      kind: file.kind,
+      name: file.name,
+      role: file.role,
+      label: file.label,
+      url: file.url,
+      thumbUrl: file.thumbUrl,
+    })),
+  };
+}
+
 export default function App() {
   const { user, loading, logout } = useAuth();
   const { branding, setBranding } = useInstanceBranding();
@@ -280,6 +307,10 @@ export default function App() {
   const [referenceModels, setReferenceModels] = useState<ReferenceModel[] | null>(null);
   const [referenceModelsError, setReferenceModelsError] = useState<string | null>(null);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [slots, setSlots] = useState<StudioSlot[]>([]);
+  const [slotsOpen, setSlotsOpen] = useState(false);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsNotice, setSlotsNotice] = useState<string | null>(null);
   const [panelPlace, setPanelPlace] = useState<PanelPlace>(readPanelPlace);
   const [managingGallery, setManagingGallery] = useState(false);
   const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
@@ -427,6 +458,7 @@ export default function App() {
       return;
     }
     setProjectsOpen(false);
+    setSlotsOpen(false);
     setShowSettings(false);
     setPeekId(null);
     setManagingGallery(false);
@@ -442,6 +474,7 @@ export default function App() {
     }
     if (createGalleryOpen) cancelCreateGallery();
     setProjectsOpen(false);
+    setSlotsOpen(false);
     setShowSettings(false);
     setPeekId(null);
     setManagingGallery(Boolean(galleryId));
@@ -459,7 +492,21 @@ export default function App() {
     setLibraryPane("history");
     setShowSettings(false);
     setPeekId(null);
+    setSlotsOpen(false);
     setProjectsOpen(true);
+  }
+
+  function openSlotsPane() {
+    if (slotsOpen) {
+      setSlotsOpen(false);
+      return;
+    }
+    setLibraryOpen(false);
+    setLibraryPane("history");
+    setProjectsOpen(false);
+    setShowSettings(false);
+    setPeekId(null);
+    setSlotsOpen(true);
   }
 
   const favoriteIds = useMemo(
@@ -494,10 +541,12 @@ export default function App() {
   }, [historyPageSize, libraryMedia, libraryPage, libraryTag]);
 
   async function replaceProfileMedia() {
-    const [active, library, galleries] = await Promise.all([
+    const [active, library, galleries, projectList, slotList] = await Promise.all([
       api.listGenerations("active"),
       api.listGenerations("library", { page: 1, pageSize: historyPageSize, tag: "" }),
       api.galleries(),
+      api.projects(),
+      api.slots(),
     ]);
     const seen = new Set<string>();
     const merged: Generation[] = [];
@@ -515,6 +564,13 @@ export default function App() {
     setLibraryTagInput("");
     setLibraryMedia("");
     setGallerySummaries(galleries.galleries);
+    setProjectSummaries(projectList.projects);
+    setLooks(projectList.looks);
+    setSlots(slotList.slots);
+    setActiveProject((current) => {
+      if (!current) return current;
+      return projectList.projects.some((item) => item.id === current.id) ? current : null;
+    });
     setPeekId(null);
     setSelectedId(keepCanvasClear ? null : (merged[0]?.id ?? null));
     setGalleryId(null);
@@ -756,16 +812,30 @@ export default function App() {
     if (!user) {
       setProjectSummaries([]);
       setLooks([]);
+      setSlots([]);
+      setSlotsOpen(false);
       setReferenceModels(null);
       return;
     }
     let cancelled = false;
+    setSlotsLoading(true);
     void api
       .projects()
       .then((data) => {
         if (cancelled) return;
         setProjectSummaries(data.projects);
         setLooks(data.looks);
+        void api
+          .slots()
+          .then((slotsData) => {
+            if (!cancelled) setSlots(slotsData.slots);
+          })
+          .catch(() => {
+            if (!cancelled) setSlotsNotice("Slots are not available yet.");
+          })
+          .finally(() => {
+            if (!cancelled) setSlotsLoading(false);
+          });
         setActiveProject((current) => {
           if (!current) return current;
           return data.projects.some((item) => item.id === current.id) ? current : null;
@@ -852,6 +922,11 @@ export default function App() {
           setProjectsOpen(false);
           return;
         }
+        if (slotsOpen) {
+          event.preventDefault();
+          setSlotsOpen(false);
+          return;
+        }
         if (peekId) {
           event.preventDefault();
           setPeekId(null);
@@ -869,6 +944,7 @@ export default function App() {
         if (libraryOpen) closeLibrary();
         else {
           setProjectsOpen(false);
+          setSlotsOpen(false);
           setShowSettings(false);
           setLibraryPane("history");
           setLibraryOpen(true);
@@ -879,6 +955,7 @@ export default function App() {
         event.preventDefault();
         setLibraryOpen(false);
         setProjectsOpen(false);
+        setSlotsOpen(false);
         setShowSettings(true);
         return;
       }
@@ -890,7 +967,7 @@ export default function App() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [peekId, libraryOpen, closeLibrary, showSettings, projectsOpen]);
+  }, [peekId, libraryOpen, closeLibrary, showSettings, projectsOpen, slotsOpen]);
 
   useEffect(() => {
     if (!user || !libraryOpen) return;
@@ -1473,21 +1550,31 @@ export default function App() {
         items,
       });
     }
-    return galleries;
-  }, [galleryDetails, gallerySummaries]);
+    const projectEntries = !shareName && activeProject
+      ? slots.filter((slot) => slot.projectId === activeProject.id).map(slotCatalogEntry)
+      : [];
+    const everywhere = slots.filter((slot) => slot.projectId == null).map(slotCatalogEntry);
+    return orderedNameCatalog({ project: projectEntries, everywhere, galleries });
+  }, [activeProject, galleryDetails, gallerySummaries, shareName, slots]);
   const imageCap = capForKind("image");
   const videoCap = capForKind("video");
   const audioCap = capForKind("audio");
-  const namesOn = Boolean(mode && mode !== "chat" && controls?.mentions);
+  // Files need a model that takes references. A note is plain text, so it expands for any model.
+  const refsOn = Boolean(mode && mode !== "chat" && controls?.mentions);
+  const namesOn = Boolean(mode && mode !== "chat");
+  const planCatalog = useMemo(
+    () => (refsOn ? nameCatalog : noteOnlyCatalog(nameCatalog)),
+    [nameCatalog, refsOn],
+  );
   const namePlan = useMemo(
     () =>
       planNameAttachments({
         prompt: namesOn ? prompt : "",
-        galleries: namesOn ? nameCatalog : [],
+        galleries: namesOn ? planCatalog : [],
         hand: staged.map((item) => ({ key: item.key, kind: item.kind, number: item.number })),
         caps: { image: imageCap, video: videoCap, audio: audioCap },
       }),
-    [audioCap, imageCap, nameCatalog, namesOn, prompt, staged, videoCap],
+    [audioCap, imageCap, namesOn, planCatalog, prompt, staged, videoCap],
   );
   const shown = useMemo(() => {
     const marks = new Map(namePlan.marks.map((mark) => [mark.key, mark.token]));
@@ -1521,7 +1608,7 @@ export default function App() {
   }, [gallerySummaries]);
 
   useEffect(() => {
-    if (!namesOn) return;
+    if (!refsOn) return;
     const ids = mentionedGalleryIds(prompt, nameCatalog).filter((id) => {
       if (nameFetchSkip.current.has(id)) return false;
       const detail = galleryDetails.get(id);
@@ -1557,7 +1644,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [galleryDetails, gallerySummaries, nameCatalog, namesOn, prompt]);
+  }, [galleryDetails, gallerySummaries, nameCatalog, prompt, refsOn]);
 
   function castItemForStaged(item: StagedMedia | undefined): CastItem | null {
     if (!item || item.number == null) return null;
@@ -1965,6 +2052,46 @@ export default function App() {
     const next = galleryItems.filter((item) => !drop.has(item.id));
     if (next.length === galleryItems.length) return false;
     return onGallerySave(next);
+  }
+
+  /** Deletes the chosen files themselves. The Delete menu already asked which copies go. */
+  async function onGalleryDeleteFiles(ids: string[], scope: DeleteScope): Promise<boolean> {
+    const chosen = new Set(ids);
+    const keys = [
+      ...new Set(galleryItems.flatMap((item) => (chosen.has(item.id) && item.key ? [item.key] : []))),
+    ];
+    if (keys.length === 0 || gallerySaving) return false;
+    setGallerySaving(true);
+    setGalleryStatus(null);
+    showDeleteNotice(null);
+    let reply: unknown;
+    try {
+      reply = await api.deleteGalleryFiles(keys, { fromOxen: scope === "everywhere" });
+    } catch {
+      showDeleteNotice(deleteOutcome(tallyDelete(scope, [{ ok: false, count: keys.length }])));
+      return false;
+    } finally {
+      setGallerySaving(false);
+    }
+    showDeleteNotice(deleteOutcome(tallyDelete(scope, [{ ok: true, count: keys.length, reply }])));
+    const gone = new Set(keys);
+    changeGallerySet((prev) => prev.filter((item) => !gone.has(item.key)));
+    // The same files as library and canvas rows.
+    const removing = new Set(
+      [...generations, ...libraryItems].flatMap((row) =>
+        row.resultKey && gone.has(row.resultKey) ? [row.id] : [],
+      ),
+    );
+    if (removing.size > 0) {
+      setGenerations((prev) => prev.filter((row) => !removing.has(row.id)));
+      setLibraryItems((prev) => prev.filter((row) => !removing.has(row.id)));
+      setSelectedId((prev) => siblingAfterRemoval(prev, removing, generations));
+      setPeekId((prev) => siblingAfterRemoval(prev, removing, generations));
+    }
+    if (libraryOpen) void refreshLibrary();
+    const listed = await api.galleries().catch(() => null);
+    if (listed) setGallerySummaries(listed.galleries);
+    return true;
   }
 
   async function onGalleryPlace(input: {
@@ -2697,6 +2824,157 @@ export default function App() {
     });
   }
 
+  function insertSlotHandle(handle: string) {
+    const token = `@${handle.replace(/^@/, "")}`;
+    const field = promptField.current;
+    const el = field?.element ?? null;
+    const liveCaret = el && document.activeElement === el ? el.selectionStart : null;
+    const result = insertPlainMention(promptRef.current, liveCaret, token);
+    promptRef.current = result.next;
+    attachDraft.current = { text: result.next, caret: result.caret };
+    setPrompt(result.next);
+    field?.place(result.caret, result.next);
+  }
+
+  function rememberSlot(slot: StudioSlot) {
+    setSlots((prev) => {
+      const rest = prev.filter((item) => item.id !== slot.id);
+      return [...rest, slot].sort((a, b) => a.name.localeCompare(b.name));
+    });
+  }
+
+  function slotError(err: unknown, fallback: string) {
+    setSlotsNotice(err instanceof Error ? err.message : fallback);
+  }
+
+  function createSlot(projectId: string | null, name: string) {
+    setSlotsNotice(null);
+    void api
+      .createSlot({ name, projectId })
+      .then(({ slot }) => rememberSlot(slot))
+      .catch((err) => slotError(err, "Couldn’t add that slot"));
+  }
+
+  function patchSlot(id: string, patch: Parameters<typeof api.updateSlot>[1]) {
+    setSlotsNotice(null);
+    void api
+      .updateSlot(id, patch)
+      .then(({ slot }) => rememberSlot(slot))
+      .catch((err) => slotError(err, "Couldn’t update that slot"));
+  }
+
+  function removeSlot(id: string) {
+    setSlotsNotice(null);
+    void api
+      .deleteSlot(id)
+      .then(() => setSlots((prev) => prev.filter((item) => item.id !== id)))
+      .catch((err) => slotError(err, "Couldn’t delete that slot"));
+  }
+
+  async function uploadSlotFiles(files: File[]): Promise<SlotFileInput[]> {
+    const { accepted, rejected } = partitionMediaFiles(files, ["image", "video", "audio"]);
+    noteRejectedMedia(rejected);
+    const uploaded: SlotFileInput[] = [];
+    for (const entry of accepted) {
+      if (entry.kind === "document") continue;
+      const result = await api.upload(entry.file);
+      uploaded.push({
+        kind: entry.kind,
+        name: entry.file.name,
+        key: result.key,
+        role: entry.kind === "audio" ? null : "character",
+      });
+    }
+    return uploaded;
+  }
+
+  function addSlotFiles(id: string, incoming: SlotFileInput[]) {
+    const slot = slots.find((item) => item.id === id);
+    if (!slot || incoming.length === 0) return;
+    const files: SlotFileInput[] = [
+      ...slot.files.map((file) => ({
+        kind: file.kind,
+        name: file.name,
+        key: file.key,
+        label: file.label,
+        role: file.role,
+      })),
+      ...incoming,
+    ];
+    patchSlot(id, { files });
+  }
+
+  function dropSlotFiles(id: string, files: File[]) {
+    void uploadSlotFiles(files)
+      .then((uploaded) => addSlotFiles(id, uploaded))
+      .catch((err) => slotError(err, "Couldn’t add those files"));
+  }
+
+  function dropSlotHistory(id: string, ids: string[]) {
+    const pool = [...generations, ...libraryItems];
+    const incoming = ids.flatMap((itemId) => {
+      const item = pool.find((entry) => entry.id === itemId);
+      if (!item) return [];
+      const mapped = historyItemForGallery(item);
+      if (!mapped) return [];
+      return [{ kind: mapped.kind, name: mapped.name, key: mapped.key, role: mapped.kind === "audio" ? null : ("character" as const) }];
+    });
+    if (incoming.length === 0) {
+      setSlotsNotice("That file isn’t ready to add.");
+      return;
+    }
+    addSlotFiles(id, incoming);
+  }
+
+  function saveSlotGallery(id: string) {
+    setSlotsNotice(null);
+    void api
+      .saveSlotAsGallery(id)
+      .then(({ slot, gallery }) => {
+        rememberSlot(slot);
+        setGallerySummaries((prev) => [
+          {
+            id: gallery.id,
+            name: gallery.name,
+            handle: gallery.handle,
+            takeCount: gallery.takeCount,
+            updatedAt: gallery.updatedAt,
+            count: gallery.items.length,
+          },
+          ...prev.filter((item) => item.id !== gallery.id),
+        ]);
+        setGalleryDetails((prev) => new Map(prev).set(gallery.id, gallery));
+        setSlotsNotice(`Saved ${gallery.name} as a gallery.`);
+      })
+      .catch((err) => slotError(err, "Couldn’t save that gallery"));
+  }
+
+  function saveProjectSlotGallery(projectId: string) {
+    setSlotsNotice(null);
+    void api
+      .saveProjectSlotsAsGallery(projectId)
+      .then(({ gallery, omitted }) => {
+        setGallerySummaries((prev) => [
+          {
+            id: gallery.id,
+            name: gallery.name,
+            handle: gallery.handle,
+            takeCount: gallery.takeCount,
+            updatedAt: gallery.updatedAt,
+            count: gallery.items.length,
+          },
+          ...prev.filter((item) => item.id !== gallery.id),
+        ]);
+        setGalleryDetails((prev) => new Map(prev).set(gallery.id, gallery));
+        setSlotsNotice(
+          omitted > 0
+            ? `Saved ${gallery.name}. ${omitted} ${omitted === 1 ? "file" : "files"} did not fit.`
+            : `Saved ${gallery.name} as a gallery.`,
+        );
+      })
+      .catch((err) => slotError(err, "Couldn’t save that gallery"));
+  }
+
   function insertTokensAtCaret(tokens: string[]) {
     const field = promptField.current;
     const el = field?.element ?? null;
@@ -3008,7 +3286,9 @@ export default function App() {
       const jobRefs: { kind: "image" | "video" | "audio"; number: number; role: MediaRole | null; name: string; key: string }[] = [];
       let namedFiles = namePlan.files;
       if (namesOn && namedFiles.some((file) => !file.url)) {
-        const missingIds = [...new Set(namedFiles.filter((file) => !file.url).map((file) => file.galleryId))];
+        const missingIds = [
+          ...new Set(namedFiles.flatMap((file) => (!file.url && file.galleryId ? [file.galleryId] : []))),
+        ];
         const loaded = await Promise.all(
           missingIds.map(async (id) => {
             try {
@@ -3253,7 +3533,7 @@ export default function App() {
 
   return (
     <VideoThumbSecondsProvider seconds={settings?.videoThumbSeconds ?? DEFAULT_VIDEO_THUMB_SECONDS}>
-    <div className={`app-shell panel-place-${panelPlace}${libraryOpen ? " library-open" : ""}${peek ? " has-peek" : ""}${galleryTileDrag ? " is-tile-drag" : ""}${galleryPanelOpen && managingGallery ? " is-gallery-open" : ""}`}>
+    <div className={`app-shell panel-place-${panelPlace}${libraryOpen ? " library-open" : ""}${slotsOpen ? " slots-open" : ""}${peek ? " has-peek" : ""}${galleryTileDrag ? " is-tile-drag" : ""}${galleryPanelOpen && managingGallery ? " is-gallery-open" : ""}`}>
       <PanelPlaceProvider place={panelPlace} setPlace={setPanelPlace}>
       <ProjectRail
         open={projectsOpen}
@@ -3371,6 +3651,7 @@ export default function App() {
                 .deleteProject(activeProject.id)
                 .then(() => {
                   setProjectSummaries((prev) => prev.filter((item) => item.id !== activeProject.id));
+                  setSlots((prev) => prev.filter((slot) => slot.projectId !== activeProject.id));
                   closeProject();
                 })
                 .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t delete that project"))
@@ -3398,6 +3679,35 @@ export default function App() {
       </ProjectRail>
       {projectsOpen ? (
         <button type="button" className="slide-backdrop" aria-label="Close projects" onClick={() => setProjectsOpen(false)} />
+      ) : null}
+      <SlotsPanel
+          open={slotsOpen}
+          slots={slots}
+          projects={projectSummaries}
+          activeProjectId={shareName ? null : (activeProject?.id ?? null)}
+          galleries={gallerySummaries}
+          attached={staged.flatMap((item) => {
+            const key =
+              item.key ||
+              [...generations, ...libraryItems].find((entry) => entry.id === item.generationId)?.resultKey ||
+              "";
+            if (!key) return [];
+            return [{ kind: item.kind, name: item.name, key, role: item.role ?? null }];
+          })}
+          loading={slotsLoading}
+          notice={slotsNotice}
+          onClose={() => setSlotsOpen(false)}
+          onCreate={createSlot}
+          onPatch={patchSlot}
+          onDelete={removeSlot}
+          onSaveAsGallery={saveSlotGallery}
+          onSaveProjectGallery={saveProjectSlotGallery}
+          onInsert={insertSlotHandle}
+          onDropFiles={dropSlotFiles}
+          onDropHistory={dropSlotHistory}
+        />
+      {slotsOpen ? (
+        <button type="button" className="slide-backdrop" aria-label="Close slots" onClick={() => setSlotsOpen(false)} />
       ) : null}
       <Sidebar
         logoUrl={branding.logoUrl}
@@ -3465,6 +3775,7 @@ export default function App() {
         onGalleryDelete={(id) => void onGalleryDelete(id)}
         onGalleryRename={(id, name) => void onGalleryRename(id, name)}
         onGalleryDeleteSelected={onGalleryDeleteSelected}
+        onGalleryDeleteFiles={onGalleryDeleteFiles}
         onGalleryPlace={onGalleryPlace}
         onHistoryAddToGallery={addHistoryToGallery}
         onHistoryCreateGallery={createHistoryGallery}
@@ -3487,9 +3798,11 @@ export default function App() {
             <PhoneNav
               libraryActive={libraryOpen && libraryPane === "history"}
               projectsActive={projectsOpen}
+              slotsActive={slotsOpen}
               galleriesActive={galleryPanelOpen}
               onOpenLibrary={() => openLibraryPane("history")}
               onOpenProjects={openProjectsPane}
+              onOpenSlots={openSlotsPane}
               onOpenGalleries={() => openLibraryPane("galleries")}
             />
             <div className="nav-brand">
@@ -3508,6 +3821,7 @@ export default function App() {
                   if (libraryOpen) closeLibrary();
                   else {
                     setProjectsOpen(false);
+                    setSlotsOpen(false);
                     setShowSettings(false);
                     setLibraryPane("history");
                     setLibraryOpen(true);
@@ -3535,12 +3849,22 @@ export default function App() {
                   if (next) {
                     setLibraryOpen(false);
                     setLibraryPane("history");
+                    setSlotsOpen(false);
                     setShowSettings(false);
                     setPeekId(null);
                   }
                 }}
               >
                 Projects
+              </button>
+              <button
+                type="button"
+                className={`ghost-btn nav-phone-hide${slotsOpen ? " active" : ""}`}
+                aria-expanded={slotsOpen}
+                aria-controls="slots-panel"
+                onClick={openSlotsPane}
+              >
+                Slots
               </button>
               <button
                 type="button"
@@ -3555,6 +3879,7 @@ export default function App() {
                     setLibraryOpen(false);
                     setLibraryPane("history");
                     setProjectsOpen(false);
+                    setSlotsOpen(false);
                     setPeekId(null);
                   }
                 }}
@@ -3578,6 +3903,7 @@ export default function App() {
                   setLibraryOpen(false);
                   setLibraryPane("history");
                   setProjectsOpen(false);
+                  setSlotsOpen(false);
                   setPeekId(null);
                   setShowSettings(true);
                 }}
@@ -3642,8 +3968,11 @@ export default function App() {
                 setLibraryPane("history");
                 setShowSettings(false);
                 setPeekId(null);
+                setSlotsOpen(false);
                 setProjectsOpen(true);
               }}
+              slotHandles={slots.filter((slot) => slot.projectId === activeProject.id).map((slot) => slot.handle)}
+              onOpenSlots={openSlotsPane}
               onClose={closeProject}
             />
           ) : null}
@@ -3735,8 +4064,8 @@ export default function App() {
               via: item.via,
               origin: item.origin,
             }))}
-            mentionGalleries={nameCatalog}
-            missingNameStarts={namePlan.unresolved.map((mention) => mention.start)}
+            mentionGalleries={planCatalog}
+            missingNameStarts={refsOn ? namePlan.unresolved.map((mention) => mention.start) : []}
             nameHovers={namePlan.hovers}
             nameNotice={namesOn ? namePlanNotice(namePlan) : null}
             onAddFiles={onAddFiles}

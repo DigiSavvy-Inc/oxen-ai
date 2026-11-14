@@ -4,8 +4,10 @@ import type { GallerySummary } from "../lib/api";
 import type { GalleryDraftItem } from "../lib/gallery-draft";
 import { gallerySwipeSlides } from "../lib/gallery-slides";
 import { fileDragOffered, historyDragOffered, readHistoryDrag } from "../lib/history-drag";
+import type { DeleteScope } from "../lib/media-delete";
 import { useTileReorder } from "../lib/tile-reorder";
 import type { MediaRole } from "../../worker/schema";
+import { DeleteMenu } from "./DeleteMenu";
 import { FullSizeMedia } from "./FullSizeMedia";
 import { GalleryMentionFields } from "./GalleryMentionFields";
 import { GalleryRoleSelect } from "./GalleryRoleSelect";
@@ -53,6 +55,8 @@ type Props = {
   onRenameGallery: (id: string, name: string) => void;
   onDeleteGallery: (id: string) => void;
   onDeleteSelected: (ids: string[]) => Promise<boolean>;
+  /** Deletes the files themselves, from Studio or from Studio and Oxen. */
+  onDeleteFiles: (ids: string[], scope: DeleteScope) => Promise<boolean>;
   onPlaceSelected: (input: GalleryPlace) => Promise<boolean>;
 };
 
@@ -60,6 +64,7 @@ export function GalleryBrowser(props: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [confirmSelected, setConfirmSelected] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [destination, setDestination] = useState("");
   const [newName, setNewName] = useState("");
   const [fitId, setFitId] = useState<string | null>(null);
@@ -104,6 +109,8 @@ export function GalleryBrowser(props: Props) {
 
   const canSave = Boolean(props.name.trim()) && !props.saving;
   const selectedItems = props.items.filter((item) => selected.includes(item.id));
+  // A file still uploading has no stored copy to delete yet.
+  const deletable = selectedItems.filter((item) => item.key);
   const allSelected = props.items.length > 0 && selectedItems.length === props.items.length;
   const viewSlides = gallerySwipeSlides(props.items);
   const fit = viewSlides.find((slide) => slide.id === fitId) ?? null;
@@ -219,7 +226,7 @@ export function GalleryBrowser(props: Props) {
       />
       <div className="gallery-manage-actions">
         <button type="button" className="ghost-btn" disabled={!canSave} onClick={props.onSave}>
-          {props.saving ? "Saving…" : "Save"}
+          {props.saving && !deleting ? "Saving…" : "Save"}
         </button>
         <button
           type="button"
@@ -244,8 +251,13 @@ export function GalleryBrowser(props: Props) {
             Delete this gallery
           </button>
         ) : (
-          <button type="button" className="ghost-btn" onClick={() => setConfirmDelete(true)}>
-            Delete
+          <button
+            type="button"
+            className="ghost-btn"
+            title="Deletes this gallery. Its files stay in the library."
+            onClick={() => setConfirmDelete(true)}
+          >
+            Delete gallery
           </button>
         )}
       </div>
@@ -289,6 +301,24 @@ export function GalleryBrowser(props: Props) {
               Remove from gallery
             </button>
           )}
+          <DeleteMenu
+            count={deletable.length}
+            disabled={props.saving || deletable.length === 0}
+            label="Delete the selected files"
+            onChoose={(scope) => {
+              const ids = deletable.map((item) => item.id);
+              setConfirmSelected(false);
+              setDeleting(true);
+              void props
+                .onDeleteFiles(ids, scope)
+                .then((ok) => {
+                  if (ok) setSelected((current) => current.filter((id) => !ids.includes(id)));
+                })
+                .finally(() => setDeleting(false));
+            }}
+          >
+            {deleting ? "Deleting…" : "Delete"}
+          </DeleteMenu>
           <select
             className="field"
             aria-label="Destination gallery"

@@ -398,7 +398,7 @@ function assertUniqueLabels(items: readonly GalleryItemInput[]): void {
   }
 }
 
-async function handleTaken(
+export async function galleryHandleTaken(
   db: D1Database,
   userId: string,
   handle: string,
@@ -423,6 +423,32 @@ async function handleTaken(
   }
 }
 
+/** An Everywhere slot uses this handle. Missing table means slots are not installed yet. */
+async function everywhereSlotHandleTaken(
+  db: D1Database,
+  userId: string,
+  handle: string,
+  profileId: string | null,
+): Promise<boolean> {
+  if (!handle) return false;
+  try {
+    const { results } = await db
+      .prepare(
+        `SELECT id FROM slots
+         WHERE user_id = ? AND project_id IS NULL AND handle = ? COLLATE NOCASE
+           AND IFNULL(profile_id, '') = IFNULL(?, '')
+         LIMIT 1`,
+      )
+      .bind(userId, handle, profileId)
+      .all<{ id: string }>();
+    return (results ?? []).length > 0;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("no such table") || message.includes("no such column")) return false;
+    throw err;
+  }
+}
+
 export async function saveGallery(
   db: D1Database,
   userId: string,
@@ -433,6 +459,8 @@ export async function saveGallery(
     profileId?: string | null;
     handle?: unknown;
     takeCount?: unknown;
+    /** Store no handle. Used when the wanted handle is already a gallery or an Everywhere slot. */
+    forceEmptyHandle?: boolean;
   },
 ): Promise<StoredGallery | null> {
   const name = acceptGalleryName(input.name);
@@ -446,17 +474,26 @@ export async function saveGallery(
   if (requestedId) {
     const existing = await getGallery(db, userId, requestedId);
     if (!existing) return null;
-    const handle = chosenHandle(name, input.handle, existing.handle);
+    const handle = input.forceEmptyHandle ? "" : chosenHandle(name, input.handle, existing.handle);
     const takeCount = take ?? existing.takeCount;
-    if (await handleTaken(db, userId, handle, existing.profileId, requestedId)) {
-      throw new GalleryRejected("handle", "A gallery on this profile already uses that handle.");
+    // A gallery saved from a slot, or one older than handles, shows a handle made from its
+    // name without owning it. Saving it again with that same handle keeps it unowned.
+    const unchanged = handle.toLowerCase() === existing.handle.toLowerCase();
+    let owned = !input.forceEmptyHandle;
+    if (owned && (await galleryHandleTaken(db, userId, handle, existing.profileId, requestedId))) {
+      if (!unchanged) throw new GalleryRejected("handle", "A gallery on this profile already uses that handle.");
+      owned = false;
+    }
+    if (owned && (await everywhereSlotHandleTaken(db, userId, handle, existing.profileId))) {
+      if (!unchanged) throw new GalleryRejected("handle", "A slot on this profile already uses that handle.");
+      owned = false;
     }
     try {
       await db
         .prepare(
           `UPDATE galleries SET name = ?, handle = ?, take_count = ?, updated_at = ? WHERE id = ? AND user_id = ?`,
         )
-        .bind(name, handle || null, takeCount, now, requestedId, userId)
+        .bind(name, owned && handle ? handle : null, takeCount, now, requestedId, userId)
         .run();
     } catch (err) {
       if (!missingColumn(err)) throw err;
@@ -478,10 +515,13 @@ export async function saveGallery(
   }
   const id = crypto.randomUUID();
   const profileId = typeof input.profileId === "string" ? input.profileId : null;
-  const handle = chosenHandle(name, input.handle, "");
+  const handle = input.forceEmptyHandle ? "" : chosenHandle(name, input.handle, "");
   const takeCount = take ?? 1;
-  if (await handleTaken(db, userId, handle, profileId, id)) {
+  if (!input.forceEmptyHandle && (await galleryHandleTaken(db, userId, handle, profileId, id))) {
     throw new GalleryRejected("handle", "A gallery on this profile already uses that handle.");
+  }
+  if (!input.forceEmptyHandle && (await everywhereSlotHandleTaken(db, userId, handle, profileId))) {
+    throw new GalleryRejected("handle", "A slot on this profile already uses that handle.");
   }
   try {
     await db

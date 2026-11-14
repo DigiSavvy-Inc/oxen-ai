@@ -5406,6 +5406,122 @@ select.attach-role {
     visibility 0s linear 0s;
 }
 
+.slot-lead,
+.slot-empty,
+.slot-drop-hint,
+.slot-linked,
+.slot-notice {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.slot-notice {
+  color: var(--text);
+}
+
+.slot-add,
+.slot-card-name,
+.slot-card-actions,
+.slot-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.slot-add .field,
+.slot-card-name .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.slot-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.slot-group-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.slot-group-head {
+  justify-content: space-between;
+}
+
+.slot-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+}
+
+.slot-card.is-drop {
+  border-color: var(--border-strong);
+}
+
+.slot-scope,
+.slot-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.slot-note textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+
+.slot-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.slot-file {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 96px;
+}
+
+.slot-file .gallery-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+.slot-label-read {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.slot-folded {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mention-note-preview,
+.mention-hover-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.mention-source {
+  margin-left: 6px;
+}
+
 .slide-backdrop {
   position: fixed;
   inset: 52px 0 0 0;
@@ -5422,6 +5538,11 @@ select.attach-role {
 /* A canvas result stays above the scrim while a gallery is open, so it can be dragged in. */
 .app-shell.is-gallery-open .result-media,
 .app-shell.is-gallery-open .variation-thumb {
+  z-index: 45;
+}
+
+.app-shell.slots-open .result-media,
+.app-shell.slots-open .variation-thumb {
   z-index: 45;
 }
 
@@ -6370,6 +6491,14 @@ select.attach-role {
 }
 
 @media (min-width: 861px) {
+  .app-shell.slots-open .slots-panel {
+    z-index: 47;
+  }
+
+  .app-shell.slots-open .composer {
+    z-index: 46;
+  }
+
   .app-shell.panel-place-right .sidebar,
   .app-shell.panel-place-right .project-slide {
     inset: 52px 0 0 auto;

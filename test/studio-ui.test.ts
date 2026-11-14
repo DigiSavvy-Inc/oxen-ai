@@ -1494,7 +1494,8 @@ describe("account profile switch", () => {
     expect(phone).toContain("Library");
     expect(phone).toContain("Projects");
     expect(phone).toContain("Galleries");
-    expect(phone).toContain('aria-label="Library, projects, and galleries"');
+    expect(phone).toContain('aria-label="Library, projects, slots, and galleries"');
+    expect(phone).toContain("Slots");
     expect(profiles).toContain("Switch profile");
     expect(profiles).not.toContain("profile-switch-btn");
     expect(css).toMatch(/\.phone-nav\s*\{[^}]*display:\s*none/);

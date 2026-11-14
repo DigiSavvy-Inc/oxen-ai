@@ -352,6 +352,16 @@ export function insertAttachMentions(
   return { next, caret: cursor };
 }
 
+/** Insert one mention at the caret even when that token is already in the prompt. */
+export function insertPlainMention(
+  text: string,
+  caret: number | null,
+  token: string,
+): { next: string; caret: number } {
+  const at = caret == null ? text.length : Math.max(0, Math.min(caret, text.length));
+  return placeAttachToken(text, at, token);
+}
+
 function placeAttachToken(
   text: string,
   at: number,

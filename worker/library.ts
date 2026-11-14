@@ -2,6 +2,7 @@ import { createImageThumbnail, isRasterImage, THUMB_MAX_BYTES } from "./thumbs";
 import { putMediaObject } from "./media";
 import { cancelGeneration } from "./oxen";
 import { deleteOxenResultUrls } from "./oxen-delete";
+import { deleteUserSlotFiles, forgetSlotFiles } from "./slots";
 import type { Env } from "./types";
 
 export type CleanupAction = "failed" | "thumbs" | "all";
@@ -208,6 +209,11 @@ export async function removeStudioGenerations(
   if (apiKey) await cancelInFlightOxenJobs(apiKey, rows);
   const oxen = options.fromOxen ? await removeOxenCopies(apiKey, rows) : { ...NO_OXEN_REMOVAL };
   await deleteGenerationRecords(env, userId, rows);
+  await forgetSlotFiles(
+    env.DB,
+    userId,
+    rows.flatMap((row) => (row.result_key ? [row.result_key] : [])),
+  );
   return oxen;
 }
 
@@ -267,6 +273,7 @@ export async function deleteAllUserMedia(
   } catch (err) {
     if (!isMissingTableError(err, "galleries")) throw err;
   }
+  await deleteUserSlotFiles(env.DB, userId);
   const r2Deleted = await deleteUserR2Prefix(env, userId);
   return { deleted: rows.length, r2Deleted, ...oxen };
 }

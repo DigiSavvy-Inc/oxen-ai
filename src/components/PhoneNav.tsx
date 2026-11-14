@@ -17,16 +17,20 @@ function MenuIcon() {
 export function PhoneNav({
   libraryActive,
   projectsActive,
+  slotsActive,
   galleriesActive,
   onOpenLibrary,
   onOpenProjects,
+  onOpenSlots,
   onOpenGalleries,
 }: {
   libraryActive: boolean;
   projectsActive: boolean;
+  slotsActive: boolean;
   galleriesActive: boolean;
   onOpenLibrary: () => void;
   onOpenProjects: () => void;
+  onOpenSlots: () => void;
   onOpenGalleries: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -61,7 +65,7 @@ export function PhoneNav({
       {open ? (
         <>
           <button type="button" className="phone-nav-backdrop" aria-label="Close menu" onClick={() => setOpen(false)} />
-          <nav id="phone-nav-menu" className="phone-nav-drawer" aria-label="Library, projects, and galleries">
+          <nav id="phone-nav-menu" className="phone-nav-drawer" aria-label="Library, projects, slots, and galleries">
             <div className="phone-nav-head">
               <strong>Browse</strong>
               <button type="button" className="icon-btn phone-nav-close" aria-label="Close menu" onClick={() => setOpen(false)}>
@@ -83,6 +87,14 @@ export function PhoneNav({
               onClick={() => choose(onOpenProjects)}
             >
               Projects
+            </button>
+            <button
+              type="button"
+              className={slotsActive ? "active" : undefined}
+              aria-current={slotsActive ? "page" : undefined}
+              onClick={() => choose(onOpenSlots)}
+            >
+              Slots
             </button>
             <button
               type="button"

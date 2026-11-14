@@ -195,13 +195,19 @@ describe("the Delete menu", () => {
     expect(hover).toContain(".media-delete.is-open");
   });
 
-  it("names removing from a gallery as its own action", () => {
+  it("names removing from a gallery as its own action, with the Delete menu after it for the files", () => {
     const gallery = source("../src/components/GalleryBrowser.tsx");
     expect(gallery).toContain("Remove from gallery");
     expect(gallery).toContain("The files stay in the library.");
     const bulk = gallery.slice(gallery.indexOf('className="gallery-bulk"'), gallery.indexOf("Destination gallery"));
-    expect(bulk).not.toContain("DeleteMenu");
-    expect(bulk).not.toMatch(/>\s*Delete\s*</);
+    const remove = bulk.indexOf("Remove from gallery");
+    const menu = bulk.indexOf("<DeleteMenu");
+    expect(remove).toBeGreaterThan(-1);
+    expect(menu).toBeGreaterThan(remove);
+    expect(bulk).toContain("count={deletable.length}");
+    expect(bulk).toContain(".onDeleteFiles(ids, scope)");
+    expect(gallery).not.toContain("fromOxen");
+    expect(gallery).not.toContain("window.confirm");
   });
 });
 

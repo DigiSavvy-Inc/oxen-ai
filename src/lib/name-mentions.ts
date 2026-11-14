@@ -12,13 +12,36 @@ export type NameCatalogItem = {
   thumbUrl?: string | null;
 };
 
-export type NameCatalogGallery = {
+export type NameSource = "slot" | "gallery";
+
+export function nameSourceLabel(source: NameSource): string {
+  switch (source) {
+    case "slot":
+      return "Slot";
+    case "gallery":
+      return "Gallery";
+    default: {
+      const unreachable: never = source;
+      return unreachable;
+    }
+  }
+}
+
+/** A gallery, or a slot. `source` defaults to gallery when a caller omits it. */
+export type NameCatalogEntry = {
   id: string;
   name: string;
   handle: string;
   take: number;
   items: readonly NameCatalogItem[];
+  source?: NameSource;
+  /** Reusable prompt text. Empty when this entry is files only. */
+  note?: string;
+  /** Set when a slot reads its files from a gallery, or when the entry is a gallery. */
+  galleryId?: string | null;
 };
+
+export type NameCatalogGallery = NameCatalogEntry;
 
 export type HandRef = {
   key?: string;
@@ -46,7 +69,7 @@ export type NameHover = {
   start: number;
   token: string;
   name: string;
-  kind: "image" | "video" | "audio";
+  kind: "image" | "video" | "audio" | "note";
   preview: string;
 };
 
@@ -59,7 +82,7 @@ export type NamePlan = {
   dropped: string[];
   hovers: NameHover[];
   /** Kept names and the tokens they expand to, so another field can use the same numbers. */
-  kept: { handle: string; label: string | null; tokens: string[] }[];
+  kept: { handle: string; label: string | null; tokens: string[]; note?: string }[];
   removed: { handle: string; label: string | null }[];
   /** The prompt with each kept name replaced by its @Image tokens. */
   expanded: string;
@@ -72,16 +95,60 @@ export type NamePickerChoice = {
   title: string;
   kind: "image" | "video" | "audio" | null;
   preview: string;
+  source: NameSource;
+  note: string;
 };
 
 type Kind = "image" | "video" | "audio";
 
 type LiveMention = {
   mention: NamePromptMention;
-  gallery: NameCatalogGallery;
-  mode: "take" | "label";
+  gallery: NameCatalogEntry;
+  mode: "take" | "label" | "note";
   items: NameCatalogItem[];
 };
+
+function entrySource(entry: NameCatalogEntry): NameSource {
+  return entry.source ?? "gallery";
+}
+
+function entryNote(entry: NameCatalogEntry): string {
+  return (entry.note ?? "").trim();
+}
+
+/** Project slots, then Everywhere slots, then galleries. The first handle wins. */
+export function orderedNameCatalog(input: {
+  project?: readonly NameCatalogEntry[];
+  everywhere?: readonly NameCatalogEntry[];
+  galleries: readonly NameCatalogEntry[];
+}): NameCatalogEntry[] {
+  const out: NameCatalogEntry[] = [];
+  const seen = new Set<string>();
+  for (const entry of [...(input.project ?? []), ...(input.everywhere ?? []), ...input.galleries]) {
+    const handle = entry.handle.trim();
+    if (!handle) continue;
+    const key = handle.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(entry);
+  }
+  return out;
+}
+
+/**
+ * The catalog for a model that takes no references. A note is plain text, so a name that
+ * carries one still expands to it. A name with files only is left out and stays as typed.
+ */
+export function noteOnlyCatalog(entries: readonly NameCatalogEntry[]): NameCatalogEntry[] {
+  const seen = new Set<string>();
+  return entries.flatMap((entry) => {
+    const handle = entry.handle.toLowerCase();
+    // The first entry owns the handle, so a name with files only still hides a later note.
+    if (!handle || seen.has(handle)) return [];
+    seen.add(handle);
+    return entryNote(entry) ? [{ ...entry, items: [] }] : [];
+  });
+}
 
 const KINDS: readonly Kind[] = ["image", "video", "audio"];
 
@@ -164,22 +231,30 @@ function pairKey(handle: string, label: string | null): string {
  */
 export function expandNameText(
   text: string,
-  kept: readonly { handle: string; label: string | null; tokens: readonly string[] }[],
+  kept: readonly { handle: string; label: string | null; tokens: readonly string[]; note?: string }[],
   dropped: readonly { handle: string; label: string | null }[],
 ): string {
   const mentions = parseNameMentions(text);
   if (mentions.length === 0) return text;
-  const keptByPair = new Map(kept.map((entry) => [pairKey(entry.handle, entry.label), entry.tokens]));
+  const keptByPair = new Map(kept.map((entry) => [pairKey(entry.handle, entry.label), entry]));
   const droppedPairs = new Set(dropped.map((entry) => pairKey(entry.handle, entry.label)));
+  const noted = new Set<string>();
   let next = "";
   let cursor = 0;
   for (const mention of mentions) {
     const key = pairKey(mention.handle, mention.label);
-    const tokens = keptByPair.get(key);
-    if (!tokens && !droppedPairs.has(key)) continue;
+    const entry = keptByPair.get(key);
+    if (!entry && !droppedPairs.has(key)) continue;
+    const tokens = entry?.tokens ?? [];
+    const note = (entry?.note ?? "").trim();
+    const handleKey = mention.handle.toLowerCase();
+    let replacement = tokens.length > 0 ? tokens.join(" ") : "";
+    if (entry && note && !noted.has(handleKey)) {
+      replacement = replacement ? `${replacement} (${note})` : note;
+      noted.add(handleKey);
+    }
     let start = mention.start;
     let end = mention.end;
-    const replacement = tokens && tokens.length > 0 ? tokens.join(" ") : "";
     if (!replacement) {
       if (text[end] === " ") end += 1;
       else if (start > 0 && text[start - 1] === " ") start -= 1;
@@ -236,7 +311,8 @@ export function planNameAttachments(input: {
       continue;
     }
     if (gallery.items.length === 0) {
-      unresolved.push(mention);
+      if (entryNote(gallery)) lives.push({ mention, gallery, mode: "note", items: [] });
+      else unresolved.push(mention);
       continue;
     }
     lives.push({ mention, gallery, mode: "take", items: [...gallery.items] });
@@ -269,7 +345,7 @@ export function planNameAttachments(input: {
     let droppedOne = false;
     for (let index = lives.length - 1; index >= 0; index -= 1) {
       const live = lives[index];
-      if (!live || droppedStarts.has(live.mention.start)) continue;
+      if (!live || live.mode === "note" || droppedStarts.has(live.mention.start)) continue;
       droppedStarts.add(live.mention.start);
       dropped.push(live.mention.token);
       droppedOne = true;
@@ -308,7 +384,7 @@ export function planNameAttachments(input: {
   const files: ResolvedNameFile[] = [];
   const marks: { key: string; token: string }[] = [];
   const hovers: NameHover[] = [];
-  const keptPairs = new Map<string, { handle: string; label: string | null; tokens: string[] }>();
+  const keptPairs = new Map<string, { handle: string; label: string | null; tokens: string[]; note?: string }>();
   const droppedPairs = new Map<string, { handle: string; label: string | null }>();
 
   for (const live of lives) {
@@ -332,7 +408,7 @@ export function planNameAttachments(input: {
         number = next[item.kind];
         numbers.set(key, number);
         files.push({
-          galleryId: live.gallery.id,
+          galleryId: live.gallery.galleryId || (entrySource(live.gallery) === "gallery" ? live.gallery.id : ""),
           key: item.key,
           kind: item.kind,
           name: item.name,
@@ -356,7 +432,16 @@ export function planNameAttachments(input: {
         };
       }
     }
-    if (hover && hover.preview) hovers.push(hover);
+    const note = entryNote(live.gallery);
+    if (live.mode === "note" && note) {
+      hovers.push({
+        start: live.mention.start,
+        token: live.mention.token,
+        name: live.gallery.name || live.gallery.handle,
+        kind: "note",
+        preview: note,
+      });
+    } else if (hover && hover.preview) hovers.push(hover);
     const existing = keptPairs.get(pair);
     if (existing) {
       if (existing.tokens.length === 0) existing.tokens = tokens;
@@ -365,6 +450,7 @@ export function planNameAttachments(input: {
         handle: live.gallery.handle,
         label: live.mode === "label" ? live.mention.label : null,
         tokens,
+        note: note || undefined,
       });
       droppedPairs.delete(pair);
     }
@@ -404,8 +490,9 @@ export function mentionedGalleryIds(text: string, galleries: readonly NameCatalo
   const ids: string[] = [];
   for (const mention of parseNameMentions(text)) {
     const gallery = galleryFor(galleries, mention.handle);
-    if (!gallery || ids.includes(gallery.id)) continue;
-    ids.push(gallery.id);
+    const id = gallery ? gallery.galleryId || (entrySource(gallery) === "gallery" ? gallery.id : "") : "";
+    if (!gallery || !id || ids.includes(id)) continue;
+    ids.push(id);
   }
   return ids;
 }
@@ -418,8 +505,10 @@ export function namePickerChoices(query: string, galleries: readonly NameCatalog
   if (dot >= 0) {
     const handleQuery = q.slice(0, dot);
     const labelQuery = q.slice(dot + 1);
-    const exact = listed.filter((gallery) => gallery.handle.toLowerCase() === handleQuery);
-    const pool = exact.length > 0 ? exact : listed.filter((gallery) => gallery.handle.toLowerCase().startsWith(handleQuery));
+    const exact = listed.find((gallery) => gallery.handle.toLowerCase() === handleQuery) ?? null;
+    const pool = exact
+      ? [exact]
+      : listed.filter((gallery) => gallery.handle.toLowerCase().startsWith(handleQuery));
     const choices: NamePickerChoice[] = [];
     for (const gallery of pool) {
       for (const item of gallery.items) {
@@ -433,22 +522,31 @@ export function namePickerChoices(query: string, galleries: readonly NameCatalog
           title: item.name,
           kind: item.kind,
           preview: item.thumbUrl || item.url || "",
+          source: entrySource(gallery),
+          note: entryNote(gallery),
         });
       }
     }
     return choices;
   }
-  return listed
-    .filter((gallery) => !q || gallery.handle.toLowerCase().includes(q))
-    .map((gallery) => {
-      const cover = gallery.items[0];
-      return {
+  const seen = new Set<string>();
+  return listed.flatMap((gallery) => {
+    const key = gallery.handle.toLowerCase();
+    if (seen.has(key)) return [];
+    seen.add(key);
+    if (q && !key.includes(q)) return [];
+    const cover = gallery.items[0];
+    return [
+      {
         token: `@${gallery.handle}`,
         handle: gallery.handle,
         label: null,
         title: gallery.name || gallery.handle,
         kind: cover?.kind ?? null,
         preview: cover?.thumbUrl || cover?.url || "",
-      };
-    });
+        source: entrySource(gallery),
+        note: entryNote(gallery),
+      },
+    ];
+  });
 }

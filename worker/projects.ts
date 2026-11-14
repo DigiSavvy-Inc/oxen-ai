@@ -23,6 +23,7 @@ import {
   type ComposerDraft,
 } from "./project-draft";
 import { projectJobStats } from "./project-jobs";
+import { deleteSlotsForProject, projectSlotHandles } from "./slots";
 import type { Env } from "./types";
 
 export const PROJECT_NAME_MAX = 80;
@@ -70,6 +71,8 @@ export type ProjectRecord = {
   jobCount: number;
   lastRunAt: number | null;
   shares: ShareRecord[];
+  /** Handles of slots kept to this project, in slot order. */
+  slotHandles: string[];
 };
 
 export type ShareSnapshot = {
@@ -391,6 +394,7 @@ export async function getProject(
       revokedAt: share.revoked_at,
       createdAt: share.created_at,
     })),
+    slotHandles: await projectSlotHandles(env.DB, userId, id),
   };
 }
 
@@ -436,6 +440,7 @@ export async function updateProject(
 export async function deleteProject(db: D1Database, userId: string, id: string): Promise<boolean> {
   const current = await ownedProject(db, userId, id);
   if (!current) return false;
+  await deleteSlotsForProject(db, userId, id);
   await db.batch([
     db.prepare(`DELETE FROM project_media WHERE project_id = ? AND user_id = ?`).bind(id, userId),
     db.prepare(`DELETE FROM project_galleries WHERE project_id = ?`).bind(id),

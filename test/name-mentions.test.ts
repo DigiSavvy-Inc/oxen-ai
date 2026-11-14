@@ -4,6 +4,9 @@ import {
   expandNameText,
   namePickerChoices,
   namePlanNotice,
+  nameSourceLabel,
+  noteOnlyCatalog,
+  orderedNameCatalog,
   planNameAttachments,
   type NameCatalogGallery,
 } from "../src/lib/name-mentions";
@@ -167,5 +170,151 @@ describe("name mentions", () => {
         [{ handle: "Maya", label: null }],
       ),
     ).toBe("a b @Nope");
+  });
+
+  it("puts a slot note in parentheses on the first mention only", () => {
+    const plan = planNameAttachments({
+      prompt: "the woman in @Maya on @Loft and @Maya again",
+      galleries: [
+        { ...maya, source: "slot", note: "muscular, black sports bra" },
+        { ...loft, source: "slot", note: "empty loft, concrete floor", take: 1 },
+      ],
+      hand: [],
+      caps,
+    });
+    expect(plan.expanded).toBe(
+      "the woman in @Image1 @Image2 (muscular, black sports bra) on @Image3 (empty loft, concrete floor) and @Image1 @Image2 again",
+    );
+  });
+
+  it("replaces a notes-only slot in place and removes a later mention", () => {
+    const skin: NameCatalogGallery = {
+      id: "skin",
+      name: "Skin",
+      handle: "Skin",
+      take: 1,
+      items: [],
+      source: "slot",
+      note: "warm skin",
+    };
+    const plan = planNameAttachments({
+      prompt: "@Skin light and @Skin again",
+      galleries: [skin],
+      hand: [],
+      caps,
+    });
+    expect(plan.files).toEqual([]);
+    expect(plan.unresolved).toEqual([]);
+    expect(plan.expanded).toBe("warm skin light and again");
+    expect(plan.hovers[0]?.kind).toBe("note");
+    expect(namePickerChoices("", [skin])[0]).toMatchObject({ source: "slot", note: "warm skin" });
+    expect(nameSourceLabel("slot")).toBe("Slot");
+    expect(nameSourceLabel("gallery")).toBe("Gallery");
+  });
+
+  it("leaves a slot with neither files nor a note unresolved", () => {
+    const plan = planNameAttachments({
+      prompt: "@Empty",
+      galleries: [{ id: "empty", name: "Empty", handle: "Empty", take: 1, items: [], source: "slot", note: "" }],
+      hand: [],
+      caps,
+    });
+    expect(plan.unresolved.map((mention) => mention.token)).toEqual(["@Empty"]);
+    expect(plan.expanded).toBe("@Empty");
+  });
+
+  it("drops a slot note with its files and keeps a notes-only slot", () => {
+    const skin: NameCatalogGallery = {
+      id: "skin",
+      name: "Skin",
+      handle: "Skin",
+      take: 1,
+      items: [],
+      source: "slot",
+      note: "warm skin",
+    };
+    const dropped = planNameAttachments({
+      prompt: "@Maya then @Skin",
+      galleries: [{ ...maya, take: 1, source: "slot", note: "muscular" }, skin],
+      hand: [],
+      caps: { image: 0, video: 0, audio: 0 },
+    });
+    expect(dropped.dropped).toEqual(["@Maya"]);
+    expect(dropped.expanded).toBe("then warm skin");
+    expect(dropped.files).toEqual([]);
+  });
+
+  it("writes the note again in each extra prompt", () => {
+    const kept = [{ handle: "Skin", label: null, tokens: [] as string[], note: "warm skin" }];
+    expect(expandNameText("@Skin here", kept, [])).toBe("warm skin here");
+    expect(expandNameText("@Skin there", kept, [])).toBe("warm skin there");
+  });
+
+  it("lets a project slot win, then an everywhere slot, then a gallery", () => {
+    const project: NameCatalogGallery = {
+      id: "project",
+      name: "Project Maya",
+      handle: "Maya",
+      take: 1,
+      items: [image("project.png", "project")],
+      source: "slot",
+    };
+    const everywhere: NameCatalogGallery = {
+      id: "everywhere",
+      name: "Everywhere Maya",
+      handle: "Maya",
+      take: 1,
+      items: [image("everywhere.png", "everywhere")],
+      source: "slot",
+    };
+    const open = orderedNameCatalog({ project: [project], everywhere: [everywhere], galleries: [maya] });
+    expect(open.map((entry) => entry.id)).toEqual(["project"]);
+    expect(planNameAttachments({ prompt: "@Maya", galleries: open, hand: [], caps }).files.map((file) => file.key)).toEqual([
+      "project",
+    ]);
+    const closed = orderedNameCatalog({ everywhere: [everywhere], galleries: [maya] });
+    expect(closed.map((entry) => entry.id)).toEqual(["everywhere"]);
+    expect(
+      planNameAttachments({ prompt: "@Maya", galleries: closed, hand: [], caps }).files.map((file) => file.key),
+    ).toEqual(["everywhere"]);
+  });
+
+  it("still writes a note for a model that takes no references, and leaves file names as typed", () => {
+    const skin: NameCatalogGallery = {
+      id: "skin",
+      name: "Skin",
+      handle: "Skin",
+      take: 1,
+      items: [],
+      source: "slot",
+      note: "visible pores, fine texture",
+    };
+    const catalog = noteOnlyCatalog([{ ...maya, source: "slot", note: "muscular" }, skin, loft]);
+    expect(catalog.map((entry) => [entry.handle, entry.items.length])).toEqual([
+      ["Maya", 0],
+      ["Skin", 0],
+    ]);
+    const plan = planNameAttachments({
+      prompt: "@Maya on @Loft, @Skin",
+      galleries: catalog,
+      hand: [],
+      caps: { image: 0, video: 0, audio: 0 },
+    });
+    expect(plan.files).toEqual([]);
+    expect(plan.expanded).toBe("muscular on @Loft, visible pores, fine texture");
+    expect(namePickerChoices("", catalog).map((choice) => choice.token)).toEqual(["@Maya", "@Skin"]);
+    // A name with files only keeps its handle, so a later note under the same handle stays hidden.
+    expect(noteOnlyCatalog([{ ...maya, source: "slot" }, { ...skin, handle: "Maya" }])).toEqual([]);
+  });
+
+  it("reads a linked gallery through the slot and keeps the slot handle", () => {
+    const plan = planNameAttachments({
+      prompt: "@Maya.wide",
+      galleries: [{ ...maya, id: "slot", source: "slot", galleryId: "gallery-1", note: "a note" }],
+      hand: [],
+      caps,
+    });
+    expect(plan.files.map((file) => [file.key, file.galleryId, file.token])).toEqual([["wide", "gallery-1", "@Maya.wide"]]);
+    expect(plan.expanded).toBe("@Image1 (a note)");
   });
 });

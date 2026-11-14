@@ -80,6 +80,7 @@ const BASE_FILES = [
   "0022_projects.sql",
   "0024_looks.sql",
   "0025_project_cast.sql",
+  "0029_slots.sql",
 ];
 
 const FILES = [...BASE_FILES, "0026_project_jobs.sql"];

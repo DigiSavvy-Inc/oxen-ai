@@ -305,6 +305,7 @@ export function Sidebar({
   onGalleryDelete,
   onGalleryRename,
   onGalleryDeleteSelected,
+  onGalleryDeleteFiles,
   onGalleryPlace,
   onHistoryAddToGallery,
   onHistoryCreateGallery,
@@ -372,6 +373,7 @@ export function Sidebar({
   onGalleryDelete: (id?: string) => void;
   onGalleryRename: (id: string, name: string) => void;
   onGalleryDeleteSelected: (ids: string[]) => Promise<boolean>;
+  onGalleryDeleteFiles: (ids: string[], scope: DeleteScope) => Promise<boolean>;
   onGalleryPlace: (input: GalleryPlace) => Promise<boolean>;
   onHistoryAddToGallery: (galleryId: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
   onHistoryCreateGallery: (name: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
@@ -770,6 +772,7 @@ export function Sidebar({
           onRenameGallery={onGalleryRename}
           onDeleteGallery={onGalleryDelete}
           onDeleteSelected={onGalleryDeleteSelected}
+          onDeleteFiles={onGalleryDeleteFiles}
           onPlaceSelected={onGalleryPlace}
           adding={galleryAdding}
           accept={galleryAccept}
