@@ -210,6 +210,35 @@ describe("slots", () => {
     expect(refilled?.files.map((file) => file.name)).toEqual(["new.png"]);
   });
 
+  it("picks single files from a linked gallery in one patch, and relinks the whole gallery in one more", async () => {
+    const { env } = openDb();
+    const gallery = await saveGallery(env.DB, USER, {
+      name: "Cast",
+      handle: "Cast",
+      items: [image("a.png", "a.png"), image("b.png", "b.png"), image("c.png", "c.png")],
+      profileId: PROFILE,
+    });
+    const slot = await createSlot(env, USER, PROFILE, { name: "Maya", galleryId: gallery!.id });
+    expect(slot?.files.length).toBe(3);
+    // "Use only these": unlink and keep just the picked files, with no separate unlink step.
+    const only = await updateSlot(env, USER, PROFILE, slot!.id, {
+      galleryId: null,
+      files: [{ ...image("c.png", "c.png"), role: "background" }, image("a.png", "a.png")],
+    });
+    expect(only).toMatchObject({ galleryId: null, galleryName: null });
+    expect(only?.files.map((file) => [file.name, file.role])).toEqual([
+      ["c.png", "background"],
+      ["a.png", "character"],
+    ]);
+    // "Use whole gallery": the slot follows the gallery again and its own files give way.
+    const whole = await updateSlot(env, USER, PROFILE, slot!.id, { galleryId: gallery!.id });
+    expect(whole?.galleryId).toBe(gallery!.id);
+    expect(whole?.files.map((file) => file.name)).toEqual(["a.png", "b.png", "c.png"]);
+    // "Unlink" alone leaves a slot with no files of its own.
+    const unlinked = await updateSlot(env, USER, PROFILE, slot!.id, { galleryId: null });
+    expect(unlinked).toMatchObject({ galleryId: null, files: [] });
+  });
+
   it("leaves slots out of a shared project", async () => {
     const { env } = openDb();
     const projectId = await createProject(env.DB, USER, PROFILE, "Film");

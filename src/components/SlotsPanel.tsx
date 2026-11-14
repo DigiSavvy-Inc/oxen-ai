@@ -10,6 +10,8 @@ import { GalleryRoleSelect } from "./GalleryRoleSelect";
 import { GalleryThumb } from "./GalleryThumb";
 import { Loader } from "./Loader";
 import { PanelPlaceSwitch } from "./PanelPlace";
+import { SlotGalleryPicker } from "./SlotGalleryPicker";
+import { slotSource } from "../lib/slot-pick";
 
 type AttachedFile = {
   kind: "image" | "video" | "audio";
@@ -61,6 +63,9 @@ function fileInputs(files: readonly SlotFile[]): SlotFileInput[] {
 
 export function SlotsPanel(props: Props) {
   const [draft, setDraft] = useState("");
+  const [pickingId, setPickingId] = useState<string | null>(null);
+  const picking = props.open ? (props.slots.find((slot) => slot.id === pickingId) ?? null) : null;
+  if (pickingId && !picking) setPickingId(null);
   const active = props.projects.find((project) => project.id === props.activeProjectId) ?? null;
   const everywhere = props.slots.filter((slot) => slot.projectId == null);
   const projectSlots = active ? props.slots.filter((slot) => slot.projectId === active.id) : [];
@@ -69,6 +74,12 @@ export function SlotsPanel(props: Props) {
     const slots = props.slots.filter((slot) => slot.projectId === project.id);
     return slots.length > 0 ? [{ project, slots }] : [];
   });
+
+  function closePicker(id: string) {
+    setPickingId(null);
+    // Back to the card that opened the picker, with the panel still open.
+    requestAnimationFrame(() => document.getElementById(`slot-card-${id}`)?.scrollIntoView({ block: "nearest" }));
+  }
 
   function add(projectId: string | null) {
     const name = draft.trim();
@@ -88,63 +99,83 @@ export function SlotsPanel(props: Props) {
           </button>
         </div>
       </div>
-      <p className="slot-lead">A slot is a name you can type in any prompt. Insert writes @handle at the cursor.</p>
-      <form
-        className="slot-add"
-        onSubmit={(event) => {
-          event.preventDefault();
-          add(null);
-        }}
-      >
-        <input
-          className="field"
-          aria-label="New slot name"
-          placeholder="Name"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <button type="submit" className="primary-btn" disabled={!draft.trim()}>
-          Add
-        </button>
-      </form>
-      {props.notice ? <p className="slot-notice">{props.notice}</p> : null}
-      {props.loading ? <Loader label="Loading slots" /> : null}
-      {!props.loading && props.slots.length === 0 ? <p className="slot-empty">No slots yet.</p> : null}
-      {active ? (
-        <SlotGroup
-          title={active.name}
-          slots={projectSlots}
-          addLabel="Add to this project"
-          onAdd={draft.trim() ? () => add(active.id) : undefined}
-          onSave={() => props.onSaveProjectGallery(active.id)}
-          canSave={projectSlots.some((slot) => !slot.galleryId && slot.files.length > 0)}
-          {...cardProps(props)}
+      {picking ? (
+        <SlotGalleryPicker
+          key={picking.id}
+          slot={picking}
+          galleries={props.galleries}
+          onClose={() => closePicker(picking.id)}
+          onUseFiles={(files) => {
+            props.onPatch(picking.id, { galleryId: null, files });
+            closePicker(picking.id);
+          }}
+          onLinkGallery={(galleryId) => {
+            props.onPatch(picking.id, { galleryId });
+            closePicker(picking.id);
+          }}
         />
       ) : null}
-      {everywhere.length > 0 ? <SlotGroup title="Everywhere" slots={everywhere} {...cardProps(props)} /> : null}
-      {groupedOthers.length > 0 ? (
-        <details className="slot-folded">
-          <summary>{active ? "Other projects" : "In projects"}</summary>
-          {groupedOthers.map(({ project, slots }) => (
-            <SlotGroup
-              key={project.id}
-              title={project.name}
-              slots={slots}
-              onSave={() => props.onSaveProjectGallery(project.id)}
-              canSave={slots.some((slot) => !slot.galleryId && slot.files.length > 0)}
-              {...cardProps(props)}
-            />
-          ))}
-        </details>
-      ) : null}
+      <div className="slot-body" hidden={Boolean(picking)}>
+        <p className="slot-lead">A slot is a name you can type in any prompt. Insert writes @handle at the cursor.</p>
+        <form
+          className="slot-add"
+          onSubmit={(event) => {
+            event.preventDefault();
+            add(null);
+          }}
+        >
+          <input
+            className="field"
+            aria-label="New slot name"
+            placeholder="Name"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          <button type="submit" className="primary-btn" disabled={!draft.trim()}>
+            Add
+          </button>
+        </form>
+        {props.notice ? <p className="slot-notice">{props.notice}</p> : null}
+        {props.loading ? <Loader label="Loading slots" /> : null}
+        {!props.loading && props.slots.length === 0 ? <p className="slot-empty">No slots yet.</p> : null}
+        {active ? (
+          <SlotGroup
+            title={active.name}
+            slots={projectSlots}
+            addLabel="Add to this project"
+            onAdd={draft.trim() ? () => add(active.id) : undefined}
+            onSave={() => props.onSaveProjectGallery(active.id)}
+            canSave={projectSlots.some((slot) => !slot.galleryId && slot.files.length > 0)}
+            {...cardProps(props, setPickingId)}
+          />
+        ) : null}
+        {everywhere.length > 0 ? (
+          <SlotGroup title="Everywhere" slots={everywhere} {...cardProps(props, setPickingId)} />
+        ) : null}
+        {groupedOthers.length > 0 ? (
+          <details className="slot-folded">
+            <summary>{active ? "Other projects" : "In projects"}</summary>
+            {groupedOthers.map(({ project, slots }) => (
+              <SlotGroup
+                key={project.id}
+                title={project.name}
+                slots={slots}
+                onSave={() => props.onSaveProjectGallery(project.id)}
+                canSave={slots.some((slot) => !slot.galleryId && slot.files.length > 0)}
+                {...cardProps(props, setPickingId)}
+              />
+            ))}
+          </details>
+        ) : null}
+      </div>
     </aside>
   );
 }
 
-function cardProps(props: Props) {
+function cardProps(props: Props, onPick: (id: string) => void) {
   return {
     projects: props.projects,
-    galleries: props.galleries,
+    onPick,
     attached: props.attached,
     onPatch: props.onPatch,
     onDelete: props.onDelete,
@@ -186,7 +217,7 @@ function SlotGroup(
           key={slot.id}
           slot={slot}
           projects={props.projects}
-          galleries={props.galleries}
+          onPick={props.onPick}
           attached={props.attached}
           onPatch={props.onPatch}
           onDelete={props.onDelete}
@@ -257,6 +288,7 @@ function SlotCard(
 
   return (
     <article
+      id={`slot-card-${slot.id}`}
       className={`slot-card${over ? " is-drop" : ""}`}
       onDragOver={onDragOver}
       onDragLeave={() => setOver(false)}
@@ -362,11 +394,18 @@ function SlotCard(
           );
         })}
       </div>
-      {linked ? (
-        <p className="slot-linked">Files come from {slot.galleryName ?? "a gallery"}.</p>
-      ) : (
-        <p className="slot-drop-hint">Drop files, a library tile, or a canvas result.</p>
-      )}
+      <div className="slot-source">
+        <p className="slot-linked">{slotSource(slot)}</p>
+        {linked ? (
+          <button type="button" className="ghost-btn" onClick={() => props.onPatch(slot.id, { galleryId: null })}>
+            Unlink
+          </button>
+        ) : null}
+      </div>
+      {!linked ? <p className="slot-drop-hint">Drop files, a library tile, or a canvas result.</p> : null}
+      <button type="button" className="ghost-btn slot-pick-open" onClick={() => props.onPick(slot.id)}>
+        Add from gallery
+      </button>
       {!linked && spare.length > 0 ? (
         <select
           className="field"
@@ -409,28 +448,6 @@ function SlotCard(
             if (note !== slot.note) props.onPatch(slot.id, { note });
           }}
         />
-      </label>
-      <label className="slot-scope">
-        <span>Gallery</span>
-        <select
-          className="field"
-          aria-label={`Gallery for @${slot.handle}`}
-          value={slot.galleryId ?? ""}
-          onChange={(event) => {
-            const next = event.target.value || null;
-            if (next && slot.files.length > 0 && !slot.galleryId) {
-              if (!window.confirm("Use this gallery instead of this slot’s own files?")) return;
-            }
-            props.onPatch(slot.id, { galleryId: next });
-          }}
-        >
-          <option value="">Own files</option>
-          {props.galleries.map((gallery) => (
-            <option key={gallery.id} value={gallery.id}>
-              {gallery.name}
-            </option>
-          ))}
-        </select>
       </label>
       <div className="slot-card-actions">
         <button
