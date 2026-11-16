@@ -12,6 +12,7 @@ import { Loader } from "./Loader";
 import { PanelPlaceSwitch } from "./PanelPlace";
 import { SlotGalleryPicker } from "./SlotGalleryPicker";
 import { findSlots, openAfterChange, SLOT_FIND_FROM, slotRowMeta, slotSource } from "../lib/slot-pick";
+import { slotGroup, slotMatchesFilter, type SlotListFilter } from "../lib/slot-groups";
 
 type AttachedFile = {
   kind: "image" | "video" | "audio";
@@ -51,6 +52,22 @@ type Props = {
   onDropHistory: (id: string, ids: string[]) => void;
 };
 
+const SLOT_FILTERS: { id: SlotListFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "image", label: "Images" },
+  { id: "video", label: "Videos" },
+  { id: "audio", label: "Audio" },
+  { id: "note", label: "Notes" },
+];
+
+const SLOT_SECTIONS: { id: ReturnType<typeof slotGroup>; title: string }[] = [
+  { id: "image", title: "Images" },
+  { id: "video", title: "Videos" },
+  { id: "audio", title: "Audio" },
+  { id: "note", title: "Notes" },
+  { id: "empty", title: "Empty" },
+];
+
 function fileInputs(files: readonly SlotFile[]): SlotFileInput[] {
   return files.map((file) => ({
     kind: file.kind,
@@ -82,8 +99,11 @@ export function SlotsPanel(props: Props) {
     document.getElementById(`slot-card-${openId}`)?.scrollIntoView({ block: "nearest" });
   }, [openId]);
   const [find, setFind] = useState("");
+  const [filter, setFilter] = useState<SlotListFilter>("all");
   const finding = props.slots.length >= SLOT_FIND_FROM;
-  const shown = finding ? findSlots(props.slots, find) : props.slots;
+  const byKind = props.slots.filter((slot) => slotMatchesFilter(slot, filter));
+  const shown = finding ? findSlots(byKind, find) : byKind;
+  const filterLabel = SLOT_FILTERS.find((item) => item.id === filter)?.label.toLowerCase() ?? "slots";
   const active = props.projects.find((project) => project.id === props.activeProjectId) ?? null;
   const everywhere = shown.filter((slot) => slot.projectId == null);
   const projectSlots = active ? shown.filter((slot) => slot.projectId === active.id) : [];
@@ -102,6 +122,7 @@ export function SlotsPanel(props: Props) {
   function add(projectId: string | null) {
     const name = draft.trim();
     if (!name) return;
+    setFilter("all");
     props.onCreate(projectId, name);
     setDraft("");
   }
@@ -135,6 +156,20 @@ export function SlotsPanel(props: Props) {
       ) : null}
       <div className="slot-body" hidden={Boolean(picking)}>
         <p className="slot-lead">A slot is a name you can type in any prompt. Insert writes @handle at the cursor.</p>
+        <div className="slot-filters" role="radiogroup" aria-label="Slot type">
+          {SLOT_FILTERS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="radio"
+              aria-checked={filter === item.id}
+              className={`ghost-btn${filter === item.id ? " active" : ""}`}
+              onClick={() => setFilter(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
         <form
           className="slot-add"
           onSubmit={(event) => {
@@ -156,6 +191,9 @@ export function SlotsPanel(props: Props) {
         {props.notice ? <p className="slot-notice">{props.notice}</p> : null}
         {props.loading ? <Loader label="Loading slots" /> : null}
         {!props.loading && props.slots.length === 0 ? <p className="slot-empty">No slots yet.</p> : null}
+        {!props.loading && props.slots.length > 0 && byKind.length === 0 ? (
+          <p className="slot-empty">No {filterLabel} slots.</p>
+        ) : null}
         {finding ? (
           <input
             className="field slot-find"
@@ -167,7 +205,7 @@ export function SlotsPanel(props: Props) {
           />
         ) : null}
         {finding && find.trim() && shown.length === 0 ? <p className="slot-empty">No slot matches.</p> : null}
-        {active ? (
+        {active && (filter === "all" || projectSlots.length > 0) ? (
           <SlotGroup
             title={active.name}
             slots={projectSlots}
@@ -175,11 +213,12 @@ export function SlotsPanel(props: Props) {
             onAdd={draft.trim() ? () => add(active.id) : undefined}
             onSave={() => props.onSaveProjectGallery(active.id)}
             canSave={projectSlots.some((slot) => !slot.galleryId && slot.files.length > 0)}
+            filter={filter}
             {...cardProps(props, setPickingId, openId, toggle)}
           />
         ) : null}
         {everywhere.length > 0 ? (
-          <SlotGroup title="Everywhere" slots={everywhere} {...cardProps(props, setPickingId, openId, toggle)} />
+          <SlotGroup title="Everywhere" slots={everywhere} filter={filter} {...cardProps(props, setPickingId, openId, toggle)} />
         ) : null}
         {groupedOthers.length > 0 ? (
           <details className="slot-folded" open={finding && find.trim() ? true : undefined}>
@@ -191,6 +230,7 @@ export function SlotsPanel(props: Props) {
                 slots={slots}
                 onSave={() => props.onSaveProjectGallery(project.id)}
                 canSave={slots.some((slot) => !slot.galleryId && slot.files.length > 0)}
+                filter={filter}
                 {...cardProps(props, setPickingId, openId, toggle)}
               />
             ))}
@@ -221,12 +261,20 @@ function SlotGroup(
   props: {
     title: string;
     slots: StudioSlot[];
+    filter: SlotListFilter;
     addLabel?: string;
     onAdd?: () => void;
     onSave?: () => void;
     canSave?: boolean;
   } & ReturnType<typeof cardProps>,
 ) {
+  const sections =
+    props.filter === "all"
+      ? SLOT_SECTIONS.flatMap((section) => {
+          const slots = props.slots.filter((slot) => slotGroup(slot) === section.id);
+          return slots.length > 0 ? [{ title: section.title, slots }] : [];
+        })
+      : [{ title: null as string | null, slots: props.slots }];
   return (
     <section className="slot-group">
       <div className="slot-group-head">
@@ -243,22 +291,27 @@ function SlotGroup(
         ) : null}
       </div>
       {props.slots.length === 0 ? <p className="slot-empty">None yet.</p> : null}
-      {props.slots.map((slot) => (
-        <SlotCard
-          key={slot.id}
-          slot={slot}
-          projects={props.projects}
-          onPick={props.onPick}
-          openId={props.openId}
-          onToggle={props.onToggle}
-          attached={props.attached}
-          onPatch={props.onPatch}
-          onDelete={props.onDelete}
-          onSaveAsGallery={props.onSaveAsGallery}
-          onInsert={props.onInsert}
-          onDropFiles={props.onDropFiles}
-          onDropHistory={props.onDropHistory}
-        />
+      {sections.map((section) => (
+        <div key={section.title ?? "filtered"} className="slot-type">
+          {section.title ? <h4>{section.title}</h4> : null}
+          {section.slots.map((slot) => (
+            <SlotCard
+              key={slot.id}
+              slot={slot}
+              projects={props.projects}
+              onPick={props.onPick}
+              openId={props.openId}
+              onToggle={props.onToggle}
+              attached={props.attached}
+              onPatch={props.onPatch}
+              onDelete={props.onDelete}
+              onSaveAsGallery={props.onSaveAsGallery}
+              onInsert={props.onInsert}
+              onDropFiles={props.onDropFiles}
+              onDropHistory={props.onDropHistory}
+            />
+          ))}
+        </div>
       ))}
     </section>
   );

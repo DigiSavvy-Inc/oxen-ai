@@ -1850,12 +1850,10 @@ export default function App() {
 
   async function onGalleryAddFiles(list: FileList | File[] | null) {
     const incoming = filesFromList(list);
-    const { accepted, rejected } = partitionMediaFiles(
-      incoming,
-      acceptedMediaKinds(controls, mode, currentModel()).filter((kind) => kind !== "document"),
-    );
+    const galleryFileKinds = ["image", "video", "audio"] as const;
+    const { accepted, rejected } = partitionMediaFiles(incoming, galleryFileKinds);
     if (rejected.length > 0) {
-      setGalleryStatus(supportedMediaNotice(acceptedMediaKinds(controls, mode, currentModel())));
+      setGalleryStatus("A gallery takes images, video, and audio.");
     }
     if (accepted.length === 0) return;
     const room = Math.max(0, GALLERY_ITEM_CAP - galleryItems.length);
@@ -1882,7 +1880,7 @@ export default function App() {
       }
       changeGallerySet((prev) => [...prev, ...added].slice(0, GALLERY_ITEM_CAP));
       if (rejected.length > 0) {
-        setGalleryStatus(supportedMediaNotice(acceptedMediaKinds(controls, mode, currentModel())));
+        setGalleryStatus("A gallery takes images, video, and audio.");
       }
     } catch (err) {
       setGalleryStatus(err instanceof Error ? err.message : "Couldn’t add that file");
@@ -3567,9 +3565,11 @@ export default function App() {
     }
   }
 
-  const galleryKinds = acceptedMediaKinds(controls, mode, currentModel());
-  const galleryAccept = fileAcceptValue(galleryKinds);
-  const galleryDropPhrase = mediaKindPhrase(galleryKinds);
+  // A gallery is a set of references, so it takes images, video, and audio
+  // whether or not the model chosen for this run does.
+  const galleryFileKinds = ["image", "video", "audio"] as const;
+  const galleryAccept = fileAcceptValue(galleryFileKinds);
+  const galleryDropPhrase = mediaKindPhrase(galleryFileKinds);
 
   async function onRenderFinal(generation: Generation) {
     if (!generation.draftTaskId || busy) return;

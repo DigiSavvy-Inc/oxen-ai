@@ -5509,6 +5509,29 @@ select.attach-role {
   min-width: 0;
 }
 
+.slot-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.slot-filters .ghost-btn {
+  padding: 4px 8px;
+}
+
+.slot-type {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slot-type h4 {
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-muted);
+}
+
 .slot-group {
   display: flex;
   flex-direction: column;
