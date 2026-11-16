@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  acceptSlotTypeFilter,
   findSlots,
+  groupSlotsByType,
   openAfterChange,
   pickAll,
   pickBlocked,
@@ -8,8 +10,11 @@ import {
   pickedFiles,
   pickRoom,
   SLOT_PICK_MAX,
+  SLOT_TYPE_FILTERS,
   slotRowMeta,
+  slotsOfType,
   slotSource,
+  slotTypeOf,
   togglePick,
   type PickItem,
 } from "../src/lib/slot-pick";
@@ -128,5 +133,44 @@ describe("slot picking", () => {
     expect(slotSource({ ...own(3), galleryName: null, note: "" })).toBe("Own files: 3 of 12");
     expect(slotSource({ ...own(0), galleryName: null, note: "warm skin" })).toMatch(/^Text slot/);
     expect(slotSource({ ...own(0), galleryName: null, note: " " })).toMatch(/^Empty/);
+  });
+});
+
+describe("slot types in the list", () => {
+  const listed = [
+    { name: "Voice", type: "audio" },
+    { name: "Mood", type: "text" },
+    { name: "Maya", type: "image" },
+    { name: "Older", type: undefined },
+    { name: "Walk", type: "video" },
+    { name: "Loft", type: "image" },
+  ];
+
+  it("groups by the stored type in image, audio, video, text order and keeps list order inside", () => {
+    expect(groupSlotsByType(listed).map((group) => [group.type, group.slots.map((slot) => slot.name)])).toEqual([
+      ["image", ["Maya", "Loft"]],
+      ["audio", ["Voice"]],
+      ["video", ["Walk"]],
+      // A slot from a response without a type sits with text until it is reloaded.
+      ["text", ["Mood", "Older"]],
+    ]);
+    expect(groupSlotsByType(listed.filter((slot) => slot.type === "image")).map((group) => group.type)).toEqual([
+      "image",
+    ]);
+  });
+
+  it("filters by type, with All letting everything through", () => {
+    expect(SLOT_TYPE_FILTERS.map((filter) => filter.label)).toEqual(["All", "Image", "Audio", "Video", "Text"]);
+    expect(slotsOfType(listed, "all")).toEqual(listed);
+    expect(slotsOfType(listed, "image").map((slot) => slot.name)).toEqual(["Maya", "Loft"]);
+    expect(slotsOfType(listed, "text").map((slot) => slot.name)).toEqual(["Mood", "Older"]);
+    expect(slotTypeOf({ type: "document" })).toBe("text");
+  });
+
+  it("reads a remembered filter back, and falls back to All for anything it does not know", () => {
+    expect(acceptSlotTypeFilter("audio")).toBe("audio");
+    expect(acceptSlotTypeFilter("all")).toBe("all");
+    expect(acceptSlotTypeFilter("document")).toBe("all");
+    expect(acceptSlotTypeFilter(null)).toBe("all");
   });
 });

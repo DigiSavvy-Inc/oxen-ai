@@ -1,4 +1,4 @@
-import { normalizeMediaRole, type MediaRole } from "../../worker/schema";
+import { acceptSlotType, normalizeMediaRole, SLOT_TYPES, type MediaRole, type SlotType } from "../../worker/schema";
 
 /** Matches SLOT_FILES_MAX in worker/slots.ts. */
 export const SLOT_PICK_MAX = 12;
@@ -159,4 +159,73 @@ export function slotSource(slot: PickSlot & { galleryName: string | null; note: 
   if (slot.files.length > 0) return `Own files: ${slot.files.length} of ${SLOT_PICK_MAX}`;
   if (slot.note.trim()) return "Text slot: the handle writes its note. No files.";
   return "Empty. Add files or a note.";
+}
+
+/** The slots list filter: every slot, or one type. */
+export type SlotTypeFilter = SlotType | "all";
+
+export function slotTypeLabel(type: SlotType): string {
+  switch (type) {
+    case "image":
+      return "Image";
+    case "audio":
+      return "Audio";
+    case "video":
+      return "Video";
+    case "text":
+      return "Text";
+    default: {
+      const _exhaustive: never = type;
+      return _exhaustive;
+    }
+  }
+}
+
+export const SLOT_TYPE_FILTERS: readonly { id: SlotTypeFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  ...SLOT_TYPES.map((type) => ({ id: type, label: slotTypeLabel(type) })),
+];
+
+/** A slot from an older response has no type yet. It reads as text, as the backfill would leave an empty slot. */
+export function slotTypeOf(slot: { type?: unknown }): SlotType {
+  return acceptSlotType(slot.type) ?? "text";
+}
+
+export function acceptSlotTypeFilter(raw: unknown): SlotTypeFilter {
+  return raw === "all" ? "all" : (acceptSlotType(raw) ?? "all");
+}
+
+/** Slots the filter lets through, in their order. The type is a label only; files are not looked at. */
+export function slotsOfType<T extends { type?: unknown }>(slots: readonly T[], filter: SlotTypeFilter): T[] {
+  return filter === "all" ? [...slots] : slots.filter((slot) => slotTypeOf(slot) === filter);
+}
+
+/** Slots split by stored type in image, audio, video, text order. Types with no slots are left out. */
+export function groupSlotsByType<T extends { type?: unknown }>(
+  slots: readonly T[],
+): { type: SlotType; slots: T[] }[] {
+  return SLOT_TYPES.flatMap((type) => {
+    const ofType = slots.filter((slot) => slotTypeOf(slot) === type);
+    return ofType.length > 0 ? [{ type, slots: ofType }] : [];
+  });
+}
+
+const SLOT_TYPE_FILTER_KEY = "ds-studio-slot-type";
+
+/** The filter is kept in this browser, like the panel place and the library toggle. */
+export function readSlotTypeFilter(): SlotTypeFilter {
+  if (typeof window === "undefined") return "all";
+  try {
+    return acceptSlotTypeFilter(window.localStorage.getItem(SLOT_TYPE_FILTER_KEY));
+  } catch {
+    return "all";
+  }
+}
+
+export function storeSlotTypeFilter(filter: SlotTypeFilter) {
+  try {
+    window.localStorage.setItem(SLOT_TYPE_FILTER_KEY, filter);
+  } catch {
+    /* storage unavailable */
+  }
 }

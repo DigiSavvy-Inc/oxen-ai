@@ -10,6 +10,8 @@ import {
   planNameAttachments,
   type NameCatalogGallery,
 } from "../src/lib/name-mentions";
+import type { OxenModel } from "../worker/oxen";
+import { mapMediaUrls, parseModelControls } from "../worker/schema";
 
 function image(name: string, key: string, label?: string) {
   return {
@@ -424,5 +426,114 @@ describe("name mentions", () => {
         planNameAttachments({ prompt: "@Texture", galleries: [lost], hand: [], caps, flagMissing: false }).missing,
       ).toEqual([]);
     });
+  });
+
+  // A face is marked once, as the Character role on the slot's file. These follow a slot mention
+  // through to the model fields, the way App builds images and image_roles for a run.
+  describe("slot face images", () => {
+    function model(properties: Record<string, unknown>) {
+      return parseModelControls({
+        id: "test-model",
+        request_schema: { type: "object", properties: { prompt: { type: "string" }, ...properties } },
+      } as OxenModel);
+    }
+    const faceModel = model({
+      input_face_images: { type: "array", maxItems: 9, items: { type: "string" } },
+      input_images: { type: "array", maxItems: 9, items: { type: "string" } },
+    });
+    const plainModel = model({ input_images: { type: "array", maxItems: 9, items: { type: "string" } } });
+
+    function sendImages(controls: typeof faceModel, files: ReturnType<typeof planNameAttachments>["files"]) {
+      const images = files.filter((file) => file.kind === "image");
+      // App sends image_roles only when the model has a face image input.
+      const face = controls.slots.some((slot) => slot.field === "input_face_images");
+      return mapMediaUrls(
+        controls.slots,
+        { image: images.map((file) => file.url ?? ""), video: [], audio: [] },
+        face ? { image: images.map((file) => file.role ?? "character") } : undefined,
+      );
+    }
+
+    const roled = (name: string, key: string, role: "character" | "background" | "object") => ({
+      ...image(name, key),
+      role,
+    });
+    // A slot linked to a gallery carries the gallery's roles; it is reached here through another slot's note.
+    const mayaSlot: NameCatalogGallery = {
+      id: "slot-maya",
+      name: "Maya",
+      handle: "Maya",
+      take: 2,
+      source: "slot",
+      galleryId: "gallery-maya",
+      items: [roled("outfit.png", "outfit", "object"), roled("face.png", "face", "character")],
+    };
+    const roomSlot: NameCatalogGallery = {
+      id: "slot-room",
+      name: "Room",
+      handle: "Room",
+      take: 1,
+      source: "slot",
+      note: "with @Maya by the window",
+      items: [roled("floor.png", "floor", "background")],
+    };
+
+    it("sends a slot's Character image to the face input, through a nested, gallery-linked slot", () => {
+      const plan = planNameAttachments({ prompt: "a scene in @Room", galleries: [roomSlot, mayaSlot], hand: [], caps });
+      expect(plan.files.map((file) => [file.key, file.role])).toEqual([
+        ["floor", "background"],
+        ["outfit", "object"],
+        ["face", "character"],
+      ]);
+      expect(sendImages(faceModel, plan.files)).toEqual({
+        input_images: ["https://studio.example/floor", "https://studio.example/outfit"],
+        input_face_images: ["https://studio.example/face"],
+      });
+    });
+
+    it("sends the same slot images as ordinary references to a model with no face input", () => {
+      const plan = planNameAttachments({ prompt: "a scene in @Room", galleries: [roomSlot, mayaSlot], hand: [], caps });
+      expect(sendImages(plainModel, plan.files)).toEqual({
+        input_images: [
+          "https://studio.example/floor",
+          "https://studio.example/outfit",
+          "https://studio.example/face",
+        ],
+      });
+    });
+
+    it("keeps the mark on a file that survives a trim, so a face ordered first still reaches the face input", () => {
+      const faceFirst: NameCatalogGallery = { ...mayaSlot, items: [...mayaSlot.items].reverse() };
+      const plan = planNameAttachments({
+        prompt: "@Maya",
+        galleries: [faceFirst],
+        hand: [],
+        caps: { image: 1, video: 0, audio: 0 },
+      });
+      expect(plan.trimmed).toEqual([{ token: "@Maya", from: 2, to: 1 }]);
+      expect(sendImages(faceModel, plan.files)).toEqual({ input_face_images: ["https://studio.example/face"] });
+    });
+  });
+
+  it("attaches an audio slot file as @Audio1 for a model that takes audio", () => {
+    const voice: NameCatalogGallery = {
+      id: "slot-voice",
+      name: "Voice",
+      handle: "Voice",
+      take: 1,
+      source: "slot",
+      items: [{ key: "line", kind: "audio", name: "line.mp3", role: null, label: null, url: "https://studio.example/line" }],
+    };
+    const plan = planNameAttachments({ prompt: "she says @Voice", galleries: [voice], hand: [], caps });
+    expect(plan.files.map((file) => [file.kind, file.number, file.role])).toEqual([["audio", 1, null]]);
+    expect(plan.expanded).toBe("she says @Audio1");
+    const silent = planNameAttachments({
+      prompt: "she says @Voice",
+      galleries: [voice],
+      hand: [],
+      caps: { image: 4, video: 0, audio: 0 },
+    });
+    expect(silent.files).toEqual([]);
+    expect(silent.dropped).toEqual(["@Voice"]);
   });
 });

@@ -17,7 +17,14 @@ import {
   type GalleryItemInput,
 } from "./galleries";
 import { displayStoredMediaUrl } from "./media";
-import { acceptMediaKind, normalizeMediaRole, type MediaKind, type MediaRole } from "./schema";
+import {
+  acceptMediaKind,
+  acceptSlotType,
+  normalizeMediaRole,
+  type MediaKind,
+  type MediaRole,
+  type SlotType,
+} from "./schema";
 import type { Env } from "./types";
 
 /** Slots on one profile, including ones kept to a single project. */
@@ -32,7 +39,7 @@ export const SLOT_NEST_MAX = 3;
 export const SLOT_NOTE_TOTAL_MAX = 4000;
 
 export class SlotRejected extends Error {
-  readonly code: "handle" | "label" | "note" | "limit" | "file" | "name";
+  readonly code: "handle" | "label" | "note" | "limit" | "file" | "name" | "type";
 
   constructor(code: SlotRejected["code"], message: string) {
     super(message);
@@ -59,6 +66,8 @@ export type SlotJson = {
   id: string;
   name: string;
   handle: string;
+  /** A label for grouping and filtering. It does not limit which files the slot holds. */
+  type: SlotType;
   /** How many of this slot's files a mention attaches, from 1 to 4. */
   take: number;
   note: string;
@@ -77,6 +86,7 @@ type SlotRow = {
   project_id: string | null;
   name: string;
   handle: string;
+  slot_type: string | null;
   take_count: number;
   note: string;
   gallery_id: string | null;
@@ -116,6 +126,17 @@ export function acceptSlotNote(raw: unknown): string {
   if (!note) return "";
   if (note.length > SLOT_NOTE_MAX) throw new SlotRejected("note", "A note can be up to 2000 characters.");
   return note;
+}
+
+function acceptTypeInput(raw: unknown): SlotType {
+  const type = acceptSlotType(raw);
+  if (!type) throw new SlotRejected("type", "A slot’s type is image, audio, video, or text.");
+  return type;
+}
+
+/** A new slot with no files is text. Otherwise it takes the kind of its first file. */
+export function defaultSlotType(files: readonly { kind: MediaKind }[]): SlotType {
+  return files[0]?.kind ?? "text";
 }
 
 function acceptHandle(raw: unknown, name: string): string {
@@ -408,7 +429,7 @@ function acceptProjectId(raw: unknown): string | null {
 async function slotRow(db: D1Database, userId: string, id: string): Promise<SlotRow | null> {
   return db
     .prepare(
-      `SELECT id, user_id, profile_id, project_id, name, handle, take_count, note, gallery_id, position
+      `SELECT id, user_id, profile_id, project_id, name, handle, slot_type, take_count, note, gallery_id, position
        FROM slots WHERE id = ? AND user_id = ?`,
     )
     .bind(id, userId)
@@ -506,7 +527,7 @@ export async function listSlots(env: Env, userId: string, profileId: string | nu
   try {
     const { results } = await env.DB
       .prepare(
-        `SELECT id, user_id, profile_id, project_id, name, handle, take_count, note, gallery_id, position
+        `SELECT id, user_id, profile_id, project_id, name, handle, slot_type, take_count, note, gallery_id, position
          FROM slots
          WHERE user_id = ? AND IFNULL(profile_id, '') = IFNULL(?, '')
          ORDER BY project_id IS NULL, project_id, position ASC`,
@@ -576,6 +597,7 @@ async function presentSlots(env: Env, userId: string, rows: SlotRow[]): Promise<
       id: row.id,
       name: row.name,
       handle: row.handle,
+      type: acceptSlotType(row.slot_type) ?? "text",
       take: acceptGalleryTake(row.take_count) ?? 1,
       note: row.note ?? "",
       projectId: row.project_id,
@@ -620,6 +642,7 @@ export async function createSlot(
   input: {
     name?: unknown;
     handle?: unknown;
+    type?: unknown;
     takeCount?: unknown;
     note?: unknown;
     projectId?: unknown;
@@ -646,6 +669,10 @@ export async function createSlot(
   await assertHandleFree(env.DB, userId, profileId, projectId, handle, "");
   const galleryId = await acceptGalleryLink(env.DB, userId, profileId, input.galleryId);
   const files = galleryId ? [] : input.files === undefined ? [] : acceptSlotFiles(userId, input.files);
+  const type =
+    input.type === undefined
+      ? defaultSlotType(galleryId ? ((await getGallery(env.DB, userId, galleryId))?.items ?? []) : files)
+      : acceptTypeInput(input.type);
   const now = Math.floor(Date.now() / 1000);
   const id = crypto.randomUUID();
   await assertNoteNesting(env.DB, userId, profileId, { id, projectId, handle, note });
@@ -653,10 +680,10 @@ export async function createSlot(
   await env.DB
     .prepare(
       `INSERT INTO slots (
-         id, user_id, profile_id, project_id, name, handle, take_count, note, gallery_id, position, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         id, user_id, profile_id, project_id, name, handle, slot_type, take_count, note, gallery_id, position, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(id, userId, profileId, projectId, name, handle, take, note, galleryId, position, now, now)
+    .bind(id, userId, profileId, projectId, name, handle, type, take, note, galleryId, position, now, now)
     .run();
   if (files.length > 0) await replaceFiles(env.DB, userId, id, files);
   const row = await slotRow(env.DB, userId, id);
@@ -688,6 +715,7 @@ export async function updateSlot(
   patch: {
     name?: unknown;
     handle?: unknown;
+    type?: unknown;
     takeCount?: unknown;
     note?: unknown;
     projectId?: unknown;
@@ -700,6 +728,7 @@ export async function updateSlot(
   const name = patch.name === undefined ? current.name : acceptSlotName(patch.name);
   if (!name) throw new SlotRejected("name", "A slot needs a name.");
   const handle = patch.handle === undefined ? current.handle : acceptHandle(patch.handle, name);
+  const type = patch.type === undefined ? (acceptSlotType(current.slot_type) ?? "text") : acceptTypeInput(patch.type);
   const take = patch.takeCount === undefined ? acceptGalleryTake(current.take_count) ?? 1 : acceptGalleryTake(patch.takeCount);
   if (take == null) throw new SlotRejected("limit", "Take is from 1 to 4.");
   const note = patch.note === undefined ? current.note : acceptSlotNote(patch.note);
@@ -730,10 +759,10 @@ export async function updateSlot(
   await env.DB
     .prepare(
       `UPDATE slots
-       SET name = ?, handle = ?, take_count = ?, note = ?, project_id = ?, gallery_id = ?, updated_at = ?
+       SET name = ?, handle = ?, slot_type = ?, take_count = ?, note = ?, project_id = ?, gallery_id = ?, updated_at = ?
        WHERE id = ? AND user_id = ?`,
     )
-    .bind(name, handle, take, note, projectId, galleryId, now, id, userId)
+    .bind(name, handle, type, take, note, projectId, galleryId, now, id, userId)
     .run();
   if (galleryId) await replaceFiles(env.DB, userId, id, []);
   else if (files) await replaceFiles(env.DB, userId, id, files);

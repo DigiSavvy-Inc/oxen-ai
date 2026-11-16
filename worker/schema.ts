@@ -36,6 +36,14 @@ export function acceptMediaKind(raw: unknown): MediaKind | null {
   }
 }
 
+/** A slot's type. It groups and filters the slots list and never limits the files a slot holds. */
+export const SLOT_TYPES = ["image", "audio", "video", "text"] as const;
+export type SlotType = (typeof SLOT_TYPES)[number];
+
+export function acceptSlotType(raw: unknown): SlotType | null {
+  return SLOT_TYPES.find((type) => type === raw) ?? null;
+}
+
 export type MediaField =
   | "input_image"
   | "input_images"

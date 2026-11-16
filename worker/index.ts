@@ -1569,6 +1569,7 @@ app.post("/api/slots", async (c) => {
   const body = await c.req.json<{
     name?: unknown;
     handle?: unknown;
+    type?: unknown;
     takeCount?: unknown;
     note?: unknown;
     projectId?: unknown;
@@ -1607,6 +1608,7 @@ app.patch("/api/slots/:id", async (c) => {
   const body = await c.req.json<{
     name?: unknown;
     handle?: unknown;
+    type?: unknown;
     takeCount?: unknown;
     note?: unknown;
     projectId?: unknown;
