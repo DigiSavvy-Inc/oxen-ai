@@ -122,9 +122,53 @@ describe("slots", () => {
     await expect(createSlot(env, USER, PROFILE, { name: "Other", handle: "Skin" })).rejects.toThrow(
       /slot on this profile already uses that handle/,
     );
-    await expect(createSlot(env, USER, PROFILE, { name: "Nope", note: "has @Maya" })).rejects.toThrow(
-      /A note can’t contain @/,
+  });
+
+  it("lets a note use other slots, and refuses a loop, a fourth level, or too much note text", async () => {
+    const { env } = openDb();
+    const texture = await createSlot(env, USER, PROFILE, { name: "Texture", note: "fine pores" });
+    const skin = await createSlot(env, USER, PROFILE, { name: "Skin", note: "warm, @Texture" });
+    const hair = await createSlot(env, USER, PROFILE, { name: "Hair", note: "long waves" });
+    const maya = await createSlot(env, USER, PROFILE, {
+      name: "Maya",
+      note: "tall, @Hair, @Skin, shot on @Image1, mail a@b.co and @Unknown",
+    });
+    expect(maya?.note).toContain("@Hair");
+
+    await expect(updateSlot(env, USER, PROFILE, maya!.id, { note: "me again @Maya" })).rejects.toThrow(
+      /can’t use itself/,
     );
+    await expect(updateSlot(env, USER, PROFILE, hair!.id, { note: "like @Maya" })).rejects.toThrow(
+      /@Maya already uses @Hair, so this note would loop/,
+    );
+    await expect(updateSlot(env, USER, PROFILE, texture!.id, { note: "see @Maya" })).rejects.toThrow(/would loop/);
+
+    // Cast -> Maya -> Skin -> Texture is three deep. One more on either end is four.
+    const cast = await createSlot(env, USER, PROFILE, { name: "Cast", note: "@Maya" });
+    expect(cast?.note).toBe("@Maya");
+    await createSlot(env, USER, PROFILE, { name: "Grain", note: "soft grain" });
+    await expect(updateSlot(env, USER, PROFILE, texture!.id, { note: "pores, @Grain" })).rejects.toThrow(
+      /nest 3 deep. This would make it 4/,
+    );
+    await expect(createSlot(env, USER, PROFILE, { name: "Show", note: "@Cast" })).rejects.toThrow(/nest 3 deep/);
+    // Renaming a slot into a handle another note already names is checked the same way.
+    await expect(updateSlot(env, USER, PROFILE, cast!.id, { handle: "Unknown" })).rejects.toThrow(/would loop/);
+
+    await updateSlot(env, USER, PROFILE, hair!.id, { note: "h".repeat(2000) });
+    await expect(updateSlot(env, USER, PROFILE, skin!.id, { note: `${"s".repeat(1990)} @Texture` })).rejects.toThrow(
+      /@Maya uses this slot, and its notes would come to \d+ characters. The limit is 4000/,
+    );
+    await updateSlot(env, USER, PROFILE, skin!.id, { note: `${"s".repeat(1900)} @Texture` });
+    await expect(
+      updateSlot(env, USER, PROFILE, maya!.id, { note: `${"m".repeat(200)} @Hair @Skin` }),
+    ).rejects.toThrow(/This note and the slots it uses come to \d+ characters. The limit is 4000/);
+
+    // An Everywhere slot does not follow a project slot, so this is not a loop.
+    const projectId = await createProject(env.DB, USER, PROFILE, "Film");
+    const local = await createSlot(env, USER, PROFILE, { name: "Wig", projectId, note: "red wig on @Maya" });
+    expect(local?.note).toBe("red wig on @Maya");
+    const loose = await updateSlot(env, USER, PROFILE, hair!.id, { note: "under @Wig" });
+    expect(loose?.note).toBe("under @Wig");
   });
 
   it("saves a slot as a gallery, cleans deleted files, and drops project slots with the project", async () => {

@@ -65,6 +65,12 @@ export type ResolvedNameFile = {
 
 export type NameTrim = { token: string; from: number; to: number };
 
+/** How many notes deep a name inside a note is still followed. */
+export const NOTE_NEST_MAX = 3;
+
+/** A name inside a note that matched nothing, and the name whose note holds it. */
+export type NameMissing = { token: string; inside: string };
+
 export type NameHover = {
   start: number;
   token: string;
@@ -78,6 +84,8 @@ export type NamePlan = {
   /** Hand keys that a name also resolved, so the existing chip can show the handle. */
   marks: { key: string; token: string }[];
   unresolved: NamePromptMention[];
+  /** Names inside notes that matched nothing. They stay in the note as typed. */
+  missing: NameMissing[];
   trimmed: NameTrim[];
   dropped: string[];
   hovers: NameHover[];
@@ -102,6 +110,10 @@ export type NamePickerChoice = {
 type Kind = "image" | "video" | "audio";
 
 type LiveMention = {
+  /** Position in the list. A name inside a note has no prompt position of its own. */
+  id: number;
+  /** True when the name came from another name's note. */
+  nested: boolean;
   mention: NamePromptMention;
   gallery: NameCatalogEntry;
   mode: "take" | "label" | "note";
@@ -206,7 +218,7 @@ function occupancy(
     if (key) seen.add(key);
   }
   for (const live of lives) {
-    if (dropped.has(live.mention.start)) continue;
+    if (dropped.has(live.id)) continue;
     for (const item of filesFor(live, takeByHandle)) {
       const key = `key:${item.key}`;
       if (seen.has(key)) continue;
@@ -234,40 +246,54 @@ export function expandNameText(
   kept: readonly { handle: string; label: string | null; tokens: readonly string[]; note?: string }[],
   dropped: readonly { handle: string; label: string | null }[],
 ): string {
-  const mentions = parseNameMentions(text);
-  if (mentions.length === 0) return text;
   const keptByPair = new Map(kept.map((entry) => [pairKey(entry.handle, entry.label), entry]));
   const droppedPairs = new Set(dropped.map((entry) => pairKey(entry.handle, entry.label)));
+  // A note is written once, so a name that leads back to itself ends at its files.
   const noted = new Set<string>();
-  let next = "";
-  let cursor = 0;
-  for (const mention of mentions) {
-    const key = pairKey(mention.handle, mention.label);
-    const entry = keptByPair.get(key);
-    if (!entry && !droppedPairs.has(key)) continue;
-    const tokens = entry?.tokens ?? [];
-    const note = (entry?.note ?? "").trim();
-    const handleKey = mention.handle.toLowerCase();
-    let replacement = tokens.length > 0 ? tokens.join(" ") : "";
-    if (entry && note && !noted.has(handleKey)) {
-      replacement = replacement ? `${replacement} (${note})` : note;
-      noted.add(handleKey);
+  const render = (source: string, depth: number): string => {
+    const mentions = parseNameMentions(source);
+    if (mentions.length === 0) return source;
+    let next = "";
+    let cursor = 0;
+    for (const mention of mentions) {
+      const key = pairKey(mention.handle, mention.label);
+      const entry = keptByPair.get(key);
+      if (!entry && !droppedPairs.has(key)) continue;
+      const tokens = entry?.tokens ?? [];
+      const note = (entry?.note ?? "").trim();
+      const handleKey = mention.handle.toLowerCase();
+      let replacement = tokens.length > 0 ? tokens.join(" ") : "";
+      if (entry && note && !noted.has(handleKey)) {
+        noted.add(handleKey);
+        const inner = depth < NOTE_NEST_MAX ? render(note, depth + 1) : note;
+        replacement = replacement ? `${replacement} (${inner})` : inner;
+      }
+      let start = mention.start;
+      let end = mention.end;
+      if (!replacement) {
+        if (source[end] === " ") end += 1;
+        else if (start > 0 && source[start - 1] === " ") start -= 1;
+      }
+      next += source.slice(cursor, start) + replacement;
+      cursor = end;
     }
-    let start = mention.start;
-    let end = mention.end;
-    if (!replacement) {
-      if (text[end] === " ") end += 1;
-      else if (start > 0 && text[start - 1] === " ") start -= 1;
-    }
-    next += text.slice(cursor, start) + replacement;
-    cursor = end;
-  }
-  next += text.slice(cursor);
-  return next;
+    next += source.slice(cursor);
+    return next;
+  };
+  return render(text, 0);
 }
 
-export function namePlanNotice(plan: Pick<NamePlan, "trimmed" | "dropped">): string | null {
+export function namePlanNotice(
+  plan: Pick<NamePlan, "trimmed" | "dropped"> & Partial<Pick<NamePlan, "missing">>,
+): string | null {
   const parts: string[] = [];
+  const missed = new Set<string>();
+  for (const miss of plan.missing ?? []) {
+    const line = `${miss.inside}’s note uses ${miss.token}, which isn’t a slot or gallery`;
+    if (missed.has(line)) continue;
+    missed.add(line);
+    parts.push(line);
+  }
   for (const trim of plan.trimmed) parts.push(`Trimmed ${trim.token} to ${trim.to}`);
   const dropped = [...new Set(plan.dropped)];
   if (dropped.length === 1) parts.push(`Dropped ${dropped[0]}`);
@@ -284,39 +310,58 @@ export function namePlanNotice(plan: Pick<NamePlan, "trimmed" | "dropped">): str
  * in the order the names first appear. A name used twice attaches once.
  * When the model cannot take every file, take counts shrink from the end of the
  * prompt, and only then are whole names dropped from the end.
+ * A name inside a note is followed too, up to NOTE_NEST_MAX notes deep, and brings its
+ * files and its own note. Each note is followed once, so a loop cannot run on.
  */
 export function planNameAttachments(input: {
   prompt: string;
   galleries: readonly NameCatalogGallery[];
   hand: readonly HandRef[];
   caps: Record<Kind, number>;
+  /** False leaves names inside notes that matched nothing out of `missing`. */
+  flagMissing?: boolean;
 }): NamePlan {
-  const mentions = parseNameMentions(input.prompt);
   const hand = sentHand(input.hand, input.caps);
   const unresolved: NamePromptMention[] = [];
+  const missing: NameMissing[] = [];
   const lives: LiveMention[] = [];
-  for (const mention of mentions) {
-    const gallery = galleryFor(input.galleries, mention.handle);
-    if (!gallery) {
-      unresolved.push(mention);
-      continue;
-    }
-    if (mention.label) {
-      const item = itemForLabel(gallery, mention.label);
-      if (!item) {
-        unresolved.push(mention);
+  const followed = new Set<string>();
+  const collect = (text: string, depth: number, inside: string | null) => {
+    for (const mention of parseNameMentions(text)) {
+      const miss = () => {
+        if (!inside) unresolved.push(mention);
+        else if (input.flagMissing !== false) missing.push({ token: mention.token, inside });
+      };
+      const gallery = galleryFor(input.galleries, mention.handle);
+      if (!gallery) {
+        miss();
         continue;
       }
-      lives.push({ mention, gallery, mode: "label", items: [item] });
-      continue;
+      const base = { id: lives.length, nested: inside != null, mention, gallery };
+      if (mention.label) {
+        const item = itemForLabel(gallery, mention.label);
+        if (!item) {
+          miss();
+          continue;
+        }
+        lives.push({ ...base, mode: "label", items: [item] });
+      } else if (gallery.items.length === 0) {
+        if (!entryNote(gallery)) {
+          miss();
+          continue;
+        }
+        lives.push({ ...base, mode: "note", items: [] });
+      } else {
+        lives.push({ ...base, mode: "take", items: [...gallery.items] });
+      }
+      const note = entryNote(gallery);
+      const key = gallery.handle.toLowerCase();
+      if (!note || followed.has(key)) continue;
+      followed.add(key);
+      if (depth < NOTE_NEST_MAX) collect(note, depth + 1, `@${gallery.handle}`);
     }
-    if (gallery.items.length === 0) {
-      if (entryNote(gallery)) lives.push({ mention, gallery, mode: "note", items: [] });
-      else unresolved.push(mention);
-      continue;
-    }
-    lives.push({ mention, gallery, mode: "take", items: [...gallery.items] });
-  }
+  };
+  collect(input.prompt, 0, null);
 
   const takeByHandle = new Map<string, number>();
   for (const live of lives) {
@@ -325,15 +370,15 @@ export function planNameAttachments(input: {
     if (!takeByHandle.has(key)) takeByHandle.set(key, clampTake(live.gallery.take));
   }
   const initialTake = new Map(takeByHandle);
-  const droppedStarts = new Set<number>();
+  const droppedIds = new Set<number>();
   const dropped: string[] = [];
   let guard = 0;
-  while (overCap(occupancy(lives, takeByHandle, droppedStarts, hand), input.caps) && guard < 64) {
+  while (overCap(occupancy(lives, takeByHandle, droppedIds, hand), input.caps) && guard < 64) {
     guard += 1;
     let reduced = false;
     for (let index = lives.length - 1; index >= 0; index -= 1) {
       const live = lives[index];
-      if (!live || live.mode !== "take" || droppedStarts.has(live.mention.start)) continue;
+      if (!live || live.mode !== "take" || droppedIds.has(live.id)) continue;
       const key = live.gallery.handle.toLowerCase();
       const take = takeByHandle.get(key) ?? 1;
       if (take <= 1) continue;
@@ -345,8 +390,8 @@ export function planNameAttachments(input: {
     let droppedOne = false;
     for (let index = lives.length - 1; index >= 0; index -= 1) {
       const live = lives[index];
-      if (!live || live.mode === "note" || droppedStarts.has(live.mention.start)) continue;
-      droppedStarts.add(live.mention.start);
+      if (!live || live.mode === "note" || droppedIds.has(live.id)) continue;
+      droppedIds.add(live.id);
       dropped.push(live.mention.token);
       droppedOne = true;
       break;
@@ -362,7 +407,7 @@ export function planNameAttachments(input: {
       (entry) =>
         entry.mode === "take" &&
         entry.gallery.handle.toLowerCase() === key &&
-        !droppedStarts.has(entry.mention.start),
+        !droppedIds.has(entry.id),
     );
     if (!live) continue;
     trimmed.push({ token: `@${live.gallery.handle}`, from, to });
@@ -389,7 +434,7 @@ export function planNameAttachments(input: {
 
   for (const live of lives) {
     const pair = pairKey(live.gallery.handle, live.mode === "label" ? live.mention.label : null);
-    if (droppedStarts.has(live.mention.start)) {
+    if (droppedIds.has(live.id)) {
       if (!keptPairs.has(pair)) {
         droppedPairs.set(pair, {
           handle: live.gallery.handle,
@@ -433,7 +478,9 @@ export function planNameAttachments(input: {
       }
     }
     const note = entryNote(live.gallery);
-    if (live.mode === "note" && note) {
+    if (live.nested) {
+      // No hover: the name is in a note, not at a place in the prompt.
+    } else if (live.mode === "note" && note) {
       hovers.push({
         start: live.mention.start,
         token: live.mention.token,
@@ -460,6 +507,7 @@ export function planNameAttachments(input: {
     files,
     marks,
     unresolved,
+    missing,
     trimmed,
     dropped,
     hovers,
@@ -488,12 +536,21 @@ export function removeNameToken(text: string, token: string): string {
 /** Gallery ids whose handles appear in the prompt, so their files can be loaded. */
 export function mentionedGalleryIds(text: string, galleries: readonly NameCatalogGallery[]): string[] {
   const ids: string[] = [];
-  for (const mention of parseNameMentions(text)) {
-    const gallery = galleryFor(galleries, mention.handle);
-    const id = gallery ? gallery.galleryId || (entrySource(gallery) === "gallery" ? gallery.id : "") : "";
-    if (!gallery || !id || ids.includes(id)) continue;
-    ids.push(id);
-  }
+  const followed = new Set<string>();
+  const walk = (source: string, depth: number) => {
+    for (const mention of parseNameMentions(source)) {
+      const gallery = galleryFor(galleries, mention.handle);
+      if (!gallery) continue;
+      const id = gallery.galleryId || (entrySource(gallery) === "gallery" ? gallery.id : "");
+      if (id && !ids.includes(id)) ids.push(id);
+      const note = entryNote(gallery);
+      const key = gallery.handle.toLowerCase();
+      if (!note || followed.has(key)) continue;
+      followed.add(key);
+      if (depth < NOTE_NEST_MAX) walk(note, depth + 1);
+    }
+  };
+  walk(text, 0);
   return ids;
 }
 

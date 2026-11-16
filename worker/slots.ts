@@ -4,6 +4,7 @@ import {
   acceptGalleryTake,
   defaultGalleryHandle,
   galleryLabelInvalid,
+  reservedGalleryHandle,
 } from "./gallery-handle";
 import { GALLERY_MAX_ITEMS } from "./gallery-limits";
 import { thumbKeyByResult } from "./gallery-present";
@@ -25,6 +26,10 @@ export const SLOT_PROFILE_MAX = 200;
 export const SLOT_FILES_MAX = 12;
 export const SLOT_NOTE_MAX = 2000;
 export const SLOT_NAME_MAX = 80;
+/** How many notes deep one slot can use another. Matches NOTE_NEST_MAX in the app. */
+export const SLOT_NEST_MAX = 3;
+/** A note plus the notes of every slot it uses, directly or through another slot. */
+export const SLOT_NOTE_TOTAL_MAX = 4000;
 
 export class SlotRejected extends Error {
   readonly code: "handle" | "label" | "note" | "limit" | "file" | "name";
@@ -101,7 +106,7 @@ export function acceptSlotName(raw: unknown): string | null {
   return name;
 }
 
-/** Empty is allowed. A note that contains @ is rejected so mentions cannot nest. */
+/** Empty is allowed. A note can name other slots with @; assertNoteNesting checks those. */
 export function acceptSlotNote(raw: unknown): string {
   if (raw == null || raw === "") return "";
   if (typeof raw !== "string") {
@@ -109,7 +114,6 @@ export function acceptSlotNote(raw: unknown): string {
   }
   const note = raw.trim();
   if (!note) return "";
-  if (note.includes("@")) throw new SlotRejected("note", "A note can’t contain @.");
   if (note.length > SLOT_NOTE_MAX) throw new SlotRejected("note", "A note can be up to 2000 characters.");
   return note;
 }
@@ -173,6 +177,135 @@ export function acceptSlotFiles(userId: string, raw: unknown, max = SLOT_FILES_M
     });
   }
   return files;
+}
+
+/** Handles a note names, in order, without repeats. @Image1 and the like are not names. */
+export function noteHandles(note: string): string[] {
+  const handles: string[] = [];
+  const seen = new Set<string>();
+  for (const match of note.matchAll(/@([A-Za-z][A-Za-z0-9]*)(\.[A-Za-z0-9]*)?/g)) {
+    const handle = match[1] ?? "";
+    const next = note[(match.index ?? 0) + match[0].length];
+    if (!handle || reservedGalleryHandle(handle) || /^(image|video|audio)\d+$/i.test(handle)) continue;
+    if (next && /[A-Za-z0-9.]/.test(next)) continue;
+    const key = handle.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    handles.push(handle);
+  }
+  return handles;
+}
+
+type NestNode = { id: string; projectId: string | null; handle: string; note: string };
+
+/**
+ * Refuse a note that would loop back to its own slot, nest deeper than SLOT_NEST_MAX,
+ * or pull in more note text than SLOT_NOTE_TOTAL_MAX. A handle that matches no slot is
+ * allowed: it may be a gallery, and the app flags it when the slot is used.
+ */
+async function assertNoteNesting(
+  db: D1Database,
+  userId: string,
+  profileId: string | null,
+  candidate: NestNode,
+): Promise<void> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, project_id, handle, note FROM slots
+       WHERE user_id = ? AND IFNULL(profile_id, '') = IFNULL(?, '')`,
+    )
+    .bind(userId, profileId)
+    .all<{ id: string; project_id: string | null; handle: string; note: string | null }>();
+  const nodes: NestNode[] = (results ?? [])
+    .filter((row) => row.id !== candidate.id)
+    .map((row) => ({ id: row.id, projectId: row.project_id, handle: row.handle, note: row.note ?? "" }));
+  nodes.push(candidate);
+  if (!nodes.some((node) => node.note.includes("@"))) return;
+
+  // A project slot sees its project's slots first, then Everywhere ones. An Everywhere slot sees only those.
+  const find = (from: NestNode, handle: string): NestNode | null => {
+    const key = handle.toLowerCase();
+    const named = nodes.filter((node) => node.handle.toLowerCase() === key);
+    return (
+      (from.projectId ? named.find((node) => node.projectId === from.projectId) : undefined) ??
+      named.find((node) => node.projectId == null) ??
+      null
+    );
+  };
+  const children = (node: NestNode): NestNode[] =>
+    noteHandles(node.note).flatMap((handle) => {
+      const child = find(node, handle);
+      return child ? [child] : [];
+    });
+
+  const below = (node: NestNode, path: readonly NestNode[]): number => {
+    let deepest = 0;
+    for (const child of children(node)) {
+      if (child.id === candidate.id) {
+        const via = path.length > 1 ? path[path.length - 1] : null;
+        throw new SlotRejected(
+          "note",
+          via
+            ? `@${via.handle} already uses @${candidate.handle}, so this note would loop.`
+            : "A slot can’t use itself in its own note.",
+        );
+      }
+      // A loop that does not pass through this slot was saved before this check existed. Stop there.
+      if (path.some((entry) => entry.id === child.id)) continue;
+      deepest = Math.max(deepest, 1 + below(child, [...path, child]));
+    }
+    return deepest;
+  };
+  const down = below(candidate, [candidate]);
+
+  const ancestors = new Map<string, NestNode>();
+  const above = (node: NestNode, path: readonly string[]): number => {
+    let highest = 0;
+    for (const parent of nodes) {
+      if (path.includes(parent.id)) continue;
+      if (!children(parent).some((child) => child.id === node.id)) continue;
+      ancestors.set(parent.id, parent);
+      highest = Math.max(highest, 1 + above(parent, [...path, parent.id]));
+    }
+    return highest;
+  };
+  const up = down > 0 || nodes.some((node) => node.id !== candidate.id && node.note.includes("@"))
+    ? above(candidate, [candidate.id])
+    : 0;
+
+  if (up + down > SLOT_NEST_MAX) {
+    throw new SlotRejected("note", `Slots can nest ${SLOT_NEST_MAX} deep. This would make it ${up + down}.`);
+  }
+  // The text one mention can add: the slot's note and every note reachable from it, each once.
+  const noteTotal = (root: NestNode): number => {
+    const reached = new Map<string, NestNode>([[root.id, root]]);
+    const queue = [root];
+    for (let node = queue.shift(); node; node = queue.shift()) {
+      for (const child of children(node)) {
+        if (reached.has(child.id)) continue;
+        reached.set(child.id, child);
+        queue.push(child);
+      }
+    }
+    let total = 0;
+    for (const node of reached.values()) total += node.note.length;
+    return total;
+  };
+  const total = noteTotal(candidate);
+  if (total > SLOT_NOTE_TOTAL_MAX) {
+    throw new SlotRejected(
+      "note",
+      `This note and the slots it uses come to ${total} characters. The limit is ${SLOT_NOTE_TOTAL_MAX}.`,
+    );
+  }
+  for (const parent of ancestors.values()) {
+    const parentTotal = noteTotal(parent);
+    if (parentTotal <= SLOT_NOTE_TOTAL_MAX) continue;
+    throw new SlotRejected(
+      "note",
+      `@${parent.handle} uses this slot, and its notes would come to ${parentTotal} characters. The limit is ${SLOT_NOTE_TOTAL_MAX}.`,
+    );
+  }
 }
 
 async function profileSlotCount(db: D1Database, userId: string, profileId: string | null): Promise<number> {
@@ -515,6 +648,7 @@ export async function createSlot(
   const files = galleryId ? [] : input.files === undefined ? [] : acceptSlotFiles(userId, input.files);
   const now = Math.floor(Date.now() / 1000);
   const id = crypto.randomUUID();
+  await assertNoteNesting(env.DB, userId, profileId, { id, projectId, handle, note });
   const position = await nextPosition(env.DB, userId, profileId);
   await env.DB
     .prepare(
@@ -589,6 +723,9 @@ export async function updateSlot(
     throw new SlotRejected("file", "This slot uses a gallery. Its files come from there.");
   }
   const files = patch.files === undefined ? null : acceptSlotFiles(userId, patch.files);
+  if (note !== current.note || handle !== current.handle || projectId !== current.project_id) {
+    await assertNoteNesting(env.DB, userId, profileId, { id, projectId, handle, note });
+  }
   const now = Math.floor(Date.now() / 1000);
   await env.DB
     .prepare(

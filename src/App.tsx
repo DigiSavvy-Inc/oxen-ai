@@ -1590,8 +1590,9 @@ export default function App() {
         hand: staged.map((item) => ({ key: item.key, kind: item.kind, number: item.number })),
         // A frames-only model takes no references, so a name adds its note and no image.
         caps: { image: framesOnly ? 0 : imageCap, video: videoCap, audio: audioCap },
+        flagMissing: refsOn,
       }),
-    [audioCap, framesOnly, imageCap, namesOn, planCatalog, prompt, staged, videoCap],
+    [audioCap, framesOnly, imageCap, namesOn, planCatalog, prompt, refsOn, staged, videoCap],
   );
   const stagedFrames = useMemo(() => {
     const images = takeStagedOfKind(staged, "image", imageCap);

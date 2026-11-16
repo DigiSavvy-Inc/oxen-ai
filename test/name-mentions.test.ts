@@ -317,4 +317,112 @@ describe("name mentions", () => {
     expect(plan.files.map((file) => [file.key, file.galleryId, file.token])).toEqual([["wide", "gallery-1", "@Maya.wide"]]);
     expect(plan.expanded).toBe("@Image1 (a note)");
   });
+
+  describe("names inside notes", () => {
+    const hair: NameCatalogGallery = {
+      id: "hair",
+      name: "Hair",
+      handle: "Hair",
+      take: 1,
+      source: "slot",
+      note: "long waves, @Texture",
+      items: [image("hair.png", "hair")],
+    };
+    const texture: NameCatalogGallery = {
+      id: "texture",
+      name: "Texture",
+      handle: "Texture",
+      take: 1,
+      source: "slot",
+      note: "fine strands",
+      items: [],
+    };
+    const nia: NameCatalogGallery = {
+      id: "nia",
+      name: "Nia",
+      handle: "Nia",
+      take: 2,
+      source: "slot",
+      note: "tall, with @Hair",
+      items: [image("nia1.png", "nia1"), image("nia2.png", "nia2")],
+    };
+
+    it("brings a nested name's files and note, numbered after the outer name's", () => {
+      const plan = planNameAttachments({ prompt: "@Nia at the bar", galleries: [nia, hair, texture], hand: [], caps });
+      expect(plan.files.map((file) => [file.key, file.number, file.token])).toEqual([
+        ["nia1", 1, "@Nia"],
+        ["nia2", 2, "@Nia"],
+        ["hair", 3, "@Hair"],
+      ]);
+      expect(plan.expanded).toBe("@Image1 @Image2 (tall, with @Image3 (long waves, fine strands)) at the bar");
+      expect(plan.hovers.map((hover) => hover.token)).toEqual(["@Nia"]);
+      expect(plan.missing).toEqual([]);
+    });
+
+    it("writes a note once when the name is also typed in the prompt", () => {
+      const plan = planNameAttachments({
+        prompt: "@Hair on @Nia, @Texture",
+        galleries: [nia, hair, texture],
+        hand: [],
+        caps,
+      });
+      expect(plan.files.map((file) => file.key)).toEqual(["hair", "nia1", "nia2"]);
+      expect(plan.expanded).toBe("@Image1 (long waves, fine strands) on @Image2 @Image3 (tall, with @Image1),");
+    });
+
+    it("ends a loop at the files instead of running on", () => {
+      const a: NameCatalogGallery = { ...nia, note: "with @Hair" };
+      const b: NameCatalogGallery = { ...hair, note: "worn by @Nia" };
+      const plan = planNameAttachments({ prompt: "@Nia", galleries: [a, b], hand: [], caps });
+      expect(plan.files.map((file) => file.key)).toEqual(["nia1", "nia2", "hair"]);
+      expect(plan.expanded).toBe("@Image1 @Image2 (with @Image3 (worn by @Image1 @Image2))");
+      const self: NameCatalogGallery = { ...texture, note: "like @Texture" };
+      expect(planNameAttachments({ prompt: "@Texture", galleries: [self], hand: [], caps }).expanded).toBe("like");
+    });
+
+    it("stops following names after three notes", () => {
+      const chain = ["A", "B", "C", "D", "E"].map(
+        (handle, index, all): NameCatalogGallery => ({
+          id: handle,
+          name: handle,
+          handle,
+          take: 1,
+          source: "slot",
+          note: all[index + 1] ? `${handle.toLowerCase()} @${all[index + 1]}` : "e",
+          items: [],
+        }),
+      );
+      const plan = planNameAttachments({ prompt: "@A", galleries: chain, hand: [], caps });
+      expect(plan.expanded).toBe("a b c d @E");
+    });
+
+    it("trims and drops nested files before the outer name, and flags a name that matches nothing", () => {
+      const tight = planNameAttachments({
+        prompt: "@Nia",
+        galleries: [nia, hair, texture],
+        hand: [],
+        caps: { image: 2, video: 0, audio: 0 },
+      });
+      expect(tight.files.map((file) => file.key)).toEqual(["nia1", "hair"]);
+      expect(tight.trimmed).toEqual([{ token: "@Nia", from: 2, to: 1 }]);
+      const one = planNameAttachments({
+        prompt: "@Nia",
+        galleries: [nia, hair, texture],
+        hand: [],
+        caps: { image: 1, video: 0, audio: 0 },
+      });
+      expect(one.files.map((file) => file.key)).toEqual(["nia1"]);
+      expect(one.dropped).toEqual(["@Hair"]);
+      expect(one.expanded).toBe("@Image1 (tall, with)");
+
+      const lost: NameCatalogGallery = { ...texture, note: "see @Gone and @Gone" };
+      const plan = planNameAttachments({ prompt: "@Texture", galleries: [lost], hand: [], caps });
+      expect(plan.expanded).toBe("see @Gone and @Gone");
+      expect(plan.unresolved).toEqual([]);
+      expect(namePlanNotice(plan)).toBe("@Texture’s note uses @Gone, which isn’t a slot or gallery.");
+      expect(
+        planNameAttachments({ prompt: "@Texture", galleries: [lost], hand: [], caps, flagMissing: false }).missing,
+      ).toEqual([]);
+    });
+  });
 });
