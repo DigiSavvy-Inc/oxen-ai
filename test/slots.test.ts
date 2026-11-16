@@ -393,4 +393,121 @@ describe("appendSlotFiles", () => {
     expect(result?.added).toBe(1);
     expect(result?.slot.galleryId).toBeNull();
   });
+
+  describe("type", () => {
+    const audio = (name: string) => ({ kind: "audio" as const, name, key: `u/${USER}/${name}`, label: null, role: null });
+
+    it("starts as text with no files, or as the kind of the first file, including a linked gallery's", async () => {
+      const { env } = openDb();
+      expect((await createSlot(env, USER, PROFILE, { name: "Mood", note: "dusk" }))?.type).toBe("text");
+      const voice = await createSlot(env, USER, PROFILE, {
+        name: "Voice",
+        files: [audio("line.mp3"), image("a.png", "a.png"), image("b.png", "b.png")],
+      });
+      expect(voice?.type).toBe("audio");
+      const gallery = await saveGallery(env.DB, USER, {
+        name: "Clips",
+        items: [{ kind: "video", name: "walk.mp4", key: `u/${USER}/walk.mp4`, role: "character", label: null }],
+        profileId: PROFILE,
+      });
+      const linked = await createSlot(env, USER, PROFILE, { name: "Walk", galleryId: gallery!.id });
+      expect(linked?.type).toBe("video");
+      const chosen = await createSlot(env, USER, PROFILE, { name: "Chosen", type: "image" });
+      expect(chosen?.type).toBe("image");
+      expect((await listSlots(env, USER, PROFILE)).map((slot) => [slot.name, slot.type])).toEqual([
+        ["Mood", "text"],
+        ["Voice", "audio"],
+        ["Walk", "video"],
+        ["Chosen", "image"],
+      ]);
+    });
+
+    it("can be changed on edit and never limits which files the slot holds", async () => {
+      const { env } = openDb();
+      const slot = await createSlot(env, USER, PROFILE, { name: "Mood", type: "text" });
+      // A text slot still takes images and audio: the type is a label, not a filter.
+      const filled = await updateSlot(env, USER, PROFILE, slot!.id, {
+        files: [image("a.png", "a.png"), audio("line.mp3")],
+      });
+      expect(filled?.type).toBe("text");
+      expect(filled?.files.map((file) => file.kind)).toEqual(["image", "audio"]);
+      const appended = await appendSlotFiles(env, USER, PROFILE, slot!.id, [audio("more.mp3")]);
+      expect(appended?.added).toBe(1);
+      const retyped = await updateSlot(env, USER, PROFILE, slot!.id, { type: "audio" });
+      expect(retyped?.type).toBe("audio");
+      expect(retyped?.files).toHaveLength(3);
+      // Changing something else keeps the type.
+      expect((await updateSlot(env, USER, PROFILE, slot!.id, { note: "low hum" }))?.type).toBe("audio");
+      await expect(updateSlot(env, USER, PROFILE, slot!.id, { type: "photo" })).rejects.toBeInstanceOf(SlotRejected);
+      await expect(createSlot(env, USER, PROFILE, { name: "Bad", type: "document" })).rejects.toThrow(
+        /image, audio, video, or text/,
+      );
+    });
+
+    it("backfills existing slots from the kind most of their files share", () => {
+      const raw = new DatabaseSync(":memory:");
+      raw.exec("PRAGMA foreign_keys = OFF");
+      const dir = new URL("../migrations", import.meta.url);
+      const migrations = readdirSync(dir)
+        .filter((name) => name.endsWith(".sql"))
+        .sort();
+      const typed = migrations.find((name) => name.endsWith("_slot_type.sql"));
+      expect(typed).toBeTruthy();
+      for (const file of migrations.filter((name) => name < typed!)) {
+        raw.exec(readFileSync(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
+      }
+      const slot = (id: string, galleryId: string | null = null) =>
+        raw
+          .prepare(
+            `INSERT INTO slots (id, user_id, name, handle, gallery_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, 1)`,
+          )
+          .run(id, USER, id, id, galleryId);
+      const file = (slotId: string, kind: string, position: number) =>
+        raw
+          .prepare(
+            `INSERT INTO slot_files (id, slot_id, user_id, kind, name, media_key, position) VALUES (?, ?, ?, ?, 'f', 'k', ?)`,
+          )
+          .run(`${slotId}-${position}`, slotId, USER, kind, position);
+      slot("note-only");
+      slot("mostly-images");
+      file("mostly-images", "audio", 0);
+      file("mostly-images", "image", 1);
+      file("mostly-images", "image", 2);
+      // A tie goes to the kind of the first file.
+      slot("tie-video-first");
+      file("tie-video-first", "video", 0);
+      file("tie-video-first", "audio", 1);
+      slot("tie-audio-first");
+      file("tie-audio-first", "audio", 0);
+      file("tie-audio-first", "video", 1);
+      raw.exec(
+        `INSERT INTO galleries (id, user_id, name, created_at, updated_at) VALUES ('g1', '${USER}', 'Voices', 1, 1)`,
+      );
+      raw.exec(
+        `INSERT INTO gallery_items (id, gallery_id, user_id, kind, name, media_key, position) VALUES
+           ('i1', 'g1', '${USER}', 'image', 'a', 'k', 0),
+           ('i2', 'g1', '${USER}', 'audio', 'b', 'k', 1),
+           ('i3', 'g1', '${USER}', 'audio', 'c', 'k', 2)`,
+      );
+      slot("linked", "g1");
+      // Its gallery is gone, so the slot shows no files and reads as text.
+      slot("linked-deleted", "gone");
+
+      raw.exec(readFileSync(new URL(`../migrations/${typed}`, import.meta.url), "utf8"));
+      const types = Object.fromEntries(
+        (raw.prepare(`SELECT id, slot_type FROM slots`).all() as { id: string; slot_type: string }[]).map((row) => [
+          row.id,
+          row.slot_type,
+        ]),
+      );
+      expect(types).toEqual({
+        "note-only": "text",
+        "mostly-images": "image",
+        "tie-video-first": "video",
+        "tie-audio-first": "audio",
+        linked: "audio",
+        "linked-deleted": "text",
+      });
+    });
+  });
 });

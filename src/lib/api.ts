@@ -4,7 +4,7 @@ import { estimateGenerationCost, type OxenPricing } from "../../worker/pricing";
 import type { ComposerDefaults, ComposerDraft, ComposerSettings } from "../../worker/project-draft";
 import type { JobOutputJson, JobRefJson, JobStatus, ProjectJobJson } from "../../worker/job-record";
 import type { ReferenceCaps, ReferenceModel } from "../../worker/reference-models";
-import type { MediaRole } from "../../worker/schema";
+import type { MediaRole, SlotType } from "../../worker/schema";
 import { withLiveMediaRefs } from "./media-links";
 
 export { firstSupportedMode, modelSupportsMode };
@@ -266,6 +266,8 @@ export type StudioSlot = {
   id: string;
   name: string;
   handle: string;
+  /** A label for grouping and filtering. It does not limit which files the slot holds. */
+  type: SlotType;
   take: number;
   note: string;
   /** Null means the slot works everywhere. */
@@ -771,6 +773,7 @@ export const api = {
   createSlot: (body: {
     name: string;
     handle?: string;
+    type?: SlotType;
     takeCount?: number;
     note?: string;
     projectId?: string | null;
@@ -787,6 +790,7 @@ export const api = {
     patch: {
       name?: string;
       handle?: string;
+      type?: SlotType;
       takeCount?: number;
       note?: string;
       projectId?: string | null;

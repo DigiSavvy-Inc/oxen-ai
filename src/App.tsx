@@ -2893,10 +2893,10 @@ export default function App() {
     setSlotsNotice(err instanceof Error ? err.message : fallback);
   }
 
-  function createSlot(projectId: string | null, name: string) {
+  function createSlot(projectId: string | null, name: string, type: StudioSlot["type"]) {
     setSlotsNotice(null);
     void api
-      .createSlot({ name, projectId })
+      .createSlot({ name, projectId, type })
       .then(({ slot }) => rememberSlot(slot))
       .catch((err) => slotError(err, "Couldn’t add that slot"));
   }
@@ -2964,11 +2964,13 @@ export default function App() {
   }
 
   async function createSlotWithItems(name: string, items: SlotAddItem[]): Promise<SlotAddNotice> {
-    if (slotFilesFromItems(items).length === 0) {
+    const first = slotFilesFromItems(items)[0];
+    if (!first) {
       return { kind: "error", message: "Those files aren’t ready to add yet." };
     }
     try {
-      const { slot } = await api.createSlot({ name, projectId: slotProjectId });
+      // The files are appended after the slot exists, so its type comes from the first one here.
+      const { slot } = await api.createSlot({ name, projectId: slotProjectId, type: first.kind });
       rememberSlot(slot);
       return await addItemsToSlot(slot.id, items, true);
     } catch (err) {

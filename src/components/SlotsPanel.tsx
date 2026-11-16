@@ -4,14 +4,29 @@ import { filesFromList } from "../lib/files";
 import { fileDragOffered, historyDragOffered, readHistoryDrag } from "../lib/history-drag";
 import { moveItem } from "../lib/mentions";
 import { useTileReorder } from "../lib/tile-reorder";
-import { normalizeMediaRole } from "../../worker/schema";
+import { normalizeMediaRole, referenceRoleLabel, SLOT_TYPES, type SlotType } from "../../worker/schema";
+import { referenceRoleTitle } from "../lib/reference-roles";
 import { GalleryMentionFields } from "./GalleryMentionFields";
 import { GalleryRoleSelect } from "./GalleryRoleSelect";
 import { GalleryThumb } from "./GalleryThumb";
 import { Loader } from "./Loader";
 import { PanelPlaceSwitch } from "./PanelPlace";
 import { SlotGalleryPicker } from "./SlotGalleryPicker";
-import { findSlots, openAfterChange, SLOT_FIND_FROM, slotRowMeta, slotSource } from "../lib/slot-pick";
+import {
+  findSlots,
+  groupSlotsByType,
+  openAfterChange,
+  readSlotTypeFilter,
+  SLOT_FIND_FROM,
+  SLOT_TYPE_FILTERS,
+  slotRowMeta,
+  slotsOfType,
+  slotSource,
+  slotTypeLabel,
+  slotTypeOf,
+  storeSlotTypeFilter,
+  type SlotTypeFilter,
+} from "../lib/slot-pick";
 
 type AttachedFile = {
   kind: "image" | "video" | "audio";
@@ -30,12 +45,13 @@ type Props = {
   loading: boolean;
   notice: string | null;
   onClose: () => void;
-  onCreate: (projectId: string | null, name: string) => void;
+  onCreate: (projectId: string | null, name: string, type: SlotType) => void;
   onPatch: (
     id: string,
     patch: {
       name?: string;
       handle?: string;
+      type?: SlotType;
       takeCount?: number;
       note?: string;
       projectId?: string | null;
@@ -63,6 +79,8 @@ function fileInputs(files: readonly SlotFile[]): SlotFileInput[] {
 
 export function SlotsPanel(props: Props) {
   const [draft, setDraft] = useState("");
+  const [draftType, setDraftType] = useState<SlotType>("text");
+  const [typeFilter, setTypeFilter] = useState<SlotTypeFilter>(readSlotTypeFilter);
   const [pickingId, setPickingId] = useState<string | null>(null);
   const picking = props.open ? (props.slots.find((slot) => slot.id === pickingId) ?? null) : null;
   if (pickingId && !picking) setPickingId(null);
@@ -83,7 +101,8 @@ export function SlotsPanel(props: Props) {
   }, [openId]);
   const [find, setFind] = useState("");
   const finding = props.slots.length >= SLOT_FIND_FROM;
-  const shown = finding ? findSlots(props.slots, find) : props.slots;
+  // The type filter applies inside the scope split below; each scope group keeps only the chosen type.
+  const shown = slotsOfType(finding ? findSlots(props.slots, find) : props.slots, typeFilter);
   const active = props.projects.find((project) => project.id === props.activeProjectId) ?? null;
   const everywhere = shown.filter((slot) => slot.projectId == null);
   const projectSlots = active ? shown.filter((slot) => slot.projectId === active.id) : [];
@@ -102,8 +121,15 @@ export function SlotsPanel(props: Props) {
   function add(projectId: string | null) {
     const name = draft.trim();
     if (!name) return;
-    props.onCreate(projectId, name);
+    props.onCreate(projectId, name, draftType);
     setDraft("");
+    // The new slot opens by itself, so it must not land behind the filter.
+    if (typeFilter !== "all" && typeFilter !== draftType) chooseFilter("all");
+  }
+
+  function chooseFilter(filter: SlotTypeFilter) {
+    setTypeFilter(filter);
+    storeSlotTypeFilter(filter);
   }
 
   return (
@@ -149,6 +175,18 @@ export function SlotsPanel(props: Props) {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
           />
+          <select
+            className="field slot-add-type"
+            aria-label="New slot type"
+            value={draftType}
+            onChange={(event) => setDraftType(slotTypeOf({ type: event.target.value }))}
+          >
+            {SLOT_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {slotTypeLabel(type)}
+              </option>
+            ))}
+          </select>
           <button type="submit" className="primary-btn" disabled={!draft.trim()}>
             Add
           </button>
@@ -166,7 +204,26 @@ export function SlotsPanel(props: Props) {
             onChange={(event) => setFind(event.target.value)}
           />
         ) : null}
+        {props.slots.length > 0 ? (
+          <div className="history-kind slot-type-filter" role="radiogroup" aria-label="Slot type">
+            {SLOT_TYPE_FILTERS.map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                role="radio"
+                aria-checked={typeFilter === filter.id}
+                className={`ghost-btn${typeFilter === filter.id ? " active" : ""}`}
+                onClick={() => chooseFilter(filter.id)}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {finding && find.trim() && shown.length === 0 ? <p className="slot-empty">No slot matches.</p> : null}
+        {!(finding && find.trim()) && typeFilter !== "all" && props.slots.length > 0 && shown.length === 0 ? (
+          <p className="slot-empty">No {slotTypeLabel(typeFilter).toLowerCase()} slots.</p>
+        ) : null}
         {active ? (
           <SlotGroup
             title={active.name}
@@ -243,22 +300,27 @@ function SlotGroup(
         ) : null}
       </div>
       {props.slots.length === 0 ? <p className="slot-empty">None yet.</p> : null}
-      {props.slots.map((slot) => (
-        <SlotCard
-          key={slot.id}
-          slot={slot}
-          projects={props.projects}
-          onPick={props.onPick}
-          openId={props.openId}
-          onToggle={props.onToggle}
-          attached={props.attached}
-          onPatch={props.onPatch}
-          onDelete={props.onDelete}
-          onSaveAsGallery={props.onSaveAsGallery}
-          onInsert={props.onInsert}
-          onDropFiles={props.onDropFiles}
-          onDropHistory={props.onDropHistory}
-        />
+      {groupSlotsByType(props.slots).map(({ type, slots }) => (
+        <div key={type} className="slot-type-group">
+          <h4 className="slot-type-head">{slotTypeLabel(type)}</h4>
+          {slots.map((slot) => (
+            <SlotCard
+              key={slot.id}
+              slot={slot}
+              projects={props.projects}
+              onPick={props.onPick}
+              openId={props.openId}
+              onToggle={props.onToggle}
+              attached={props.attached}
+              onPatch={props.onPatch}
+              onDelete={props.onDelete}
+              onSaveAsGallery={props.onSaveAsGallery}
+              onInsert={props.onInsert}
+              onDropFiles={props.onDropFiles}
+              onDropHistory={props.onDropHistory}
+            />
+          ))}
+        </div>
       ))}
     </section>
   );
@@ -394,6 +456,21 @@ function SlotCard(
         onTakeChange={(takeCount) => props.onPatch(slot.id, { takeCount })}
       />
       <label className="slot-scope">
+        <span>Type</span>
+        <select
+          className="field"
+          aria-label={`Type of @${slot.handle}`}
+          value={slotTypeOf(slot)}
+          onChange={(event) => props.onPatch(slot.id, { type: slotTypeOf({ type: event.target.value }) })}
+        >
+          {SLOT_TYPES.map((type) => (
+            <option key={type} value={type}>
+              {slotTypeLabel(type)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="slot-scope">
         <span>Where</span>
         <select
           className="field"
@@ -448,6 +525,12 @@ function SlotCard(
                     })
                   }
                 />
+              ) : null}
+              {linked && file.kind !== "audio" ? (
+                // Set in the gallery. Character goes to a model's face input when it has one.
+                <span className="slot-label-read" title={referenceRoleTitle(normalizeMediaRole(file.role))}>
+                  {referenceRoleLabel(file.role)}
+                </span>
               ) : null}
               {!linked ? (
                 <button

@@ -5515,6 +5515,24 @@ select.attach-role {
   gap: 10px;
 }
 
+.slot-type-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slot-type-head {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.slot-add .slot-add-type {
+  flex: none;
+  width: auto;
+}
+
 .slot-group-head h3 {
   margin: 0;
   font-size: 13px;
