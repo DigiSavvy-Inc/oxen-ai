@@ -51,6 +51,8 @@ export type GallerySummary = {
   handle: string;
   takeCount: number;
   updatedAt: number;
+  /** The collection this gallery is filed in, or null when ungrouped or collections are not installed. */
+  collectionId: string | null;
 };
 
 export const GALLERY_NAME_MAX = 80;
@@ -64,6 +66,7 @@ type GalleryRow = {
   handle?: string | null;
   take_count?: number | null;
   profile_id?: string | null;
+  collection_id?: string | null;
 };
 
 type ItemRow = {
@@ -153,6 +156,7 @@ function summaryFromRow(row: GalleryRow): GallerySummary {
     handle: storedHandle(row),
     takeCount: storedTake(row),
     updatedAt: row.updated_at,
+    collectionId: typeof row.collection_id === "string" && row.collection_id ? row.collection_id : null,
   };
 }
 
@@ -194,22 +198,23 @@ export async function listGalleries(
   query = "",
   profileId?: string | null,
 ): Promise<GallerySummary[]> {
-  try {
-    const { results } = await galleryListStatement(
-      db,
-      userId,
-      query,
-      profileId,
-      "id, name, updated_at, handle, take_count",
-    ).all<GalleryRow>();
-    return (results ?? []).map(summaryFromRow);
-  } catch (err) {
-    if (!missingColumn(err)) throw err;
-    const { results } = await galleryListStatement(db, userId, query, profileId, "id, name, updated_at").all<
-      GalleryRow
-    >();
-    return (results ?? []).map(summaryFromRow);
+  // Newest columns first; a database without a later migration falls back a step at a time.
+  const columnSets = [
+    "id, name, updated_at, handle, take_count, collection_id",
+    "id, name, updated_at, handle, take_count",
+    "id, name, updated_at",
+  ];
+  let last: unknown = null;
+  for (const columns of columnSets) {
+    try {
+      const { results } = await galleryListStatement(db, userId, query, profileId, columns).all<GalleryRow>();
+      return (results ?? []).map(summaryFromRow);
+    } catch (err) {
+      if (!missingColumn(err)) throw err;
+      last = err;
+    }
   }
+  throw last;
 }
 
 async function itemRows(

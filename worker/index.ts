@@ -136,8 +136,22 @@ import {
   ownedMediaKey,
   saveGallery,
 } from "./galleries";
+import {
+  collectionAssets,
+  collectionExists,
+  createCollection,
+  deleteCollection,
+  fileGallery,
+  getCollection,
+  listCollections,
+  orderCollectionGalleries,
+  orderCollections,
+  parseCollectionAssetsQuery,
+  updateCollection,
+  type CollectionFailure,
+} from "./collections";
 import { deleteGalleryFiles, parseGalleryFileKeys } from "./gallery-delete";
-import { GALLERY_MAX_ITEMS } from "./gallery-limits";
+import { COLLECTION_MAX_PER_PROFILE, COLLECTION_NAME_MAX, GALLERY_MAX_ITEMS } from "./gallery-limits";
 import { presentGallery, presentGalleryList } from "./gallery-present";
 import {
   appendSlotFiles,
@@ -1531,9 +1545,15 @@ app.post("/api/galleries", async (c) => {
     items?: unknown;
     handle?: unknown;
     takeCount?: unknown;
+    collectionId?: unknown;
   }>();
   const id = typeof body.id === "string" ? body.id : null;
   const profileId = id ? null : await ensureDefaultProfile(c.env.DB, user.id);
+  // Create only: a gallery made inside an open collection is filed there. A full save ignores it.
+  const fileInto = !id && typeof body.collectionId === "string" && body.collectionId ? body.collectionId : null;
+  if (fileInto && (await collectionExists(c.env.DB, user.id, profileId, fileInto)) === false) {
+    throw new HTTPException(404, { message: "Collection not found" });
+  }
   const gallery = await saveGallery(c.env.DB, user.id, {
     id,
     name: body.name,
@@ -1553,7 +1573,128 @@ app.post("/api/galleries", async (c) => {
     }
     throw new HTTPException(400, { message: "Gallery needs a name and media that belong to you" });
   }
+  if (fileInto) await fileGallery(c.env.DB, user.id, profileId, gallery.id, fileInto);
   return c.json({ gallery: await presentGallery(c.env, user.id, gallery) });
+});
+
+function collectionError(error: CollectionFailure): never {
+  switch (error) {
+    case "name":
+      throw new HTTPException(400, { message: `Collection needs a name of up to ${COLLECTION_NAME_MAX} characters` });
+    case "limit":
+      throw new HTTPException(400, {
+        message: `A profile can have ${COLLECTION_MAX_PER_PROFILE} collections. Delete one to make another.`,
+      });
+    case "missing":
+      throw new HTTPException(404, { message: "Collection not found" });
+    case "gallery":
+      throw new HTTPException(404, { message: "Gallery not found" });
+    case "cover":
+      throw new HTTPException(400, { message: "Pick a cover from an image or video in this collection" });
+    case "order":
+      throw new HTTPException(400, { message: "Send the ids in the order you want" });
+    case "unavailable":
+      throw new HTTPException(400, { message: "Collections are not available yet" });
+    default: {
+      const _never: never = error;
+      return _never;
+    }
+  }
+}
+
+async function collectionJson(env: Env, userId: string, profileId: string | null, id: string) {
+  const collection = await getCollection(env, userId, profileId, id);
+  if (!collection) collectionError("missing");
+  return collection;
+}
+
+app.get("/api/collections", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  return c.json(await listCollections(c.env, user.id, profileId));
+});
+
+app.post("/api/collections", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const body = await c.req.json<{ name?: unknown }>().catch(() => ({ name: null }));
+  const result = await createCollection(c.env.DB, user.id, profileId, body.name);
+  if ("error" in result) collectionError(result.error);
+  return c.json({ collection: await collectionJson(c.env, user.id, profileId, result.id) });
+});
+
+app.put("/api/collections/order", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const body = await c.req.json<{ ids?: unknown }>().catch(() => ({ ids: null }));
+  const result = await orderCollections(c.env.DB, user.id, profileId, body.ids);
+  if ("error" in result) collectionError(result.error);
+  return c.json(result);
+});
+
+app.patch("/api/collections/:id", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const body = await c.req
+    .json<{ name?: unknown; coverKey?: unknown }>()
+    .catch((): { name?: unknown; coverKey?: unknown } => ({}));
+  const result = await updateCollection(c.env.DB, user.id, profileId, c.req.param("id"), {
+    name: body.name,
+    coverKey: body.coverKey,
+  });
+  if ("error" in result) collectionError(result.error);
+  return c.json({ collection: await collectionJson(c.env, user.id, profileId, result.id) });
+});
+
+app.delete("/api/collections/:id", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const result = await deleteCollection(c.env.DB, user.id, profileId, c.req.param("id"));
+  if ("error" in result) collectionError(result.error);
+  return c.json({ ok: true, ungrouped: result.ungrouped });
+});
+
+app.put("/api/collections/:id/order", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const body = await c.req.json<{ galleryIds?: unknown }>().catch(() => ({ galleryIds: null }));
+  const result = await orderCollectionGalleries(c.env.DB, user.id, profileId, c.req.param("id"), body.galleryIds);
+  if ("error" in result) collectionError(result.error);
+  return c.json(result);
+});
+
+app.get("/api/collections/:id/assets", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const settings = await getStudioSettings(c.env.DB, user.id);
+  const query = parseCollectionAssetsQuery(
+    c.req.query("media"),
+    c.req.query("page"),
+    c.req.query("pageSize"),
+    settings.historyPageSize,
+  );
+  const result = await collectionAssets(c.env, user.id, profileId, c.req.param("id"), query);
+  if ("error" in result) collectionError(result.error);
+  return c.json(result);
+});
+
+// Files one gallery into a collection, or ungroups it with null. Never goes through POST /api/galleries,
+// which rewrites every item row and bumps updated_at.
+app.put("/api/galleries/:id/collection", async (c) => {
+  const user = await requireUser(c);
+  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const body = await c.req.json<{ collectionId?: unknown }>().catch((): { collectionId?: unknown } => ({}));
+  let target: string | null;
+  if (body.collectionId === null) {
+    target = null;
+  } else if (typeof body.collectionId === "string" && body.collectionId.trim()) {
+    target = body.collectionId.trim();
+  } else {
+    throw new HTTPException(400, { message: "Send a collection id, or null for no collection" });
+  }
+  const result = await fileGallery(c.env.DB, user.id, profileId, c.req.param("id"), target);
+  if ("error" in result) collectionError(result.error);
+  return c.json({ ok: true, ...result });
 });
 
 app.get("/api/slots", async (c) => {

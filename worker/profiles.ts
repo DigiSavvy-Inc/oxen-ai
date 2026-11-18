@@ -104,6 +104,26 @@ async function setActiveProfile(db: D1Database, userId: string, profileId: strin
   }
 }
 
+/**
+ * Moves collections along with their galleries, so a gallery and its collection stay on one
+ * profile. `from` null means rows with no profile yet. Before the collections migration this
+ * does nothing.
+ */
+async function moveCollections(db: D1Database, userId: string, from: string | null, to: string): Promise<void> {
+  try {
+    await db
+      .prepare(
+        from
+          ? `UPDATE collections SET profile_id = ? WHERE user_id = ? AND profile_id = ?`
+          : `UPDATE collections SET profile_id = ? WHERE user_id = ? AND profile_id IS NULL`,
+      )
+      .bind(...(from ? [to, userId, from] : [to, userId]))
+      .run();
+  } catch (err) {
+    if (!missingProfileStorage(err)) throw err;
+  }
+}
+
 async function backfillProfile(db: D1Database, userId: string, profileId: string): Promise<void> {
   await db
     .prepare(`UPDATE generations SET profile_id = ? WHERE user_id = ? AND profile_id IS NULL`)
@@ -113,6 +133,7 @@ async function backfillProfile(db: D1Database, userId: string, profileId: string
     .prepare(`UPDATE galleries SET profile_id = ? WHERE user_id = ? AND profile_id IS NULL`)
     .bind(profileId, userId)
     .run();
+  await moveCollections(db, userId, null, profileId);
 }
 
 /**
@@ -142,6 +163,7 @@ async function mergeRacedDefaultProfiles(
       .prepare(`UPDATE galleries SET profile_id = ? WHERE user_id = ? AND profile_id = ?`)
       .bind(keeper.id, userId, extra.id)
       .run();
+    await moveCollections(db, userId, extra.id, keeper.id);
     await db.prepare(`DELETE FROM profiles WHERE id = ? AND user_id = ?`).bind(extra.id, userId).run();
   }
 }
@@ -273,6 +295,7 @@ export async function deleteProfile(db: D1Database, userId: string, id: string):
     .prepare(`UPDATE galleries SET profile_id = ? WHERE user_id = ? AND profile_id = ?`)
     .bind(fallback.id, userId, id)
     .run();
+  await moveCollections(db, userId, id, fallback.id);
   await db.prepare(`DELETE FROM profiles WHERE id = ? AND user_id = ?`).bind(id, userId).run();
   const nextActive = activeId === id ? fallback.id : activeId;
   await setActiveProfile(db, userId, nextActive);

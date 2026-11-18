@@ -273,6 +273,11 @@ export async function deleteAllUserMedia(
   } catch (err) {
     if (!isMissingTableError(err, "galleries")) throw err;
   }
+  try {
+    await env.DB.prepare(`DELETE FROM collections WHERE user_id = ?`).bind(userId).run();
+  } catch (err) {
+    if (!isMissingTableError(err, "collections")) throw err;
+  }
   await deleteUserSlotFiles(env.DB, userId);
   const r2Deleted = await deleteUserR2Prefix(env, userId);
   return { deleted: rows.length, r2Deleted, ...oxen };

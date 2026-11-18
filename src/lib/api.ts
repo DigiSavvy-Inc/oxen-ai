@@ -215,6 +215,51 @@ export type GallerySummary = {
   handle?: string;
   takeCount?: number;
   items?: GalleryMentionItem[];
+  /** The collection this gallery is filed in. Null or missing means ungrouped. */
+  collectionId?: string | null;
+};
+
+export type CollectionCover = {
+  key: string;
+  kind: "image" | "video";
+  thumbUrl: string | null;
+  /** True when picked by the user, false for the automatic cover. */
+  chosen: boolean;
+};
+
+export type StudioCollection = {
+  id: string;
+  name: string;
+  position: number;
+  updatedAt: number;
+  /** In saved order. */
+  galleryIds: string[];
+  /** Distinct files across its galleries. */
+  itemCount: number;
+  cover: CollectionCover | null;
+};
+
+export type CollectionAsset = {
+  key: string;
+  kind: "image" | "video" | "audio";
+  name: string;
+  role: string | null;
+  label: string | null;
+  url: string;
+  thumbUrl: string | null;
+  /** First gallery, in collection order, that holds it. */
+  galleryId: string;
+  galleryName: string;
+  /** How many of the collection's galleries hold it. */
+  galleryCount: number;
+};
+
+export type CollectionAssetsPage = {
+  assets: CollectionAsset[];
+  page: number;
+  pageSize: number;
+  total: number;
+  media: LibraryMediaFilter;
 };
 
 export type GalleryItem = {
@@ -721,6 +766,8 @@ export const api = {
     handle?: string;
     takeCount?: number;
     items: { kind: GalleryItem["kind"]; name: string; key: string; role?: string | null; label?: string | null }[];
+    /** Create only: file the new gallery into this collection. */
+    collectionId?: string | null;
   }) =>
     fetch("/api/galleries", {
       method: "POST",
@@ -731,6 +778,58 @@ export const api = {
     fetch(`/api/galleries/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
       parseJson<{ ok: boolean }>(r),
     ),
+  /** `ready` is false until the collections migration is applied; show no collection controls then. */
+  collections: () =>
+    fetch("/api/collections").then((r) =>
+      parseJson<{ collections: StudioCollection[]; ready: boolean }>(r),
+    ),
+  createCollection: (name: string) =>
+    fetch("/api/collections", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }).then((r) => parseJson<{ collection: StudioCollection }>(r)),
+  /** Rename, or set the cover. `coverKey: null` goes back to the automatic cover. */
+  updateCollection: (id: string, patch: { name?: string; coverKey?: string | null }) =>
+    fetch(`/api/collections/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }).then((r) => parseJson<{ collection: StudioCollection }>(r)),
+  /** Ungroups its galleries; no gallery or file is deleted. */
+  deleteCollection: (id: string) =>
+    fetch(`/api/collections/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
+      parseJson<{ ok: boolean; ungrouped: number }>(r),
+    ),
+  orderCollections: (ids: string[]) =>
+    fetch("/api/collections/order", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }).then((r) => parseJson<{ ids: string[] }>(r)),
+  orderCollectionGalleries: (id: string, galleryIds: string[]) =>
+    fetch(`/api/collections/${encodeURIComponent(id)}/order`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ galleryIds }),
+    }).then((r) => parseJson<{ galleryIds: string[] }>(r)),
+  /** Files a gallery at the end of a collection, or ungroups it with null. Items stay untouched. */
+  fileGallery: (galleryId: string, collectionId: string | null) =>
+    fetch(`/api/galleries/${encodeURIComponent(galleryId)}/collection`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collectionId }),
+    }).then((r) => parseJson<{ ok: boolean; galleryId: string; collectionId: string | null }>(r)),
+  collectionAssets: (id: string, options: { media?: LibraryMediaFilter; page?: number; pageSize?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (options.media) params.set("media", options.media);
+    if (options.page) params.set("page", String(options.page));
+    if (options.pageSize) params.set("pageSize", String(options.pageSize));
+    const suffix = params.toString();
+    return fetch(`/api/collections/${encodeURIComponent(id)}/assets${suffix ? `?${suffix}` : ""}`).then((r) =>
+      parseJson<CollectionAssetsPage>(r),
+    );
+  },
   projects: () =>
     fetch("/api/projects").then((r) =>
       parseJson<{ projects: ProjectSummary[]; looks: StudioLook[] }>(r),

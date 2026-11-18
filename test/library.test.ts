@@ -129,6 +129,32 @@ describe("library cleanup", () => {
     expect(db.generations).toHaveLength(0);
     expect(db.statements.some((sql) => sql.includes("DELETE FROM slot_files"))).toBe(true);
     expect(db.statements.some((sql) => sql.includes("DELETE FROM slots"))).toBe(true);
+    // Collections go with the galleries they hold; the galleries' files are already gone.
+    expect(db.statements.some((sql) => sql.includes("DELETE FROM collections WHERE user_id = ?"))).toBe(true);
+    expect(db.statements.findIndex((sql) => sql.includes("DELETE FROM collections"))).toBeGreaterThan(
+      db.statements.findIndex((sql) => sql.includes("DELETE FROM galleries")),
+    );
+  });
+
+  it("still cleans up when the collections table is not there yet", async () => {
+    const db = libraryDb([]);
+    const base = db.db;
+    const withoutCollections = {
+      prepare(sql: string) {
+        const statement = base.prepare(sql);
+        if (!sql.includes("collections")) return statement;
+        return {
+          bind: () => ({
+            async run() {
+              throw new Error("D1_ERROR: no such table: collections: SQLITE_ERROR");
+            },
+          }),
+        };
+      },
+    } as unknown as Env["DB"];
+    const env = createEnv({ DB: withoutCollections, MEDIA: createMockR2().bucket });
+    await expect(deleteAllUserMedia(env, TEST_USER.id)).resolves.toMatchObject({ deleted: 0 });
+    expect(db.statements.some((sql) => sql.includes("DELETE FROM slots"))).toBe(true);
   });
 
   it("removes one item's Oxen copy and reports what Oxen did", async () => {
