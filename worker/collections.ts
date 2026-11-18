@@ -560,10 +560,14 @@ export async function fileGallery(
   }
   if ((gallery.collection_id ?? null) === collectionId) return { galleryId, collectionId };
   if (!collectionId) {
-    await db
-      .prepare(`UPDATE galleries SET collection_id = NULL, collection_position = 0 WHERE id = ? AND user_id = ?`)
-      .bind(galleryId, userId)
+    const cleared = await db
+      .prepare(
+        `UPDATE galleries SET collection_id = NULL, collection_position = 0
+         WHERE id = ? AND user_id = ? AND ${SAME_PROFILE}`,
+      )
+      .bind(galleryId, userId, profileId)
       .run();
+    if (Number(cleared.meta?.changes ?? 0) === 0) return { error: "gallery" };
     return { galleryId, collectionId: null };
   }
   // One statement places the gallery at the end and only lands while the collection still exists on
@@ -574,10 +578,10 @@ export async function fileGallery(
          collection_position = (
            SELECT IFNULL(MAX(collection_position) + 1, 0) FROM galleries WHERE user_id = ? AND collection_id = ?
          )
-       WHERE id = ? AND user_id = ?
+       WHERE id = ? AND user_id = ? AND ${SAME_PROFILE}
          AND EXISTS (SELECT 1 FROM collections WHERE id = ? AND user_id = ? AND ${SAME_PROFILE})`,
     )
-    .bind(collectionId, userId, collectionId, galleryId, userId, collectionId, userId, profileId)
+    .bind(collectionId, userId, collectionId, galleryId, userId, profileId, collectionId, userId, profileId)
     .run();
   if (Number(filed.meta?.changes ?? 0) === 0) return { error: "missing" };
   return { galleryId, collectionId };
