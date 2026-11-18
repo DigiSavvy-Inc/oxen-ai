@@ -316,6 +316,7 @@ export function Composer(props: Props) {
   const dropPhrase = mediaKindPhrase(acceptedKinds);
   const audioCount = props.attachments.filter((item) => item.kind === "audio").length;
   const imageCount = props.attachments.filter((item) => item.kind === "image").length;
+  const framesOnly = Boolean(props.controls?.frames && !props.controls.frames.references);
   const galleryAvailable = modeHasReferenceGallery(props.mode);
   const galleryOpen = galleryAvailable && props.galleryOpen === true;
   const showDropzone =
@@ -1971,7 +1972,8 @@ export function Composer(props: Props) {
           </p>
         ) : null}
         {props.nameNotice ? <p className="composer-hint">{props.nameNotice}</p> : null}
-        {slotRequired(props.controls, "image", props.mode) ? (
+        {framesOnly && imageCount === 0 ? <p className="composer-hint">Add a first frame.</p> : null}
+        {!framesOnly && slotRequired(props.controls, "image", props.mode) ? (
           <p className="composer-hint">This model needs at least one reference image.</p>
         ) : null}
         {slotRequired(props.controls, "video", props.mode) && !taskHint ? (

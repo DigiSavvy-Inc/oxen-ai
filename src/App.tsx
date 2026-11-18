@@ -2362,7 +2362,14 @@ export default function App() {
       stagedRef.current = next;
       setStaged(next);
     }
-    if (plan.tokens.length > 0) {
+    // Frames are followed as given. Attaching them writes nothing into the prompt.
+    const tokens = plan.tokens.filter((token) => {
+      if (/^@Image\d+$/.test(token)) return mentionAllowed("image");
+      if (/^@Video\d+$/.test(token)) return mentionAllowed("video");
+      if (/^@Audio\d+$/.test(token)) return mentionAllowed("audio");
+      return true;
+    });
+    if (tokens.length > 0) {
       const field = promptField.current;
       const el = field?.element ?? null;
       // A click in the gallery panel takes focus from the prompt, so use the caret it remembers.
@@ -2372,7 +2379,7 @@ export default function App() {
           : el && document.activeElement === el
             ? el.selectionStart
             : (field?.caret() ?? null);
-      const result = insertAttachMentions(promptRef.current, liveCaret, plan.tokens);
+      const result = insertAttachMentions(promptRef.current, liveCaret, tokens);
       promptRef.current = result.next;
       attachDraft.current = { text: result.next, caret: result.caret };
       setPrompt(result.next);

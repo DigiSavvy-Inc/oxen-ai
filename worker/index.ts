@@ -2291,7 +2291,13 @@ app.post("/api/generate", async (c) => {
     });
   }
   const startFrameUrl = firstFrameUrl ?? asSingleString(mapped.input_image);
-  if (!draftTaskId && lastFrameUrl && !startFrameUrl) {
+  // Seedance image-to-video stores the start frame as one URI. A second image
+  // is the end frame (`tail_image_url`), not another item in that field.
+  const framesOnly = Boolean(frames && !frames.references);
+  const endFrameUrl =
+    lastFrameUrl ??
+    (framesOnly && !firstFrameUrl && imageUrls.length > 1 ? imageUrls[1] : undefined);
+  if (!draftTaskId && endFrameUrl && !startFrameUrl) {
     throw new HTTPException(400, { message: "A last frame needs a first frame" });
   }
   if (!draftTaskId && needsVideo && videoUrls.length === 0) {
@@ -2431,11 +2437,11 @@ app.post("/api/generate", async (c) => {
       firstFrameUrl ??
       mapped.input_image ??
       (useFallback && imageUrls.length === 1 ? imageUrls[0] : undefined),
-    tail_image_url: meta.mediaType === "video" ? lastFrameUrl : undefined,
+    tail_image_url: meta.mediaType === "video" ? endFrameUrl : undefined,
     input_image_has_face:
       frames?.firstFace && startFrameUrl && body.first_frame_has_face === true ? true : undefined,
     tail_image_url_has_face:
-      frames?.lastFace && lastFrameUrl && body.last_frame_has_face === true ? true : undefined,
+      frames?.lastFace && endFrameUrl && body.last_frame_has_face === true ? true : undefined,
     input_images:
       asStringList(mapped.input_images) ??
       (useFallback && imageUrls.length > 1 ? imageUrls : undefined),
