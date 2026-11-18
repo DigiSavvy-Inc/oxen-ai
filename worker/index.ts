@@ -1579,7 +1579,7 @@ app.post("/api/galleries", async (c) => {
   if (fileInto) {
     const filed = await fileGallery(c.env.DB, user.id, profileId, gallery.id, fileInto);
     if ("error" in filed) {
-      // The collection went away after the check. Undo the new gallery so the create fails whole.
+      // The collection went away after the check. Remove the new gallery so it is not left ungrouped.
       await deleteGallery(c.env.DB, user.id, gallery.id);
       collectionError(filed.error);
     }

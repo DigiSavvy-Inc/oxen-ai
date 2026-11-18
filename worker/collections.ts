@@ -418,10 +418,15 @@ export async function updateCollection(
     coverKey = key;
   }
   if (name === row.name && coverKey === row.cover_key) return { id };
-  await db
-    .prepare(`UPDATE collections SET name = ?, cover_key = ?, updated_at = ? WHERE id = ? AND user_id = ?`)
-    .bind(name, coverKey, now(), id, userId)
+  // The write checks the profile again, so a collection moved to another profile mid-request is left alone.
+  const saved = await db
+    .prepare(
+      `UPDATE collections SET name = ?, cover_key = ?, updated_at = ?
+       WHERE id = ? AND user_id = ? AND ${SAME_PROFILE}`,
+    )
+    .bind(name, coverKey, now(), id, userId, profileId)
     .run();
+  if (Number(saved.meta?.changes ?? 0) === 0) return { error: "missing" };
   return { id };
 }
 
@@ -441,15 +446,20 @@ export async function deleteCollection(
   }
   if (!row) return { error: "missing" };
   // One batch runs as one transaction: the galleries are ungrouped and the row goes together, or neither.
-  const [cleared] = await db.batch([
+  // Both statements check the profile again, so a collection moved mid-request is left as it is.
+  const [cleared, removed] = await db.batch([
     db
       .prepare(
         `UPDATE galleries SET collection_id = NULL, collection_position = 0
-         WHERE user_id = ? AND collection_id = ?`,
+         WHERE user_id = ? AND collection_id = ?
+           AND EXISTS (SELECT 1 FROM collections WHERE id = ? AND user_id = ? AND ${SAME_PROFILE})`,
       )
-      .bind(userId, id),
-    db.prepare(`DELETE FROM collections WHERE id = ? AND user_id = ?`).bind(id, userId),
+      .bind(userId, id, id, userId, profileId),
+    db
+      .prepare(`DELETE FROM collections WHERE id = ? AND user_id = ? AND ${SAME_PROFILE}`)
+      .bind(id, userId, profileId),
   ]);
+  if (Number(removed?.meta?.changes ?? 0) === 0) return { error: "missing" };
   return { ungrouped: Number(cleared?.meta?.changes ?? 0) };
 }
 
@@ -478,8 +488,8 @@ export async function orderCollections(
     const id = ids[position]!;
     if (before.get(id) === position) continue;
     await db
-      .prepare(`UPDATE collections SET position = ? WHERE id = ? AND user_id = ?`)
-      .bind(position, id, userId)
+      .prepare(`UPDATE collections SET position = ? WHERE id = ? AND user_id = ? AND ${SAME_PROFILE}`)
+      .bind(position, id, userId, profileId)
       .run();
   }
   return { ids };
@@ -513,8 +523,11 @@ export async function orderCollectionGalleries(
     if (before.get(id) === position) continue;
     // Order lives on the gallery row; items and updated_at stay as they are.
     await db
-      .prepare(`UPDATE galleries SET collection_position = ? WHERE id = ? AND user_id = ? AND collection_id = ?`)
-      .bind(position, id, userId, collectionId)
+      .prepare(
+        `UPDATE galleries SET collection_position = ?
+         WHERE id = ? AND user_id = ? AND collection_id = ? AND ${SAME_PROFILE}`,
+      )
+      .bind(position, id, userId, collectionId, profileId)
       .run();
   }
   return { galleryIds };
