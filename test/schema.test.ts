@@ -7,6 +7,7 @@ import {
   parseGenerationListScope,
   lockedAspectRatio,
   lockedDuration,
+  seedanceReferenceVideoRatio,
   parseModelControls,
   preferredAspectRatio,
   resolveModeration,
@@ -295,6 +296,12 @@ describe("parseModelControls", () => {
       "adaptive",
     );
     expect(lockedAspectRatio(controls.aspectLock, "auto", "16:9", controls.aspectRatios)).toBe("16:9");
+    expect(seedanceReferenceVideoRatio(controls.modelId, 1, "16:9")).toBe("adaptive");
+    expect(seedanceReferenceVideoRatio("bytedance-seedance-2-5-reference-to-video", 0, "16:9")).toBe(
+      "16:9",
+    );
+    expect(seedanceReferenceVideoRatio("bytedance-seedance-2-5-image-to-video", 1, "16:9")).toBe("16:9");
+    expect(seedanceReferenceVideoRatio("kling-video-v3-pro-motion-control", 1, "16:9")).toBe("16:9");
     expect(controls.duration?.kind).toBe("enum");
     if (controls.duration?.kind === "enum") {
       expect(controls.duration.values[0]).toBe("auto");

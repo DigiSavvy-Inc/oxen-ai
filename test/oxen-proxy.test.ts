@@ -1538,6 +1538,29 @@ describe("Seedance extend enqueue", () => {
     expect(edited.queued?.duration).toBe("auto");
     expect(edited.queued?.aspect_ratio).toBe("adaptive");
   });
+
+  it("sends adaptive when a video is attached, and keeps a chosen ratio with no video", async () => {
+    const extended = await post({
+      prompt: "she keeps walking",
+      omni_reference_task_type: "auto",
+      aspect_ratio: "16:9",
+      videos: ["https://cdn.example.com/media/clip"],
+    });
+    expect(extended.res.status).toBe(200);
+    expect(extended.queued?.omni_reference_task_type).toBe("auto");
+    expect(extended.queued?.aspect_ratio).toBe("adaptive");
+    expect(extended.queued?.input_videos).toEqual(["https://cdn.example.com/media/clip"]);
+
+    const still = await post({
+      prompt: "she keeps walking",
+      omni_reference_task_type: "auto",
+      aspect_ratio: "16:9",
+      images: ["https://cdn.example.com/media/room"],
+    });
+    expect(still.res.status).toBe(200);
+    expect(still.queued?.aspect_ratio).toBe("16:9");
+    expect(still.queued?.input_videos).toBeUndefined();
+  });
 });
 
 describe("Seedance image-to-video enqueue", () => {

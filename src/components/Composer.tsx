@@ -57,6 +57,7 @@ import {
   referenceRoleUsesFace,
   referenceTaskHint,
   referenceTaskLabel,
+  seedanceReferenceVideoRatio,
   snapNumericControl,
   REFERENCE_ROLES,
   type DurationControl,
@@ -336,13 +337,16 @@ export function Composer(props: Props) {
       props.onReferenceTaskChange &&
       referenceTasks.some((value) => value === "edit" || value === "extend"),
   );
+  const videoCount = props.attachments.filter((item) => item.kind === "video").length;
+  const clipRatio = seedanceReferenceVideoRatio(props.model, videoCount, undefined);
   const lockedAspect =
-    showReferenceTask &&
+    clipRatio ??
+    (showReferenceTask &&
     props.controls?.aspectLock &&
     props.referenceTask &&
     props.controls.aspectLock.tasks.includes(props.referenceTask)
       ? props.controls.aspectLock.value
-      : null;
+      : null);
   const durationLocked = Boolean(
     showReferenceTask &&
       props.controls?.durationLock &&
@@ -1592,9 +1596,11 @@ export function Composer(props: Props) {
                 value={lockedAspect ?? props.aspectRatio}
                 disabled={Boolean(lockedAspect)}
                 title={
-                  lockedAspect
-                    ? "Edit and extend keep the reference video's aspect ratio."
-                    : undefined
+                  clipRatio
+                    ? "A reference video uses adaptive. Seedance follows that clip when the prompt is an extension."
+                    : lockedAspect
+                      ? "Edit and extend keep the reference video's aspect ratio."
+                      : undefined
                 }
                 onChange={(e) => props.onAspectRatioChange(e.target.value)}
               >

@@ -108,6 +108,7 @@ import {
   showGetLastFrame,
   lockedAspectRatio,
   lockedDuration,
+  seedanceReferenceVideoRatio,
   pickCompatible,
   referenceTaskMissingVideoMessage,
   referenceTaskNeedsVideo,
@@ -2397,11 +2398,15 @@ app.post("/api/generate", async (c) => {
       // and rejects a ratio outright.
       (meta.mediaType === "audio" || frames) && !controls.aspectRatios?.length
         ? undefined
-        : lockedAspectRatio(
-            controls.aspectLock,
-            referenceTask,
-            body.aspect_ratio,
-            controls.aspectRatios,
+        : seedanceReferenceVideoRatio(
+            modelId,
+            videoUrls.length,
+            lockedAspectRatio(
+              controls.aspectLock,
+              referenceTask,
+              body.aspect_ratio,
+              controls.aspectRatios,
+            ),
           ),
     omni_reference_task_type: meta.mediaType === "video" ? referenceTask : undefined,
     duration: lockedDuration(controls.durationLock, referenceTask, controls.duration, body.duration),

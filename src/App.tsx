@@ -149,6 +149,7 @@ import {
   nearestDurationValue,
   normalizeMediaRole,
   referenceTaskNeedsVideo,
+  seedanceReferenceVideoRatio,
   safetyCheckerRequestValue,
   safetyToleranceSelection,
   type MediaRole,
@@ -3481,7 +3482,8 @@ export default function App() {
       const task = controls?.referenceTask?.includes(referenceTask) ? referenceTask : undefined;
       if (sendAspect) {
         const lockedAspect = applyControlLock(controls?.aspectLock, task, aspectRatio);
-        payload.aspect_ratio = lockedAspect == null || lockedAspect === "" ? aspectRatio : String(lockedAspect);
+        const chosen = lockedAspect == null || lockedAspect === "" ? aspectRatio : String(lockedAspect);
+        payload.aspect_ratio = seedanceReferenceVideoRatio(model, videos.length, chosen);
       }
       if (modeIsVideo(mode) && task) payload.omni_reference_task_type = task;
       if (modeIsVideo(mode)) {

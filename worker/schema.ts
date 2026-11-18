@@ -1295,6 +1295,22 @@ export function lockedAspectRatio(
   return resolveEnqueueAspectRatio(value, catalog);
 }
 
+/**
+ * Seedance 2.5 reference-to-video rejects a fixed ratio when it reads the
+ * prompt as a video extension. That reading needs an input video, and a
+ * normal reference job can include a video too, so the two cannot be told
+ * apart before submit. A video on this model is sent as `adaptive`. A job
+ * with no video keeps the chosen ratio. Image-to-video is a different model.
+ */
+export function seedanceReferenceVideoRatio(
+  modelId: string,
+  videoCount: number,
+  aspect: string | undefined,
+): string | undefined {
+  if (videoCount > 0 && /seedance-2-5-reference-to-video/i.test(modelId)) return "adaptive";
+  return aspect;
+}
+
 export function lockedDuration(
   lock: ControlLock | null | undefined,
   task: string | undefined,
