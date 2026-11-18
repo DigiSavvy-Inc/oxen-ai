@@ -343,25 +343,32 @@ export async function createCollection(
   const name = acceptCollectionName(nameRaw);
   if (!name) return { error: "name" };
   try {
-    const counted = await db
-      .prepare(
-        `SELECT COUNT(*) AS total, MAX(position) AS last FROM collections
-         WHERE user_id = ? AND ${SAME_PROFILE}`,
-      )
-      .bind(userId, profileId)
-      .first<{ total: number; last: number | null }>();
-    if (Number(counted?.total ?? 0) >= COLLECTION_MAX_PER_PROFILE) return { error: "limit" };
     const id = crypto.randomUUID();
     const stamp = now();
-    const last = counted?.last;
-    const position = last == null ? 0 : Number(last) + 1;
-    await db
+    // One statement counts, places, and inserts, so two creates at once cannot pass the cap together.
+    const inserted = await db
       .prepare(
         `INSERT INTO collections (id, user_id, profile_id, name, cover_key, position, created_at, updated_at)
-         VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`,
+         SELECT ?, ?, ?, ?, NULL,
+           (SELECT IFNULL(MAX(position) + 1, 0) FROM collections WHERE user_id = ? AND ${SAME_PROFILE}),
+           ?, ?
+         WHERE (SELECT COUNT(*) FROM collections WHERE user_id = ? AND ${SAME_PROFILE}) < ?`,
       )
-      .bind(id, userId, profileId, name, position, stamp, stamp)
+      .bind(
+        id,
+        userId,
+        profileId,
+        name,
+        userId,
+        profileId,
+        stamp,
+        stamp,
+        userId,
+        profileId,
+        COLLECTION_MAX_PER_PROFILE,
+      )
       .run();
+    if (Number(inserted.meta?.changes ?? 0) === 0) return { error: "limit" };
     return { id };
   } catch (err) {
     if (!missingCollections(err)) throw err;
@@ -433,15 +440,17 @@ export async function deleteCollection(
     return { error: "unavailable" };
   }
   if (!row) return { error: "missing" };
-  const cleared = await db
-    .prepare(
-      `UPDATE galleries SET collection_id = NULL, collection_position = 0
-       WHERE user_id = ? AND collection_id = ?`,
-    )
-    .bind(userId, id)
-    .run();
-  await db.prepare(`DELETE FROM collections WHERE id = ? AND user_id = ?`).bind(id, userId).run();
-  return { ungrouped: Number(cleared.meta?.changes ?? 0) };
+  // One batch runs as one transaction: the galleries are ungrouped and the row goes together, or neither.
+  const [cleared] = await db.batch([
+    db
+      .prepare(
+        `UPDATE galleries SET collection_id = NULL, collection_position = 0
+         WHERE user_id = ? AND collection_id = ?`,
+      )
+      .bind(userId, id),
+    db.prepare(`DELETE FROM collections WHERE id = ? AND user_id = ?`).bind(id, userId),
+  ]);
+  return { ungrouped: Number(cleared?.meta?.changes ?? 0) };
 }
 
 /** Saves the order of this profile's collections. Unknown ids are ignored; unlisted ones follow. */
@@ -544,16 +553,20 @@ export async function fileGallery(
       .run();
     return { galleryId, collectionId: null };
   }
-  const tail = await db
-    .prepare(`SELECT MAX(collection_position) AS last FROM galleries WHERE user_id = ? AND collection_id = ?`)
-    .bind(userId, collectionId)
-    .first<{ last: number | null }>();
-  const last = tail?.last;
-  const position = last == null ? 0 : Number(last) + 1;
-  await db
-    .prepare(`UPDATE galleries SET collection_id = ?, collection_position = ? WHERE id = ? AND user_id = ?`)
-    .bind(collectionId, position, galleryId, userId)
+  // One statement places the gallery at the end and only lands while the collection still exists on
+  // this profile, so a collection deleted mid-request never ends up holding a gallery.
+  const filed = await db
+    .prepare(
+      `UPDATE galleries SET collection_id = ?,
+         collection_position = (
+           SELECT IFNULL(MAX(collection_position) + 1, 0) FROM galleries WHERE user_id = ? AND collection_id = ?
+         )
+       WHERE id = ? AND user_id = ?
+         AND EXISTS (SELECT 1 FROM collections WHERE id = ? AND user_id = ? AND ${SAME_PROFILE})`,
+    )
+    .bind(collectionId, userId, collectionId, galleryId, userId, collectionId, userId, profileId)
     .run();
+  if (Number(filed.meta?.changes ?? 0) === 0) return { error: "missing" };
   return { galleryId, collectionId };
 }
 

@@ -1550,9 +1550,12 @@ app.post("/api/galleries", async (c) => {
   const id = typeof body.id === "string" ? body.id : null;
   const profileId = id ? null : await ensureDefaultProfile(c.env.DB, user.id);
   // Create only: a gallery made inside an open collection is filed there. A full save ignores it.
-  const fileInto = !id && typeof body.collectionId === "string" && body.collectionId ? body.collectionId : null;
-  if (fileInto && (await collectionExists(c.env.DB, user.id, profileId, fileInto)) === false) {
-    throw new HTTPException(404, { message: "Collection not found" });
+  let fileInto = !id && typeof body.collectionId === "string" && body.collectionId ? body.collectionId : null;
+  if (fileInto) {
+    const exists = await collectionExists(c.env.DB, user.id, profileId, fileInto);
+    if (exists === false) throw new HTTPException(404, { message: "Collection not found" });
+    // Before the migration there is nowhere to file it, so the gallery is made ungrouped as today.
+    if (exists === null) fileInto = null;
   }
   const gallery = await saveGallery(c.env.DB, user.id, {
     id,
@@ -1573,7 +1576,14 @@ app.post("/api/galleries", async (c) => {
     }
     throw new HTTPException(400, { message: "Gallery needs a name and media that belong to you" });
   }
-  if (fileInto) await fileGallery(c.env.DB, user.id, profileId, gallery.id, fileInto);
+  if (fileInto) {
+    const filed = await fileGallery(c.env.DB, user.id, profileId, gallery.id, fileInto);
+    if ("error" in filed) {
+      // The collection went away after the check. Undo the new gallery so the create fails whole.
+      await deleteGallery(c.env.DB, user.id, gallery.id);
+      collectionError(filed.error);
+    }
+  }
   return c.json({ gallery: await presentGallery(c.env, user.id, gallery) });
 });
 

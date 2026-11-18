@@ -74,9 +74,18 @@ function openDb(options: { withoutCollections?: boolean } = {}) {
     prepare(sql: string) {
       return { bind: (...args: unknown[]) => statement(sql, args), ...statement(sql, []) };
     },
+    // D1 runs a batch as one transaction: a failing statement rolls back the ones before it.
     async batch(statements: { run(): Promise<unknown> }[]) {
-      for (const item of statements) await item.run();
-      return [];
+      raw.exec("BEGIN");
+      try {
+        const results: unknown[] = [];
+        for (const item of statements) results.push(await item.run());
+        raw.exec("COMMIT");
+        return results;
+      } catch (err) {
+        raw.exec("ROLLBACK");
+        throw err;
+      }
     },
   } as unknown as D1Database;
   const { bucket } = createMockR2();
@@ -156,7 +165,7 @@ describe("collections storage", () => {
   });
 
   it("deletes a collection without touching its galleries or files", async () => {
-    const { env, db } = openDb();
+    const { db } = openDb();
     const shoot = await collection(db, "Shoot");
     const g1 = await gallery(db, "Day 1", [image("one.png"), image("two.png")]);
     const g2 = await gallery(db, "Day 2", [image("three.png")]);
@@ -172,6 +181,23 @@ describe("collections storage", () => {
     );
     expect((await getGallery(db, USER, g1))?.items.map((item) => item.name)).toEqual(["one.png", "two.png"]);
     expect((await getGallery(db, USER, g2))?.items.map((item) => item.name)).toEqual(["three.png"]);
+  });
+
+  it("deletes a collection all at once: if the row cannot go, its galleries stay filed", async () => {
+    const { env, db } = openDb();
+    const shoot = await collection(db, "Shoot");
+    const g1 = await gallery(db, "Day 1", [image("one.png")]);
+    await fileGallery(db, USER, PROFILE, g1, shoot);
+    const failing = {
+      ...db,
+      prepare(sql: string) {
+        if (!sql.startsWith("DELETE FROM collections")) return db.prepare(sql);
+        const broken = { run: async () => Promise.reject(new Error("D1 went away")) };
+        return { ...broken, bind: () => broken };
+      },
+    } as unknown as D1Database;
+    await expect(deleteCollection(failing, USER, PROFILE, shoot)).rejects.toThrow("D1 went away");
+    expect((await listed(env)).map((row) => [row.name, row.galleryIds])).toEqual([["Shoot", [g1]]]);
   });
 
   it("keeps a gallery in at most one collection: filing it again moves it to the end of the new one", async () => {
@@ -260,6 +286,30 @@ describe("collections storage", () => {
     expect(rows[0]?.name).toBe("C0");
     // The cap is per profile.
     expect("id" in (await createCollection(db, USER, OTHER_PROFILE, "Fine"))).toBe(true);
+  });
+
+  it("holds the cap when creates race: only one of several at the last place lands", async () => {
+    const { env, db } = openDb();
+    for (let n = 0; n < COLLECTION_MAX_PER_PROFILE - 1; n += 1) await collection(db, `C${n}`);
+    const results = await Promise.all(
+      ["Race 1", "Race 2", "Race 3"].map((name) => createCollection(db, USER, PROFILE, name)),
+    );
+    expect(results.filter((result) => "id" in result)).toHaveLength(1);
+    expect(results.filter((result) => "error" in result && result.error === "limit")).toHaveLength(2);
+    const rows = await listed(env);
+    expect(rows).toHaveLength(COLLECTION_MAX_PER_PROFILE);
+    // Each new collection still goes at the end.
+    expect(rows.map((row) => row.position)).toEqual(rows.map((_, index) => index));
+  });
+
+  it("does not file a gallery into a collection that is gone", async () => {
+    const { env, db } = openDb();
+    const shoot = await collection(db, "Shoot");
+    const g1 = await gallery(db, "Day 1", [image("one.png")]);
+    await deleteCollection(db, USER, PROFILE, shoot);
+    expect(await fileGallery(db, USER, PROFILE, g1, shoot)).toEqual({ error: "missing" });
+    expect((await listGalleries(db, USER, "", PROFILE))[0]).toMatchObject({ id: g1, collectionId: null });
+    expect(await listed(env)).toEqual([]);
   });
 
   it("uses the featured image of the first gallery that has one, a chosen cover, and falls back when it goes", async () => {
@@ -524,6 +574,34 @@ describe("collection routes", () => {
     const full = await call(env, "/api/collections", { method: "POST", body: { name: "One more" } });
     expect(full.status).toBe(400);
     expect(((await full.json()) as { error: string }).error).toMatch(/50 collections/);
+  });
+
+  it("fails a create whole when its collection goes before the gallery is filed", async () => {
+    const { env, db } = openDb();
+    const shoot = await collection(db, "Shoot");
+    // The collection is deleted by another request between the check and the filing.
+    const racing = {
+      ...db,
+      prepare(sql: string) {
+        if (sql.startsWith("UPDATE galleries SET collection_id = ?,")) {
+          return {
+            bind: (...args: unknown[]) => ({
+              run: async () => {
+                await deleteCollection(db, USER, PROFILE, shoot);
+                return db.prepare(sql).bind(...args).run();
+              },
+            }),
+          };
+        }
+        return db.prepare(sql);
+      },
+    } as unknown as D1Database;
+    const res = await call({ ...env, DB: racing } as Env, "/api/galleries", {
+      method: "POST",
+      body: { name: "Day 1", items: [image("a.png")], collectionId: shoot },
+    });
+    expect(res.status).toBe(404);
+    expect(await listGalleries(db, USER, "", PROFILE)).toEqual([]);
   });
 
   it("serves the Galleries screen and an empty, not-ready list before the migration", async () => {
