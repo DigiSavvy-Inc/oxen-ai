@@ -3808,6 +3808,241 @@ button.history-expand-preview {
   color: var(--text-muted);
 }
 
+/* Collections: sections of gallery cards, then Ungrouped. */
+.collection-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.collection-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.collection-new .field {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  padding: 4px 6px;
+}
+
+.collection-new-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.collection-section,
+.collection-ungrouped {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  border-radius: var(--radius-l);
+  outline: 1px dashed transparent;
+  outline-offset: 2px;
+}
+
+.collection-section.is-drop-hot,
+.collection-ungrouped.is-drop-hot {
+  outline-color: var(--border-strong);
+  background: var(--accent-soft);
+}
+
+.collection-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 2px 0;
+}
+
+.collection-head[draggable="true"] {
+  cursor: grab;
+}
+
+.collection-fold,
+.collection-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.collection-fold:hover,
+.collection-menu-btn:hover,
+.collection-menu-btn[aria-expanded="true"] {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.collection-fold svg {
+  transition: transform 0.15s ease;
+}
+
+.collection-section.is-folded .collection-fold svg {
+  transform: rotate(-90deg);
+}
+
+.collection-cover {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--bg-hover);
+}
+
+.collection-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.collection-cover .gallery-audio {
+  display: none;
+}
+
+.collection-title {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.collection-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-rename {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.collection-rename .field {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  padding: 4px 6px;
+}
+
+.collection-menu {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+/* The menu hangs from the header's right edge, under it, so it stays inside the panel. */
+.collection-menu-pop.history-gallery-pop,
+.collection-move-pop.history-gallery-pop {
+  top: calc(100% + 4px);
+  right: 0;
+  bottom: auto;
+  z-index: 8;
+  width: min(240px, calc(100vw - 48px));
+  max-height: none;
+}
+
+.collection-menu-pop .history-gallery-choice:disabled,
+.collection-move-pop .history-gallery-choice:disabled {
+  cursor: default;
+  color: var(--text-dim);
+}
+
+.collection-menu-pop .history-gallery-choice:disabled:hover,
+.collection-move-pop .history-gallery-choice:disabled:hover {
+  background: transparent;
+}
+
+.collection-move-pop .history-gallery-choice.is-done:disabled {
+  color: var(--text);
+  background: var(--accent-soft);
+}
+
+.collection-move-pop .history-gallery-choices {
+  max-height: 200px;
+}
+
+/* Move to collection's menu anchors to the card's tool row, not the button, so it never runs
+   past the card's left edge. */
+.gallery-card-tools {
+  position: relative;
+}
+
+.collection-move {
+  position: static;
+}
+
+.gallery-card[draggable="true"] {
+  cursor: grab;
+}
+
+.collection-ungrouped-head {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.collection-empty {
+  margin: 0;
+  padding: 10px 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-l);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 860px) {
+  .collection-head {
+    min-height: 48px;
+  }
+
+  .collection-fold,
+  .collection-menu-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  .collection-new .field,
+  .collection-rename .field,
+  .collection-move-pop .field {
+    font-size: 16px;
+  }
+}
+
 .gallery-manage-head,
 .gallery-manage-actions {
   display: flex;

@@ -86,3 +86,49 @@ test("on a narrow phone the add-to-slot menu stays on screen and the library sta
     ),
   ).toEqual([]);
 });
+
+// Drag is a desktop convenience. On a phone, filing a gallery goes through its menu, and the
+// menu has to stay on a 390px screen without pushing the library sideways.
+test("on a narrow phone a gallery is filed into a collection from its menu", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await makeGallery(page, "PocketSet", await uploadTiles(page, "pocket", 2));
+  await page.reload();
+  await openFromMenu(page, "Library");
+  const panel = library(page);
+  await panel.getByRole("button", { name: "Galleries", exact: true }).click();
+
+  await panel.getByRole("button", { name: "New collection", exact: true }).click();
+  await panel.getByRole("textbox", { name: "New collection name" }).fill("PhoneShoot");
+  await panel.getByRole("button", { name: "Create", exact: true }).click();
+  const section = panel.getByRole("region", { name: "PhoneShoot" });
+  await expect(section.getByText("No galleries yet. Drag one here.")).toBeVisible();
+
+  const onScreen = async (locator: Locator) => {
+    const box = (await locator.boundingBox())!;
+    return box.x >= 0 && box.x + box.width <= 390;
+  };
+
+  await panel.getByRole("button", { name: "Move PocketSet to collection" }).click();
+  const menu = page.getByRole("menu", { name: "Move PocketSet to collection" });
+  await expect(menu).toBeVisible();
+  expect(await onScreen(menu), "move menu is inside the screen").toBe(true);
+  await menu.getByRole("menuitem", { name: /^PhoneShoot/ }).click();
+  await expect(menu).toBeHidden();
+  await expect(section.getByRole("button", { name: "PocketSet", exact: true })).toBeVisible();
+
+  await section.getByRole("button", { name: "PhoneShoot options" }).click();
+  const options = page.getByRole("menu", { name: "PhoneShoot options" });
+  await expect(options.getByRole("menuitem", { name: "Rename" })).toBeVisible();
+  await expect(options.getByRole("menuitem", { name: "Delete collection" })).toBeVisible();
+  expect(await onScreen(options), "section menu is inside the screen").toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(options).toBeHidden();
+
+  await expectFullScreen(page, panel);
+  expect(
+    await panel.evaluate((root) =>
+      [root, ...root.querySelectorAll("*")].filter((el) => el.scrollLeft !== 0).map((el) => el.className),
+    ),
+  ).toEqual([]);
+});

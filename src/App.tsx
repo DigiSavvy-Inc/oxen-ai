@@ -136,6 +136,7 @@ import { insertAttachMentions, insertPlainMention, moveItem } from "./lib/mentio
 import { keepDraftIds, type GalleryDraftItem } from "./lib/gallery-draft";
 import { escapeTaken } from "./lib/escape-layer";
 import { galleryChordTaken } from "./lib/shortcut-layer";
+import { useCollections } from "./lib/use-collections";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 import { captureVideoLastFrame } from "./lib/last-frame";
 import { preferredAspectRatio, showGetLastFrame, takeStagedOfKind } from "./lib/params";
@@ -324,6 +325,7 @@ export default function App() {
   const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
   const [galleryTileDrag, setGalleryTileDrag] = useState(false);
   const [gallerySummaries, setGallerySummaries] = useState<GallerySummary[]>([]);
+  const collectionControls = useCollections({ signedIn: Boolean(user), gallerySummaries, setGallerySummaries });
   const [galleryId, setGalleryId] = useState<string | null>(null);
   const [galleryName, setGalleryName] = useState("");
   const [galleryHandle, setGalleryHandle] = useState("");
@@ -3876,6 +3878,7 @@ export default function App() {
         slotChoices={addSlotChoices}
         onAddToSlot={addItemsToSlot}
         onCreateSlot={createSlotWithItems}
+        collections={collectionControls}
         managingGallery={managingGallery}
         onManagingGallery={setManagingGallery}
         pane={libraryPane}
