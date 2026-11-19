@@ -88,6 +88,10 @@ function audio(name: string) {
   return { kind: "audio" as const, name, key: key(name), label: null, role: null };
 }
 
+function video(name: string) {
+  return { kind: "video" as const, name, key: key(name), label: null, role: null };
+}
+
 function slot(kind: MediaSlot["kind"], maxItems: number, field: MediaSlot["field"]): MediaSlot {
   return { field, kind, required: false, maxItems, asArray: maxItems > 1 };
 }
@@ -96,6 +100,20 @@ const refs: PromptNamesInput["modelControls"] = {
   mentions: true,
   slots: [slot("image", 4, "input_images"), slot("video", 1, "input_videos"), slot("audio", 1, "input_audios")],
   frames: null,
+  imageVideoExclusive: false,
+};
+
+const exclusive: PromptNamesInput["modelControls"] = {
+  mentions: true,
+  slots: [slot("image", 4, "input_images"), slot("video", 1, "input_videos")],
+  frames: null,
+  imageVideoExclusive: true,
+};
+
+const framesNoRefs: PromptNamesInput["modelControls"] = {
+  mentions: true,
+  slots: [slot("image", 1, "input_image")],
+  frames: { references: false, firstFace: false, lastFace: false },
   imageVideoExclusive: false,
 };
 
@@ -213,6 +231,29 @@ describe("resolvePromptNames", () => {
     expect(result.prompt).toBe("golden hour light");
     expect(result.images).toEqual([]);
 
+    // A slot with an image and a note keeps the note; the hand frames stay as sent.
+    const frames = [key("first.png"), key("last.png")];
+    const both = await run(env, { prompt: "@Hair at dusk", modelControls: framesOnly, images: frames });
+    expect(both.prompt).toBe("long waves, warm, fine pores at dusk");
+    expect(both.images).toEqual(frames);
+    expect(both.roles.image).toEqual([null, null]);
+    expect(both.notes.map((note) => note.token)).toEqual(["@Hair", "@Skin", "@Texture"]);
+    expect(both.missing).toEqual([]);
+    expect(both.trimmed).toEqual([]);
+
+    // A name with images and no note has nothing to add, so it is dropped as in the app.
+    const noNote = await run(env, { prompt: "@Mood on @Loft", modelControls: framesOnly });
+    expect(noNote.prompt).toBe("golden hour on");
+    expect(noNote.images).toEqual([]);
+    expect(noNote.trimmed).toEqual(["Dropped @Loft; the model can’t take more files"]);
+
+    // A label on an image was found, so it is not reported missing.
+    await createSlot(env, USER, PROFILE, { name: "Den", note: "a den", files: [image("den.png", "wide")] });
+    const label = await run(env, { prompt: "@Den.wide", modelControls: framesOnly });
+    expect(label.prompt).toBe("@Den.wide");
+    expect(label.missing).toEqual([]);
+    expect(label.trimmed).toEqual(["Left @Den.wide as typed; the model takes no reference images"]);
+
     // A model that takes no references: notes expand, files-only names stay as typed.
     const noRefs = { ...framesOnly, mentions: false };
     const plain = await run(env, { prompt: "@Hair on @Loft", modelControls: noRefs });
@@ -220,6 +261,51 @@ describe("resolvePromptNames", () => {
     expect(plain.images).toEqual([]);
     expect(plain.missing).toEqual([]);
     expect(plain.trimmed).toEqual(["Left @Loft as typed; the model takes no files"]);
+  });
+
+  it("sends images or a video on a model that can't take both, with no mode given", async () => {
+    const { env } = openDb();
+    await seed(env);
+    await saveGallery(env.DB, USER, { name: "Clip", handle: "Clip", profileId: PROFILE, items: [video("clip.mp4")] });
+
+    // No hand files: the first named file decides.
+    const imagesFirst = await run(env, { prompt: "@Maya then @Clip", modelControls: exclusive });
+    // As in the app, takes shrink before a name is dropped.
+    expect(imagesFirst.images).toEqual([key("maya-face.png")]);
+    expect(imagesFirst.videos).toEqual([]);
+    expect(imagesFirst.prompt).toBe("@Image1 then");
+    expect(imagesFirst.trimmed).toEqual([
+      "Trimmed @Maya from 2 to 1 file",
+      "Dropped @Clip; the model can’t take more files",
+    ]);
+
+    const videoFirst = await run(env, { prompt: "@Clip then @Maya", modelControls: exclusive });
+    expect(videoFirst.videos).toEqual([key("clip.mp4")]);
+    expect(videoFirst.images).toEqual([]);
+    expect(videoFirst.prompt).toBe("@Video1 then");
+
+    // A hand file decides before any name.
+    const handVideo = await run(env, {
+      prompt: "@Video1 with @Maya",
+      modelControls: exclusive,
+      videos: [key("hand.mp4")],
+    });
+    expect(handVideo.videos).toEqual([key("hand.mp4")]);
+    expect(handVideo.images).toEqual([]);
+    expect(handVideo.prompt).toBe("@Video1 with");
+
+    const handBoth = await run(env, {
+      prompt: "@Image1 near @Maya",
+      modelControls: exclusive,
+      images: [key("a.png")],
+      videos: [key("hand.mp4")],
+    });
+    expect(handBoth.prompt).toBe("@Image1 near @Image2 @Image3");
+    expect(handBoth.images).toEqual([key("a.png"), key("maya-face.png"), key("maya-turn.png")]);
+    expect(handBoth.videos).toEqual([]);
+    expect(handBoth.trimmed).toEqual([
+      "Left out 1 attached video; keyframes and a continuation clip can’t be used together",
+    ]);
   });
 
   it("follows take, labels, the featured file, and whole-gallery slots", async () => {
@@ -344,23 +430,55 @@ describe("resolvePromptNames", () => {
       everywhere: slots.filter((s) => s.projectId == null).map(entry),
       galleries,
     });
-    const caps = { image: 4, video: 1, audio: 1 };
-    const app = planNameAttachments({
-      prompt,
-      galleries: catalog,
-      hand: hand.map((value) => ({ key: value, kind: "image" as const })),
-      caps,
-      flagMissing: true,
-    });
+    const compare = async (
+      text: string,
+      modelControls: PromptNamesInput["modelControls"],
+      // The caps App.tsx passes for this model and mode.
+      caps: { image: number; video: number; audio: number },
+      images: string[],
+    ) => {
+      const app = planNameAttachments({
+        prompt: text,
+        galleries: catalog,
+        hand: images.map((value) => ({ key: value, kind: "image" as const })),
+        caps,
+        flagMissing: true,
+      });
+      const server = await run(env, { prompt: text, images, projectId: project, modelControls });
+      expect(server.prompt).toBe(app.expanded);
+      const appFiles = [...app.files].sort((a, b) => a.number - b.number);
+      const ofKind = (kind: "image" | "video" | "audio") => appFiles.filter((f) => f.kind === kind);
+      expect(server.images).toEqual([...images, ...ofKind("image").map((f) => f.key)]);
+      expect(server.videos).toEqual(ofKind("video").map((f) => f.key));
+      expect(server.audios).toEqual(ofKind("audio").map((f) => f.key));
+      expect(server.roles.image.slice(images.length)).toEqual(ofKind("image").map((f) => f.role));
+      return app;
+    };
 
-    const server = await run(env, { prompt, images: hand, projectId: project });
-    expect(server.prompt).toBe(app.expanded);
-    const appFiles = [...app.files].sort((a, b) => a.number - b.number);
-    expect(server.images.slice(hand.length)).toEqual(appFiles.filter((f) => f.kind === "image").map((f) => f.key));
-    expect(server.audios).toEqual(appFiles.filter((f) => f.kind === "audio").map((f) => f.key));
-    expect(server.roles.image.slice(hand.length)).toEqual(
-      appFiles.filter((f) => f.kind === "image").map((f) => f.role),
-    );
+    const app = await compare(prompt, refs, { image: 4, video: 1, audio: 1 }, hand);
     expect(app.files.length).toBeGreaterThan(2);
+
+    // Frames-only: the app passes an image cap of 0. Names with a note or no images agree.
+    const frames = await compare(
+      "@Texture light with @Song on @Loft",
+      { ...framesNoRefs, slots: [...framesNoRefs.slots, slot("audio", 1, "input_audios")] },
+      { image: 0, video: 0, audio: 1 },
+      [key("first.png")],
+    );
+    expect(frames.expanded).toBe("fine pores light with @Audio1 on");
+
+    // Keyframes or a continuation clip: in reference-to-video the app's video cap is 0.
+    await saveGallery(env.DB, USER, { name: "Clip", handle: "Clip", profileId: PROFILE, items: [video("clip.mp4")] });
+    const clipCatalog = await getGallery(
+      env.DB,
+      USER,
+      (await listGalleries(env.DB, USER, "", PROFILE)).find((g) => g.handle === "Clip")!.id,
+    );
+    catalog.push({ id: clipCatalog!.id, name: "Clip", handle: "Clip", take: 1, items: clipCatalog!.items });
+    const keyframes = await compare("@Maya then @Clip", exclusive, { image: 4, video: 0, audio: 0 }, []);
+    expect(keyframes.files.map((f) => f.kind)).toEqual(["image"]);
+    // In video-to-video the image cap is 0.
+    const continuation = await compare("@Clip then @Maya", exclusive, { image: 0, video: 1, audio: 0 }, []);
+    expect(continuation.files.map((f) => f.kind)).toEqual(["video"]);
   });
 });

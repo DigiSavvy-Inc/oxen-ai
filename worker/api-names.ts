@@ -31,8 +31,6 @@ export type PromptNamesInput = {
   audios?: readonly string[];
   /** Adds that project's slots ahead of the Everywhere slots. */
   projectId?: string | null;
-  /** Only read for a model whose keyframes and continuation clip are exclusive. */
-  mode?: string | null;
 };
 
 export type PromptNamesResult = {
@@ -86,20 +84,23 @@ function slotMax(controls: PromptNamesInput["modelControls"], kind: Kind): numbe
 }
 
 /** Per-kind limits from the model's schema. A kind with no input on the model is 0. */
-function modelCaps(input: PromptNamesInput): Record<Kind, number> {
-  const controls = input.modelControls;
-  const caps: Record<Kind, number> = {
+function slotCaps(controls: PromptNamesInput["modelControls"]): Record<Kind, number> {
+  return {
     image: slotMax(controls, "image"),
     video: slotMax(controls, "video"),
     audio: slotMax(controls, "audio"),
   };
-  if (controls.imageVideoExclusive) {
-    if (input.mode !== "reference-to-video") caps.image = 0;
-    if (input.mode !== "video-to-video") caps.video = 0;
-  }
-  // A frames-only model takes no references, so a name adds its note and no image.
-  if (controls.frames && !controls.frames.references) caps.image = 0;
-  return caps;
+}
+
+/**
+ * A frames-only model takes its first and last frame by hand and no reference images.
+ * A name with a note keeps the note and its other files and loses its images, so it still
+ * expands. A name with no note keeps its images, which the planner then drops as over the limit.
+ */
+function framesOnlyCatalog(entries: readonly NameCatalogEntry[]): NameCatalogEntry[] {
+  return entries.map((entry) =>
+    (entry.note ?? "").trim() ? { ...entry, items: entry.items.filter((item) => item.kind !== "image") } : entry,
+  );
 }
 
 function handKey(userId: string, value: string): string | undefined {
@@ -311,41 +312,88 @@ export async function resolvePromptNames(
   if (!profileId || parseNameMentions(input.prompt).length === 0) return unchanged;
 
   // Files need a model that takes references. A note is plain text, so it expands for any model.
-  const refsOn = input.modelControls.mentions;
-  const caps = modelCaps(input);
+  const controls = input.modelControls;
+  const refsOn = controls.mentions;
+  const framesOnly = Boolean(controls.frames && !controls.frames.references);
   const full = await loadCatalog(env, userId, profileId, input.projectId ?? null, input.prompt, refsOn);
-  const catalog = refsOn ? full : noteOnlyCatalog(full);
+  const catalog = !refsOn ? noteOnlyCatalog(full) : framesOnly ? framesOnlyCatalog(full) : full;
 
-  const hand: Record<Kind, string[]> = { image: [], video: [], audio: [] };
-  const handRefs: HandRef[] = [];
-  const trimmed: string[] = [];
-  for (const kind of KINDS) {
-    const cap = Math.max(0, caps[kind]);
-    hand[kind] = given[kind].slice(0, cap);
-    for (const value of hand[kind]) handRefs.push({ key: handKey(userId, value), kind });
-    const left = given[kind].length - hand[kind].length;
-    if (left > 0) {
-      trimmed.push(`Left out ${left} attached ${kindWord(kind, left)}; the model takes ${cap}`);
+  const caps = slotCaps(controls);
+  // Hand images on a frames-only model are its first and last frame, as in the app.
+  const handCaps: Record<Kind, number> = { ...caps, image: framesOnly ? 2 : caps.image };
+  const planCaps: Record<Kind, number> = { ...caps, image: framesOnly ? 0 : caps.image };
+  let exclusiveOut: Kind | null = null;
+
+  const attempt = () => {
+    const hand: Record<Kind, string[]> = { image: [], video: [], audio: [] };
+    const handRefs: HandRef[] = [];
+    const trimmed: string[] = [];
+    for (const kind of KINDS) {
+      const cap = Math.max(0, handCaps[kind]);
+      hand[kind] = given[kind].slice(0, cap);
+      for (const value of hand[kind]) handRefs.push({ key: handKey(userId, value), kind });
+      const left = given[kind].length - hand[kind].length;
+      if (left <= 0) continue;
+      trimmed.push(
+        kind === exclusiveOut
+          ? `Left out ${left} attached ${kindWord(kind, left)}; keyframes and a continuation clip can’t be used together`
+          : `Left out ${left} attached ${kindWord(kind, left)}; the model takes ${cap}`,
+      );
+    }
+    const plan = planNameAttachments({
+      prompt: input.prompt,
+      galleries: catalog,
+      hand: handRefs,
+      caps: planCaps,
+      flagMissing: refsOn,
+    });
+    return { hand, trimmed, plan };
+  };
+
+  let planned = attempt();
+  if (controls.imageVideoExclusive) {
+    // Images and a video can't go together. Hand files decide; otherwise the first named file does.
+    const keep: Kind | null =
+      given.image.length > 0
+        ? "image"
+        : given.video.length > 0
+          ? "video"
+          : (planned.plan.files.find((file) => file.kind !== "audio")?.kind ?? null);
+    if (keep === "image" || keep === "video") {
+      exclusiveOut = keep === "image" ? "video" : "image";
+      if (handCaps[exclusiveOut] > 0 || planCaps[exclusiveOut] > 0) {
+        handCaps[exclusiveOut] = 0;
+        planCaps[exclusiveOut] = 0;
+        planned = attempt();
+      }
     }
   }
+  const { hand, trimmed, plan } = planned;
 
-  const plan = planNameAttachments({
-    prompt: input.prompt,
-    galleries: catalog,
-    hand: handRefs,
-    caps,
-    flagMissing: refsOn,
-  });
-
-  const byHandle = new Set(full.map((entry) => entry.handle.toLowerCase()));
+  const byHandle = new Map(full.map((entry) => [entry.handle.toLowerCase(), entry]));
+  // On a frames-only model a label on an image was found; the model just takes no reference images.
+  const framesImage = (token: string) => {
+    if (!framesOnly) return false;
+    const mention = parseNameMentions(token)[0];
+    const entry = mention ? byHandle.get(mention.handle.toLowerCase()) : undefined;
+    if (!mention || !entry) return false;
+    const label = (mention.label ?? "").toLowerCase();
+    return entry.items.some((item) => item.kind === "image" && (!label || (item.label ?? "").toLowerCase() === label));
+  };
   const missing: string[] = [];
   for (const mention of plan.unresolved) {
     // A name that holds files the model can't take was found; it is left as typed.
     if (!refsOn && byHandle.has(mention.handle.toLowerCase())) {
       trimmed.push(`Left ${mention.token} as typed; the model takes no files`);
+    } else if (framesImage(mention.token)) {
+      trimmed.push(`Left ${mention.token} as typed; the model takes no reference images`);
     } else missing.push(mention.token);
   }
-  for (const miss of plan.missing) missing.push(`${miss.token} in ${miss.inside}’s note`);
+  for (const miss of plan.missing) {
+    if (framesImage(miss.token)) {
+      trimmed.push(`Left ${miss.token} in ${miss.inside}’s note as typed; the model takes no reference images`);
+    } else missing.push(`${miss.token} in ${miss.inside}’s note`);
+  }
   for (const trim of plan.trimmed) {
     trimmed.push(`Trimmed ${trim.token} from ${trim.from} to ${trim.to} ${trim.to === 1 ? "file" : "files"}`);
   }

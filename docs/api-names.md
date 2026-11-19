@@ -10,7 +10,7 @@ A handle in a prompt works the way it does in the composer. `@Maya` names a slot
 
 Slots come first: the open project's slots (send `projectId`), then the Everywhere slots, then galleries. The first handle wins. Only your own profile's slots and galleries are read.
 
-The model sets the limits. A kind it doesn't take is left out. When there are too many files, takes shrink from the end of the prompt first, then whole handles are dropped from the end. A model with no reference inputs gets each note and no files, and a handle with only files stays as typed. The result lists handles that matched nothing in `missing` and files left out in `trimmed`.
+The model sets the limits. A kind it doesn't take is left out. When there are too many files, takes shrink from the end of the prompt first, then whole handles are dropped from the end. A model with no reference inputs gets each note and no files, and a handle with only files stays as typed. On a model that takes only a first and last frame, the images you attach are the frames; a handle adds its note and no image, and a handle with images and no note is dropped. On a model that takes keyframes or a continuation clip but not both, your own files decide which kind is sent (images when you attach both); with none attached, the first file a handle brings decides. The result lists handles that matched nothing in `missing` and files left out in `trimmed`.
 
 A prompt with no handles is sent unchanged.
 
