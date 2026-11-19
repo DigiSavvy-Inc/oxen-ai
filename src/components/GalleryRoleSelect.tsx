@@ -33,7 +33,8 @@ export function GalleryRoleSelect(props: Props) {
   );
 }
 
-function RoleGlyph({ role }: { role: MediaRole }) {
+/** The small role icon. Also shown read only where a role cannot be changed. */
+export function RoleGlyph({ role }: { role: MediaRole }) {
   switch (role) {
     case "character":
       return (

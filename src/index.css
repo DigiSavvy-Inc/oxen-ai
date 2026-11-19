@@ -7474,3 +7474,88 @@ select.attach-role {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Collections: the All assets view (CollectionAssets). */
+.collection-assets-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.collection-assets-bar .history-gallery-tools {
+  flex: 0 1 auto;
+  margin-left: 0;
+}
+
+.collection-assets-bar .history-gallery-tools.is-below .history-gallery-pop {
+  left: 0;
+  right: auto;
+}
+
+.collection-assets-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.collection-assets-note.is-warn {
+  color: var(--warn);
+}
+
+.collection-assets-grid.is-loading {
+  opacity: 0.6;
+}
+
+.collection-asset .gallery-tile-hit.is-audio {
+  cursor: pointer;
+}
+
+.collection-asset-gallery {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.collection-asset-gallery:hover,
+.collection-asset-gallery:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.collection-assets-pager {
+  margin: 10px -12px -12px;
+}
+
+@media (max-width: 860px) {
+  /* The bar wraps onto more rows; its menus hang from the bar, so none can run past the screen. */
+  .collection-assets-bar .history-gallery-tools {
+    position: static;
+  }
+
+  .collection-assets-bar .history-gallery-tools .history-gallery-pop,
+  .collection-assets-bar .history-gallery-tools.is-below .history-gallery-pop {
+    left: 12px;
+    right: auto;
+    max-width: calc(100% - 24px);
+  }
+
+  .collection-asset-gallery {
+    min-height: 32px;
+    padding: 6px 2px;
+    font-size: 12px;
+  }
+}
