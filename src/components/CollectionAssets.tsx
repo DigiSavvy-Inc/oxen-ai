@@ -23,6 +23,7 @@ import {
   type DeleteFilesRequest,
   type PickedAsset,
 } from "../lib/collection-assets";
+import { GALLERY_ITEM_DRAG_TYPE } from "../lib/gallery-attach";
 import type { GalleryDraftItem } from "../lib/gallery-draft";
 import type { HistoryGalleryItem, HistoryGalleryNotice } from "../lib/gallery-history";
 import { deleteOutcome, type DeleteOutcome, type DeleteScope } from "../lib/media-delete";
@@ -59,6 +60,8 @@ export type CollectionAssetsProps = {
   onDeleted?: (keys: string[], outcome: DeleteOutcome) => void;
   /** After Clear drops every tick, on every page. */
   onClear?: () => void;
+  /** A tile is being dragged toward the prompt (the item), or the drag ended (null). */
+  onDragItem?: (item: GalleryDraftItem | null) => void;
 };
 
 type Playing = { key: string; src: string; name: string };
@@ -187,10 +190,12 @@ export function CollectionAssets(props: CollectionAssetsProps) {
     setDeleting(true);
     setNote(null);
     try {
-      const outcome = deleteOutcome(await deleteFilesInBatches(keys, scope, send));
+      const result = await deleteFilesInBatches(keys, scope, send);
+      const outcome = deleteOutcome(result);
       setNote(outcome);
       setPicked([]);
-      props.onDeleted?.(keys, outcome);
+      // Only files that actually left Studio come out of the other views; a failed batch stays.
+      if (result.removedKeys.length > 0) props.onDeleted?.(result.removedKeys, outcome);
     } finally {
       setDeleting(false);
       setReloadToken((value) => value + 1);
@@ -284,6 +289,7 @@ export function CollectionAssets(props: CollectionAssetsProps) {
               onToggle={() => toggle(entry)}
               onOpen={() => openAsset(entry.asset)}
               onOpenGallery={() => props.onOpenGallery(entry.asset.galleryId)}
+              onDragItem={props.onDragItem}
             />
           ))}
         </div>
@@ -316,17 +322,20 @@ function AssetTile({
   onToggle,
   onOpen,
   onOpenGallery,
+  onDragItem,
 }: {
   asset: CollectionAsset;
   picked: boolean;
   onToggle: () => void;
   onOpen: () => void;
   onOpenGallery: () => void;
+  onDragItem?: (item: GalleryDraftItem | null) => void;
 }) {
   const preview = asset.thumbUrl || asset.url;
   const audio = asset.kind === "audio";
   const role = audio ? null : normalizeMediaRole(asset.role);
   const caption = assetGalleryCaption(asset);
+  const draggable = Boolean(onDragItem && asset.url && asset.key);
   return (
     <div
       className={`gallery-manage-tile collection-asset${picked ? " is-selected" : ""}`}
@@ -338,6 +347,18 @@ function AssetTile({
             type="button"
             className={`gallery-tile-hit${audio ? " is-audio" : ""}`}
             aria-label={`${audio ? "Play" : "Open"} ${asset.name}`}
+            draggable={draggable || undefined}
+            onDragStart={
+              draggable
+                ? (event) => {
+                    // The same drag an open gallery's tile makes, so the prompt takes it as one attachment.
+                    event.dataTransfer.effectAllowed = "copy";
+                    event.dataTransfer.setData(GALLERY_ITEM_DRAG_TYPE, asset.key);
+                    onDragItem?.(assetDraftItems([asset])[0] ?? null);
+                  }
+                : undefined
+            }
+            onDragEnd={draggable ? () => onDragItem?.(null) : undefined}
             onClick={onOpen}
           >
             <GalleryThumb kind={asset.kind} name={asset.name} preview={preview} slot="tile" />

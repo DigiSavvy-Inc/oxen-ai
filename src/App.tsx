@@ -136,6 +136,7 @@ import { insertAttachMentions, insertPlainMention, moveItem } from "./lib/mentio
 import { keepDraftIds, type GalleryDraftItem } from "./lib/gallery-draft";
 import { escapeTaken } from "./lib/escape-layer";
 import { galleryChordTaken } from "./lib/shortcut-layer";
+import { useCollectionView } from "./lib/use-collection-view";
 import { useCollections } from "./lib/use-collections";
 import { generationCountForModelChange, pickModel } from "./lib/model-menu";
 import { captureVideoLastFrame } from "./lib/last-frame";
@@ -367,6 +368,16 @@ export default function App() {
   const [keepCanvasClear, setKeepCanvasClear] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(initialLibraryOpen);
   const [libraryPane, setLibraryPane] = useState<"history" | "galleries">("history");
+  const collectionNav = useCollectionView({
+    controls: collectionControls,
+    paneOpen: libraryOpen && libraryPane === "galleries",
+    managingGallery,
+    galleryId,
+    setManagingGallery,
+    setTileDrag: setGalleryTileDrag,
+    attach: (items) => onGalleryAttach(items),
+    afterDelete: (keys) => void dropDeletedFiles(keys),
+  });
   const [peekId, setPeekId] = useState<string | null>(null);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryItems, setLibraryItems] = useState<Generation[]>([]);
@@ -480,11 +491,16 @@ export default function App() {
     setShowSettings(false);
     setPeekId(null);
     setManagingGallery(false);
+    // The phone menu's Galleries entry opens the list, as Library then Galleries does.
+    if (pane === "galleries") collectionNav.onList();
     setLibraryPane(pane);
     setLibraryOpen(true);
   }
 
-  /** The prompt's Gallery button: the same panel, on the gallery last opened or on the list. */
+  /**
+   * The prompt's Gallery button and ⌘⇧G: the same panel, on what was open last there: a gallery,
+   * a collection, or the list.
+   */
   function toggleGalleryPanel() {
     if (libraryOpen && libraryPane === "galleries") {
       closeLibrary();
@@ -495,7 +511,7 @@ export default function App() {
     setSlotsOpen(false);
     setShowSettings(false);
     setPeekId(null);
-    setManagingGallery(Boolean(galleryId));
+    setManagingGallery(collectionNav.resumeGallery && Boolean(galleryId));
     setLibraryPane("galleries");
     setLibraryOpen(true);
   }
@@ -1911,12 +1927,15 @@ export default function App() {
     setGallerySaving(true);
     setGalleryStatus(null);
     try {
+      // Create gallery pressed while a collection was open files the new gallery into it.
+      const fileInto = !galleryId && createGalleryOpen ? collectionNav.createInto : null;
       const saved = await api.saveGallery({
         id: galleryId,
         name,
         handle: galleryHandle,
         takeCount: galleryTake,
         items: galleryPayload(items),
+        ...(fileInto ? { collectionId: fileInto } : {}),
       });
       setGalleryId(saved.gallery.id);
       setGalleryName(saved.gallery.name);
@@ -2002,6 +2021,7 @@ export default function App() {
       return;
     }
     onGalleryNew();
+    collectionNav.beginCreate();
     setCreateGalleryOpen(true);
   }
 
@@ -2126,6 +2146,12 @@ export default function App() {
       setGallerySaving(false);
     }
     showDeleteNotice(deleteOutcome(tallyDelete(scope, [{ ok: true, count: keys.length, reply }])));
+    await dropDeletedFiles(keys);
+    return true;
+  }
+
+  /** Files deleted by stored key leave the open gallery, the library, and the canvas; the cards are read again. */
+  async function dropDeletedFiles(keys: readonly string[]) {
     const gone = new Set(keys);
     changeGallerySet((prev) => prev.filter((item) => !gone.has(item.key)));
     // The same files as library and canvas rows.
@@ -2143,7 +2169,6 @@ export default function App() {
     if (libraryOpen) void refreshLibrary();
     const listed = await api.galleries().catch(() => null);
     if (listed) setGallerySummaries(listed.galleries);
-    return true;
   }
 
   async function onGalleryPlace(input: {
@@ -3634,7 +3659,7 @@ export default function App() {
 
   return (
     <VideoThumbSecondsProvider seconds={settings?.videoThumbSeconds ?? DEFAULT_VIDEO_THUMB_SECONDS}>
-    <div className={`app-shell panel-place-${panelPlace}${libraryOpen ? " library-open" : ""}${slotsOpen ? " slots-open" : ""}${peek ? " has-peek" : ""}${galleryTileDrag ? " is-tile-drag" : ""}${galleryPanelOpen && managingGallery ? " is-gallery-open" : ""}`}>
+    <div className={`app-shell panel-place-${panelPlace}${libraryOpen ? " library-open" : ""}${slotsOpen ? " slots-open" : ""}${peek ? " has-peek" : ""}${galleryTileDrag ? " is-tile-drag" : ""}${galleryPanelOpen && (managingGallery || collectionNav.shown) ? " is-gallery-open" : ""}`}>
       <PanelPlaceProvider place={panelPlace} setPlace={setPanelPlace}>
       <ProjectRail
         open={projectsOpen}
@@ -3691,7 +3716,8 @@ export default function App() {
               setLibraryOpen(true);
             }}
             onOpenGallery={(id) => {
-              setManagingGallery(true);
+              collectionNav.onList();
+              collectionNav.onManagingGallery(true);
               setLibraryPane("galleries");
               setProjectsOpen(false);
               setShowSettings(false);
@@ -3884,8 +3910,11 @@ export default function App() {
         onAddToSlot={addItemsToSlot}
         onCreateSlot={createSlotWithItems}
         collections={collectionControls}
+        collectionView={collectionNav.view}
+        onOpenCollection={collectionNav.onOpen}
+        onShowGalleryList={collectionNav.onList}
         managingGallery={managingGallery}
-        onManagingGallery={setManagingGallery}
+        onManagingGallery={collectionNav.onManagingGallery}
         pane={libraryPane}
         onPaneChange={chooseLibraryPane}
       />
@@ -4129,6 +4158,7 @@ export default function App() {
             galleryOpen={galleryPanelOpen}
             onGalleryToggle={toggleGalleryPanel}
             galleryItems={galleryItems}
+            dragItem={collectionNav.dragAsset}
             onGalleryAttach={attachFromGallery}
             quality={quality}
             onQualityChange={rememberParam(setQuality)}

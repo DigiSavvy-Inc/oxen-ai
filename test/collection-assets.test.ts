@@ -84,6 +84,8 @@ describe("collection asset deletes", () => {
     expect(call).toBe(2);
     expect(tally.failed).toBe(96);
     expect(tally.removed).toBe(4);
+    // The failed batch's files are still in Studio, so they must not be dropped from other views.
+    expect(tally.removedKeys).toEqual(keys(100).slice(96));
     const outcome = deleteOutcome(tally);
     expect(outcome.tone).toBe("warn");
     expect(outcome.text).toContain("Couldn’t delete 96 of 100.");

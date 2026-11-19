@@ -29,6 +29,18 @@ export async function makeGallery(page: Page, name: string, items: Uploaded[]): 
   return (await res.json()).gallery.id;
 }
 
+/** A collection with these galleries filed into it, in this order. */
+export async function makeCollection(page: Page, name: string, galleryIds: string[]): Promise<string> {
+  const res = await page.request.post("/api/collections", { data: { name } });
+  expect(res.ok(), `collection ${name}`).toBe(true);
+  const id: string = (await res.json()).collection.id;
+  for (const galleryId of galleryIds) {
+    const filed = await page.request.put(`/api/galleries/${galleryId}/collection`, { data: { collectionId: id } });
+    expect(filed.ok(), `file ${galleryId} into ${name}`).toBe(true);
+  }
+  return id;
+}
+
 export async function makeSlot(page: Page, name: string, note = ""): Promise<string> {
   const res = await page.request.post("/api/slots", { data: { name, note } });
   expect(res.ok(), `slot ${name}`).toBe(true);

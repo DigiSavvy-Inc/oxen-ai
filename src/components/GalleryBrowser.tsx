@@ -10,7 +10,7 @@ import type { SlotAddItem, SlotAddNotice, SlotChoice } from "../lib/slot-add";
 import { useTileReorder } from "../lib/tile-reorder";
 import type { CollectionControls } from "../lib/use-collections";
 import type { MediaRole } from "../../worker/schema";
-import { CollectionSections, MoveToCollection } from "./CollectionSections";
+import { CollectionSections, MoveToCollection, type MoveOrder } from "./CollectionSections";
 import { DeleteMenu } from "./DeleteMenu";
 import { FullSizeMedia } from "./FullSizeMedia";
 import { GalleryMentionFields } from "./GalleryMentionFields";
@@ -68,6 +68,11 @@ type Props = {
   onCreateSlot: (name: string, items: SlotAddItem[]) => Promise<SlotAddNotice>;
   /** Null until collections are ready: the list then stays exactly as it was before them. */
   collections?: CollectionControls | null;
+  /** Opens a collection from the grouped list. */
+  onOpenCollection?: (id: string) => void;
+  /** The collection this gallery was opened from. Back returns there; Galleries goes to the list. */
+  collectionName?: string | null;
+  onList?: () => void;
 };
 
 export function GalleryBrowser(props: Props) {
@@ -110,7 +115,12 @@ export function GalleryBrowser(props: Props) {
       <div className="gallery-browser" aria-label="Galleries">
         {props.status ? <p className="gallery-status">{props.status}</p> : null}
         {collections ? (
-          <CollectionSections controls={collections} summaries={props.summaries} renderCard={card} />
+          <CollectionSections
+            controls={collections}
+            summaries={props.summaries}
+            renderCard={card}
+            onOpen={props.onOpenCollection}
+          />
         ) : props.summaries.length === 0 ? (
           <div className="history-empty">No galleries yet. Create one, then pick library tiles.</div>
         ) : (
@@ -219,10 +229,32 @@ export function GalleryBrowser(props: Props) {
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      <div className="gallery-manage-head">
-        <button type="button" className="ghost-btn" onClick={props.onBack}>
+      <div className={`gallery-manage-head${props.collectionName ? " has-trail" : ""}`}>
+        <button
+          type="button"
+          className="ghost-btn"
+          onClick={props.collectionName && props.onList ? props.onList : props.onBack}
+        >
           Galleries
         </button>
+        {props.collectionName ? (
+          <>
+            <span className="gallery-trail-sep" aria-hidden="true">
+              /
+            </span>
+            <button
+              type="button"
+              className="ghost-btn gallery-trail"
+              aria-label={`Back to ${props.collectionName}`}
+              onClick={props.onBack}
+            >
+              {props.collectionName}
+            </button>
+            <span className="gallery-trail-sep" aria-hidden="true">
+              /
+            </span>
+          </>
+        ) : null}
         <input
           className="field gallery-name"
           value={props.name}
@@ -523,15 +555,24 @@ export function GalleryBrowser(props: Props) {
   );
 }
 
-function GalleryCard({
+/** A card's place inside an opened collection: its reorder drag, and Move up and Move down. */
+export type GalleryCardTile = {
+  drag: ReturnType<ReturnType<typeof useTileReorder<GallerySummary>>["tile"]>;
+  order: MoveOrder;
+};
+
+export function GalleryCard({
   gallery,
   collections = null,
+  tile,
   onOpen,
   onRename,
   onDelete,
 }: {
   gallery: GallerySummary;
   collections?: CollectionControls | null;
+  /** Inside an opened collection the card drags into a new order instead of into a section. */
+  tile?: GalleryCardTile;
   onOpen: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
@@ -544,10 +585,13 @@ function GalleryCard({
   const featured = count > 4;
 
   const filing = Boolean(collections) && !editing;
+  const tileClass = tile
+    ? ` collection-tile${tile.drag.dragging ? " is-dragging" : ""}${tile.drag.side ? ` is-drop-${tile.drag.side}` : ""}`
+    : "";
 
   return (
     <div
-      className="gallery-card"
+      className={`gallery-card${tileClass}`}
       draggable={filing || undefined}
       onDragStart={
         filing
@@ -558,6 +602,7 @@ function GalleryCard({
             }
           : undefined
       }
+      {...(tile ? tile.drag.handlers : {})}
     >
       <button type="button" className="gallery-card-open" onClick={() => onOpen(gallery.id)}>
         <span className={`gallery-card-mosaic${featured ? " is-featured" : ""}`}>
@@ -639,7 +684,7 @@ function GalleryCard({
                 <PencilIcon />
                 Edit
               </button>
-              {collections ? <MoveToCollection gallery={gallery} controls={collections} /> : null}
+              {collections ? <MoveToCollection gallery={gallery} controls={collections} order={tile?.order} /> : null}
               {confirm ? (
                 <button
                   type="button"

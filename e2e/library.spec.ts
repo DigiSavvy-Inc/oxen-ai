@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { library, makeGallery, makeSlot, openLibrary, slotNamed, uploadTiles } from "./helpers.ts";
+import { library, makeCollection, makeGallery, makeSlot, openLibrary, slotNamed, uploadTiles } from "./helpers.ts";
 
 test("ticked library images go into a slot, once", async ({ page }) => {
   await page.goto("/");
@@ -77,6 +77,91 @@ test("a gallery is filed into a collection from Move to collection, and taken ou
   await expect(again.getByText("No galleries yet. Drag one here.")).toBeVisible();
   await expect(again.getByRole("button", { name: "FileMe", exact: true })).toBeHidden();
   await expect(reopened.getByRole("button", { name: "FileMe", exact: true })).toBeVisible();
+});
+
+test("a collection opens from the list, a gallery opened in it leads back, and ⌘⇧G returns to it", async ({ page }) => {
+  await page.goto("/");
+  const first = await makeGallery(page, "OpenFirst", await uploadTiles(page, "openfirst", 2));
+  const second = await makeGallery(page, "OpenSecond", await uploadTiles(page, "opensecond", 1));
+  await makeCollection(page, "Maya74", [second, first]);
+  const panel = await openLibrary(page);
+  await panel.getByRole("button", { name: "Galleries", exact: true }).click();
+
+  await panel.getByRole("button", { name: "Open Maya74" }).click();
+  const view = panel.getByLabel("Collection", { exact: true });
+  await expect(view.getByRole("textbox", { name: "Collection name" })).toHaveValue("Maya74");
+  await expect(view.getByText("2 galleries, 3 items")).toBeVisible();
+  await expect(view.getByRole("tab", { name: "Galleries" })).toHaveAttribute("aria-selected", "true");
+  // Saved order, not the list's most-recent-first order.
+  const names = view.locator(".collection-tile .gallery-card-name");
+  await expect(names).toHaveText(["OpenSecond", "OpenFirst"]);
+
+  // Move down from the tile's menu, and the order is saved.
+  await view.getByRole("button", { name: "Move OpenSecond to collection" }).click();
+  await page.getByRole("menu", { name: "Move OpenSecond to collection" }).getByRole("menuitem", { name: "Move down" }).click();
+  await expect(names).toHaveText(["OpenFirst", "OpenSecond"]);
+  await expect
+    .poll(async () => {
+      const { collections } = (await (await page.request.get("/api/collections")).json()) as {
+        collections: { name: string; galleryIds: string[] }[];
+      };
+      return collections.find((entry) => entry.name === "Maya74")?.galleryIds;
+    })
+    .toEqual([first, second]);
+
+  // A gallery opened here reads Galleries / Maya74 / the gallery, and Back returns to the collection.
+  await view.getByRole("button", { name: "OpenSecond", exact: true }).click();
+  const gallery = panel.getByLabel("Gallery", { exact: true });
+  await expect(gallery.getByRole("textbox", { name: "Gallery name" })).toHaveValue("OpenSecond");
+  await gallery.getByRole("button", { name: "Back to Maya74" }).click();
+  await expect(view.getByRole("textbox", { name: "Collection name" })).toHaveValue("Maya74");
+
+  // ⌘⇧G closes the panel and reopens it on what was open last: the collection.
+  await page.keyboard.press("ControlOrMeta+Shift+KeyG");
+  await expect(view).toBeHidden();
+  await page.keyboard.press("ControlOrMeta+Shift+KeyG");
+  await expect(library(page).getByLabel("Collection", { exact: true })).toBeVisible();
+
+  // Back to Galleries shows the list again.
+  await view.getByRole("button", { name: "Galleries", exact: true }).click();
+  await expect(panel.getByRole("region", { name: "Maya74" })).toBeVisible();
+});
+
+test("All assets shows each file of a collection once, with the selection bar", async ({ page }) => {
+  await page.goto("/");
+  const shared = await uploadTiles(page, "shared74", 1);
+  const one = await makeGallery(page, "AssetsOne", [...(await uploadTiles(page, "assetsone", 2)), ...shared]);
+  const two = await makeGallery(page, "AssetsTwo", [...shared, ...(await uploadTiles(page, "assetstwo", 1))]);
+  await makeCollection(page, "Assets74", [one, two]);
+  const panel = await openLibrary(page);
+  await panel.getByRole("button", { name: "Galleries", exact: true }).click();
+  await panel.getByRole("region", { name: "Assets74" }).getByRole("button", { name: "Assets74 options" }).click();
+  await page.getByRole("menu", { name: "Assets74 options" }).getByRole("menuitem", { name: "Open" }).click();
+
+  const view = panel.getByLabel("Collection", { exact: true });
+  await view.getByRole("tab", { name: "All assets" }).click();
+  const grid = view.getByLabel("All assets", { exact: true });
+  // The shared file sits in both galleries and shows once.
+  await expect(grid.getByRole("checkbox", { name: /^Select / })).toHaveCount(4);
+  await expect(grid.getByRole("checkbox", { name: "Select shared74-1.png" })).toHaveCount(1);
+
+  await grid.getByRole("radio", { name: "Videos" }).click();
+  await expect(grid.getByText("No videos in this collection.")).toBeVisible();
+  await grid.getByRole("radio", { name: "All" }).click();
+
+  await grid.getByRole("checkbox", { name: "Select assetsone-1.png" }).check();
+  await grid.getByRole("checkbox", { name: "Select assetstwo-1.png" }).check();
+  await expect(grid.getByText("2 selected")).toBeVisible();
+  for (const name of ["Download", "Attach", "Clear", "Add to gallery", "Add to slot", "Delete the selected files"]) {
+    await expect(grid.getByRole("button", { name, exact: true })).toBeVisible();
+  }
+  await grid.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(grid.getByText("2 selected")).toBeHidden();
+
+  // A caption opens the gallery that holds the file, and Back returns to the collection.
+  await grid.getByRole("button", { name: "Open gallery AssetsTwo" }).click();
+  await panel.getByLabel("Gallery", { exact: true }).getByRole("button", { name: "Back to Assets74" }).click();
+  await expect(view).toBeVisible();
 });
 
 test("a slot keeps what fits from an open gallery and says what did not", async ({ page }) => {

@@ -43,7 +43,7 @@ import {
 import { shortenFileName } from "../lib/files";
 import { copyPromptText } from "../lib/clipboard";
 import { prependMissingBindings, referenceBindingText, referenceRoleTitle } from "../lib/reference-roles";
-import { GALLERY_ITEM_DRAG_TYPE, galleryItemsForDrop, isGalleryItemDrag } from "../lib/gallery-attach";
+import { GALLERY_ITEM_DRAG_TYPE, dropCandidates, galleryItemsForDrop, isGalleryItemDrag } from "../lib/gallery-attach";
 import { namePickerChoices, nameSourceLabel, type NameCatalogGallery, type NameHover, type NamePickerChoice } from "../lib/name-mentions";
 import { acceptedMediaKinds, fileAcceptValue, mediaKindPhrase, attachKindCap } from "../lib/library-refs";
 import { aspectCatalog, aspectSelectOptions } from "../lib/params";
@@ -213,6 +213,8 @@ type Props = {
   galleryOpen?: boolean;
   onGalleryToggle?: () => void;
   galleryItems?: GalleryDraftItem[];
+  /** A collection's All assets tile being dragged. A drop names it the way it names an open gallery's tile. */
+  dragItem?: GalleryDraftItem | null;
   onGalleryAttach?: (items?: GalleryDraftItem[], caret?: number | null) => void;
   quality: string;
   onQualityChange: (value: string) => void;
@@ -795,7 +797,7 @@ export function Composer(props: Props) {
     setDragging(false);
     if (kind === "gallery") {
       const id = event.dataTransfer.getData(GALLERY_ITEM_DRAG_TYPE);
-      const picked = galleryItemsForDrop(props.galleryItems ?? [], id);
+      const picked = galleryItemsForDrop(dropCandidates(props.galleryItems, props.dragItem), id);
       if (picked.length !== 1) return;
       props.onGalleryAttach?.(picked, promptCaret());
       return;

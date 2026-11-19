@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef, useState, type DragEvent, type ReactNode, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import type { GallerySummary, StudioCollection } from "../lib/api";
 import {
   COLLECTION_DRAG_TYPE,
@@ -9,6 +9,8 @@ import {
   dragOffers,
   groupGalleries,
 } from "../lib/collections";
+import { menuOpensUp } from "../lib/collection-view";
+import { usePopClose } from "../lib/use-pop-close";
 import type { CollectionControls } from "../lib/use-collections";
 import { GalleryThumb } from "./GalleryThumb";
 import { Loader } from "./Loader";
@@ -17,10 +19,12 @@ type Props = {
   controls: CollectionControls;
   summaries: GallerySummary[];
   renderCard: (gallery: GallerySummary) => ReactNode;
+  /** Opens a collection: its cover, its name, and Open in its menu. */
+  onOpen?: (id: string) => void;
 };
 
 /** The Galleries list grouped by collection, with ungrouped galleries below. */
-export function CollectionSections({ controls, summaries, renderCard }: Props) {
+export function CollectionSections({ controls, summaries, renderCard, onOpen }: Props) {
   const { sections, ungrouped } = groupGalleries(controls.collections, summaries);
   const grouped = sections.length > 0;
   const drop = useDropTarget(null, controls, [GALLERY_CARD_DRAG_TYPE]);
@@ -39,6 +43,7 @@ export function CollectionSections({ controls, summaries, renderCard }: Props) {
           folded={controls.folded.has(section.collection.id)}
           controls={controls}
           renderCard={renderCard}
+          onOpen={onOpen}
         />
       ))}
       <div
@@ -67,6 +72,7 @@ function CollectionSection({
   folded,
   controls,
   renderCard,
+  onOpen,
 }: {
   collection: StudioCollection;
   galleries: GallerySummary[];
@@ -75,6 +81,7 @@ function CollectionSection({
   folded: boolean;
   controls: CollectionControls;
   renderCard: (gallery: GallerySummary) => ReactNode;
+  onOpen?: (id: string) => void;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(collection.name);
@@ -118,11 +125,24 @@ function CollectionSection({
         >
           <ChevronIcon />
         </button>
-        <span className="collection-cover" aria-hidden="true">
-          {coverUrl ? (
-            <GalleryThumb kind={collection.cover?.kind ?? "image"} name={collection.name} preview={coverUrl} slot="strip" />
-          ) : null}
-        </span>
+        {onOpen ? (
+          <button
+            type="button"
+            className="collection-cover collection-open-cover"
+            aria-label={`Open ${collection.name}`}
+            onClick={() => onOpen(collection.id)}
+          >
+            {coverUrl ? (
+              <GalleryThumb kind={collection.cover?.kind ?? "image"} name={collection.name} preview={coverUrl} slot="strip" />
+            ) : null}
+          </button>
+        ) : (
+          <span className="collection-cover" aria-hidden="true">
+            {coverUrl ? (
+              <GalleryThumb kind={collection.cover?.kind ?? "image"} name={collection.name} preview={coverUrl} slot="strip" />
+            ) : null}
+          </span>
+        )}
         {renaming ? (
           <form
             className="collection-rename"
@@ -150,6 +170,11 @@ function CollectionSection({
               Save
             </button>
           </form>
+        ) : onOpen ? (
+          <button type="button" className="collection-title collection-open" onClick={() => onOpen(collection.id)}>
+            <span className="collection-name">{collection.name}</span>
+            <span className="collection-count">{count}</span>
+          </button>
         ) : (
           <span className="collection-title">
             <span className="collection-name">{collection.name}</span>
@@ -160,6 +185,7 @@ function CollectionSection({
           collection={collection}
           first={first}
           last={last}
+          onOpen={onOpen ? () => onOpen(collection.id) : undefined}
           onRename={() => {
             setDraft(collection.name);
             setRenaming(true);
@@ -181,6 +207,7 @@ function CollectionMenu({
   collection,
   first,
   last,
+  onOpen,
   onRename,
   onStep,
   onDelete,
@@ -188,6 +215,7 @@ function CollectionMenu({
   collection: StudioCollection;
   first: boolean;
   last: boolean;
+  onOpen?: () => void;
   onRename: () => void;
   onStep: (step: -1 | 1) => void;
   onDelete: () => Promise<boolean>;
@@ -222,6 +250,19 @@ function CollectionMenu({
       </button>
       {open ? (
         <div className="collection-menu-pop history-gallery-pop" role="menu" aria-label={`${collection.name} options`}>
+          {onOpen ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="history-gallery-choice"
+              onClick={() => {
+                close();
+                onOpen();
+              }}
+            >
+              Open
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"
@@ -357,19 +398,57 @@ function NewCollectionRow({ onCreate }: { onCreate: (name: string) => Promise<St
   );
 }
 
-/** Move to collection on a gallery card: each collection, New collection, and No collection. */
-export function MoveToCollection({ gallery, controls }: { gallery: GallerySummary; controls: CollectionControls }) {
+/** Move up and Move down for a tile inside an opened collection. */
+export type MoveOrder = { first: boolean; last: boolean; onStep: (step: -1 | 1) => void };
+
+/**
+ * Move to collection on a gallery card: each collection, New collection, and No collection.
+ * Inside an opened collection it also has Move up and Move down, and No collection reads
+ * Remove from collection, so every desktop drag has a menu path on a phone.
+ */
+export function MoveToCollection({
+  gallery,
+  controls,
+  order,
+}: {
+  gallery: GallerySummary;
+  controls: CollectionControls;
+  order?: MoveOrder;
+}) {
   const [open, setOpen] = useState(false);
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
   const [pending, setPending] = useState<string | null>(null);
+  const [above, setAbove] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
   const current = gallery.collectionId ?? null;
   const label = `Move ${gallery.name} to collection`;
   usePopClose(open, ref, () => {
     setOpen(false);
     setNaming(false);
   });
+
+  // The last card's menu would hang past the bottom of the panel, so it opens upward then.
+  useLayoutEffect(() => {
+    const pop = popRef.current;
+    if (!open || !pop) {
+      setAbove(false);
+      return;
+    }
+    const anchor = (pop.offsetParent ?? pop.parentElement)?.getBoundingClientRect();
+    if (!anchor) return;
+    const panel = pop.closest(".sidebar")?.getBoundingClientRect();
+    setAbove(
+      menuOpensUp({
+        anchorTop: anchor.top,
+        anchorBottom: anchor.bottom,
+        menuHeight: pop.offsetHeight,
+        boundsTop: Math.max(0, panel?.top ?? 0),
+        boundsBottom: Math.min(window.innerHeight, panel?.bottom ?? window.innerHeight),
+      }),
+    );
+  }, [open]);
 
   async function file(target: string | null) {
     if (pending) return;
@@ -407,7 +486,40 @@ export function MoveToCollection({ gallery, controls }: { gallery: GallerySummar
         Move
       </button>
       {open ? (
-        <div className="collection-move-pop history-gallery-pop" role="menu" aria-label={label}>
+        <div
+          ref={popRef}
+          className={`collection-move-pop history-gallery-pop${above ? " is-above" : ""}`}
+          role="menu"
+          aria-label={label}
+        >
+          {order ? (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className="history-gallery-choice"
+                disabled={order.first || Boolean(pending)}
+                onClick={() => {
+                  setOpen(false);
+                  order.onStep(-1);
+                }}
+              >
+                Move up
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="history-gallery-choice"
+                disabled={order.last || Boolean(pending)}
+                onClick={() => {
+                  setOpen(false);
+                  order.onStep(1);
+                }}
+              >
+                Move down
+              </button>
+            </>
+          ) : null}
           <div className="history-gallery-choices">
             {controls.collections.map((collection) => {
               const here = collection.id === current;
@@ -466,7 +578,7 @@ export function MoveToCollection({ gallery, controls }: { gallery: GallerySummar
             disabled={current === null || Boolean(pending)}
             onClick={() => void file(null)}
           >
-            <span className="history-gallery-choice-name">No collection</span>
+            <span className="history-gallery-choice-name">{order ? "Remove from collection" : "No collection"}</span>
             {pending === "none" ? <Loader size="sm" /> : null}
           </button>
         </div>
@@ -507,29 +619,6 @@ function useDropTarget(target: string | null, controls: CollectionControls, type
       },
     },
   };
-}
-
-/** Closes a small menu on a press outside it or on Escape. */
-function usePopClose(open: boolean, ref: RefObject<HTMLElement | null>, close: () => void) {
-  const onClose = useEffectEvent(close);
-  useEffect(() => {
-    if (!open) return;
-    function onPointer(event: PointerEvent) {
-      if (!ref.current?.contains(event.target as Node)) onClose();
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      onClose();
-    }
-    window.addEventListener("pointerdown", onPointer);
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("pointerdown", onPointer);
-      window.removeEventListener("keydown", onKey, true);
-    };
-  }, [open, ref]);
 }
 
 function ChevronIcon() {
