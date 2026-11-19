@@ -32,7 +32,7 @@ Authorization: Bearer dss_...
 
 ## Choose a profile
 
-By default a token works in your active profile. To use another one for a single request, send its id:
+A token request always works in one profile: your active profile by default. Items on your other profiles answer `404` by id. To use another one for a single request, send its id:
 
 ```
 X-Studio-Profile: <profile id from GET /api/profiles>

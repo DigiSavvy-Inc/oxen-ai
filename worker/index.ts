@@ -370,7 +370,8 @@ app.use("/api/*", async (c, next) => {
   c.set("user", result.user);
   c.set("sessionUser", toSessionUser(result.user, c.env));
   c.set("apiToken", result.token);
-  c.set("profileOverride", requested || undefined);
+  // A token always works in exactly one profile: the one it named, or else the active one.
+  c.set("profileOverride", requested || ((await ensureDefaultProfile(c.env.DB, result.user.id)) ?? undefined));
   await next();
 });
 
@@ -410,10 +411,10 @@ async function requestProfile(
 }
 
 /**
- * True when a token request named a profile with X-Studio-Profile and this row is on another
- * one. Routes that look a row up by id answer "not found" then, so a token working in one
- * profile can neither read nor change another profile's galleries, projects, or generations.
- * Cookie requests and tokens without the header are unchanged.
+ * True when this is a token request and the row is on a profile other than the one the token
+ * is working in (X-Studio-Profile, or the active profile without it). Routes that look a row
+ * up by id answer "not found" then, so a token can neither read nor change another profile's
+ * galleries, projects, or generations. Cookie requests are unchanged.
  */
 function outsideRequestProfile(
   c: Context<{ Bindings: Env; Variables: Variables }>,

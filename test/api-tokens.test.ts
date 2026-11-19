@@ -527,7 +527,23 @@ describe("X-Studio-Profile on routes that take an id", () => {
     expect(raw.prepare(`SELECT COUNT(*) AS n FROM generation_tags`).get()).toMatchObject({ n: 0 });
   });
 
-  it("reaches the same rows when the header names their profile, and without the header", async () => {
+  it("without the header, is held to the active profile and cannot reach another one by id", async () => {
+    const { raw, env, token } = await seeded();
+    // The browser switches the account to the other profile. The rows stay on the first one.
+    const switched = await call(env, `/api/profiles/${OTHER_PROFILE}/activate`, { method: "POST", headers: cookie() });
+    expect(switched.status).toBe(200);
+    for (const [method, path, body] of requests) {
+      const res = await call(env, path, { method, headers: bearer(token), body });
+      expect(res.status, `${method} ${path}`).toBe(404);
+    }
+    expect(raw.prepare(`SELECT name FROM galleries WHERE id = 'g-personal'`).get()).toMatchObject({
+      name: "Personal set",
+    });
+    // The browser session itself still reaches them, as before.
+    expect((await call(env, "/api/galleries/g-personal", { headers: cookie() })).status).toBe(200);
+  });
+
+  it("reaches the same rows when the header names their profile, and when that profile is active", async () => {
     const { env, token } = await seeded();
     for (const headers of [bearer(token, { "X-Studio-Profile": PROFILE }), bearer(token), cookie()]) {
       expect((await call(env, "/api/galleries/g-personal", { headers })).status).toBe(200);
