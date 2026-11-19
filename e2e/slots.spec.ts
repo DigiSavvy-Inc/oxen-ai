@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { makeGallery, makeSlot, openSlots, slotNamed, slotRow, uploadTiles } from "./helpers.ts";
 
 test("slots are one-line rows, and only one is open at a time", async ({ page }) => {
@@ -86,4 +88,46 @@ test("a slot takes two images out of a larger gallery, or the whole gallery", as
     galleryId: null,
     files: [{ name: "pick-1.png" }],
   });
+});
+
+test("a file dragged over a slot shows where it will go, and a dropped voice is a full row you can play", async ({ page }) => {
+  await page.goto("/");
+  const id = await makeSlot(page, "GrantVoice");
+  await openSlots(page);
+  const card = page.locator(`#slot-card-${id}`);
+  const tone = readFileSync(join(import.meta.dirname, "fixtures", "tone.mp3")).toString("base64");
+
+  const drag = (types: string[]) =>
+    card.evaluate(
+      (node, input) => {
+        // The test project is typed for Node, so the two browser classes are named here.
+        type Clip = { items: { add(file: File): void } };
+        const browser = globalThis as unknown as {
+          DataTransfer: new () => Clip;
+          DragEvent: new (type: string, init: object) => Event;
+        };
+        const data = new browser.DataTransfer();
+        const bytes = Uint8Array.from(atob(input.tone), (char) => char.charCodeAt(0));
+        data.items.add(new File([bytes], "grant-voice-take-2-final.mp3", { type: "audio/mpeg" }));
+        for (const type of input.types) {
+          node.dispatchEvent(new browser.DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
+        }
+      },
+      { tone, types },
+    );
+
+  await drag(["dragover"]);
+  await expect(card.getByText("Drop to add to GrantVoice")).toBeVisible();
+  await drag(["drop"]);
+  await expect(card.getByText("Drop to add to GrantVoice")).toBeHidden();
+  await expect.poll(async () => (await slotNamed(page, "GrantVoice")).files.length).toBe(1);
+
+  // The whole file name shows, not a clipped tile, and the voice can be played in place.
+  const row = slotRow(page, "GrantVoice");
+  if ((await row.getAttribute("aria-expanded")) !== "true") await row.click();
+  await expect(card.getByText("grant-voice-take-2-final.mp3", { exact: true })).toBeVisible();
+  await card.getByRole("button", { name: "Play grant-voice-take-2-final.mp3" }).click();
+  await expect(card.locator("audio")).toBeVisible();
+  await card.getByRole("button", { name: "Stop grant-voice-take-2-final.mp3" }).click();
+  await expect(card.locator("audio")).toHaveCount(0);
 });

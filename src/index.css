@@ -6088,8 +6088,100 @@ select.attach-role {
   padding-top: 4px;
 }
 
+.slot-card {
+  position: relative;
+}
+
 .slot-card.is-drop {
-  border-color: var(--border-strong);
+  border-color: var(--text);
+  border-style: dashed;
+}
+
+/* Covers the card while a file is over it, so it is plain where the drop will go. */
+.slot-drop-zone {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--bg-panel) 88%, transparent);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.slot-adding {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.slot-audio-mark {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-muted);
+}
+
+/* An audio file is one full-width row: play, the whole name, a label, and remove. */
+.slot-file.is-audio {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--neutral-1);
+}
+
+.slot-file.is-audio .slot-audio-play {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #1f6b4a;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.slot-file.is-audio .slot-audio-play:disabled {
+  opacity: 0.4;
+}
+
+.slot-audio-name {
+  flex: 1 1 120px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.slot-file.is-audio .field {
+  flex: 0 1 140px;
+  min-width: 0;
+}
+
+.slot-file.is-audio .gallery-remove {
+  position: static;
+  flex: 0 0 auto;
+}
+
+.slot-audio-player {
+  order: 5;
+  flex: 1 0 100%;
+  width: 100%;
+  height: 32px;
 }
 
 .slot-scope,

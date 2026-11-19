@@ -322,6 +322,7 @@ export default function App() {
   const [slotsOpen, setSlotsOpen] = useState(false);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsNotice, setSlotsNotice] = useState<string | null>(null);
+  const [slotAddingId, setSlotAddingId] = useState<string | null>(null);
   const [panelPlace, setPanelPlace] = useState<PanelPlace>(readPanelPlace);
   const [managingGallery, setManagingGallery] = useState(false);
   const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
@@ -3016,9 +3017,11 @@ export default function App() {
   }
 
   function dropSlotFiles(id: string, files: File[]) {
+    setSlotAddingId(id);
     void uploadSlotFiles(files)
       .then((uploaded) => addSlotFiles(id, uploaded))
-      .catch((err) => slotError(err, "Couldn’t add those files"));
+      .catch((err) => slotError(err, "Couldn’t add those files"))
+      .finally(() => setSlotAddingId((current) => (current === id ? null : current)));
   }
 
   function dropSlotHistory(id: string, ids: string[]) {
@@ -3832,6 +3835,7 @@ export default function App() {
           onSaveProjectGallery={saveProjectSlotGallery}
           onInsert={insertSlotHandle}
           onDropFiles={dropSlotFiles}
+          addingId={slotAddingId}
           onDropHistory={dropSlotHistory}
         />
       {slotsOpen ? (

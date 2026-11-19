@@ -50,6 +50,8 @@ type Props = {
   onInsert: (handle: string) => void;
   onDropFiles: (id: string, files: File[]) => void;
   onDropHistory: (id: string, ids: string[]) => void;
+  /** The slot whose dropped files are still uploading. */
+  addingId?: string | null;
 };
 
 const SLOT_FILTERS: { id: SlotListFilter; label: string }[] = [
@@ -254,6 +256,7 @@ function cardProps(props: Props, onPick: (id: string) => void, openId: string | 
     onInsert: props.onInsert,
     onDropFiles: props.onDropFiles,
     onDropHistory: props.onDropHistory,
+    addingId: props.addingId ?? null,
   };
 }
 
@@ -309,11 +312,29 @@ function SlotGroup(
               onInsert={props.onInsert}
               onDropFiles={props.onDropFiles}
               onDropHistory={props.onDropHistory}
+              addingId={props.addingId}
             />
           ))}
         </div>
       ))}
     </section>
+  );
+}
+
+/** A small waveform, so an audio slot reads as audio instead of a clipped file name. */
+function AudioMark() {
+  return (
+    <span className="slot-audio-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22">
+        <path
+          d="M4 10v4M8 7v10M12 4v16M16 8v8M20 10.5v3"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+      </svg>
+    </span>
   );
 }
 
@@ -348,6 +369,8 @@ function SlotCard(
     },
   });
   const [over, setOver] = useState(false);
+  const [playingKey, setPlayingKey] = useState<string | null>(null);
+  const adding = props.addingId === slot.id;
   const spare = props.attached.filter((file) => file.key && !slot.files.some((item) => item.key === file.key));
 
   function onDragOver(event: DragEvent) {
@@ -379,9 +402,24 @@ function SlotCard(
       id={`slot-card-${slot.id}`}
       className={`slot-card${open ? " is-open" : ""}${over ? " is-drop" : ""}`}
       onDragOver={onDragOver}
-      onDragLeave={() => setOver(false)}
+      onDragLeave={(event) => {
+        // Moving between the card's own children is not leaving it.
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        setOver(false);
+      }}
       onDrop={onDrop}
     >
+      {over ? (
+        <div className="slot-drop-zone" aria-hidden="true">
+          <span>Drop to add to {slot.name}</span>
+        </div>
+      ) : null}
+      {adding ? (
+        <div className="slot-adding" role="status">
+          <Loader size="sm" label={`Adding to ${slot.name}…`} />
+          <span>Adding to {slot.name}…</span>
+        </div>
+      ) : null}
       <div className="slot-row">
         <button
           type="button"
@@ -391,7 +429,9 @@ function SlotCard(
           onClick={() => props.onToggle(slot.id)}
         >
           <span className="slot-pick-thumb slot-row-thumb">
-            {cover ? (
+            {cover?.kind === "audio" ? (
+              <AudioMark />
+            ) : cover ? (
               <GalleryThumb kind={cover.kind} name={cover.name} preview={cover.thumbUrl || cover.url || ""} slot="strip" />
             ) : (
               <span className="slot-row-mark" aria-hidden="true">
@@ -465,13 +505,41 @@ function SlotCard(
       <div className="slot-files" {...reorder.set}>
         {slot.files.map((file, index) => {
           const drag = reorder.tile(index, file);
+          const audio = file.kind === "audio";
           return (
             <div
               key={file.id}
-              className={`slot-file${drag.dragging ? " is-dragging" : ""}${drag.side ? ` is-drop-${drag.side}` : ""}`}
+              className={`slot-file${audio ? " is-audio" : ""}${drag.dragging ? " is-dragging" : ""}${drag.side ? ` is-drop-${drag.side}` : ""}`}
               {...drag.handlers}
             >
-              <GalleryThumb kind={file.kind} name={file.name} preview={file.thumbUrl || file.url || ""} slot="tile" />
+              {audio ? (
+                <>
+                  <button
+                    type="button"
+                    className="icon-btn slot-audio-play"
+                    aria-label={playingKey === file.key ? `Stop ${file.name}` : `Play ${file.name}`}
+                    aria-pressed={playingKey === file.key}
+                    disabled={!file.url}
+                    onClick={() => setPlayingKey((current) => (current === file.key ? null : file.key))}
+                  >
+                    {playingKey === file.key ? "■" : "▶"}
+                  </button>
+                  <span className="slot-audio-name" title={file.name}>
+                    {file.name}
+                  </span>
+                  {playingKey === file.key && file.url ? (
+                    <audio
+                      className="slot-audio-player"
+                      src={file.url}
+                      controls
+                      autoPlay
+                      onEnded={() => setPlayingKey(null)}
+                    />
+                  ) : null}
+                </>
+              ) : (
+                <GalleryThumb kind={file.kind} name={file.name} preview={file.thumbUrl || file.url || ""} slot="tile" />
+              )}
               {linked ? (
                 file.label ? <span className="slot-label-read">{file.label}</span> : null
               ) : (
