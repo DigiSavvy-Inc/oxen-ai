@@ -516,6 +516,17 @@ export function slotRequired(
   return false;
 }
 
+/** A personal API token as listed in Settings. Never carries the token itself. */
+export type ApiToken = {
+  id: string;
+  name: string;
+  prefix: string;
+  dailyCapUsd: number;
+  spentTodayUsd: number;
+  createdAt: number;
+  lastUsedAt: number | null;
+};
+
 async function parseJson<T>(res: Response): Promise<T> {
   const data = (await res.json()) as T & { error?: string };
   if (!res.ok) {
@@ -1011,6 +1022,19 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ endpoint }),
     }).then((r) => parseJson<{ ok: boolean }>(r)),
+  apiTokens: () =>
+    fetch("/api/settings/tokens").then((r) => parseJson<{ tokens: ApiToken[]; ready: boolean }>(r)),
+  /** The response carries the full token. It is shown once and never fetched again. */
+  createApiToken: (name: string, dailyCapUsd: number) =>
+    fetch("/api/settings/tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, dailyCapUsd }),
+    }).then((r) => parseJson<{ token: string; item: ApiToken }>(r)),
+  revokeApiToken: (id: string) =>
+    fetch(`/api/settings/tokens/${encodeURIComponent(id)}`, { method: "DELETE" }).then((r) =>
+      parseJson<{ ok: boolean }>(r),
+    ),
   allowlist: () =>
     fetch("/api/admin/allowlist").then((r) =>
       parseJson<{

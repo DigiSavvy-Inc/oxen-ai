@@ -5767,6 +5767,33 @@ select.attach-role {
   font-size: 12px;
 }
 
+.token-meta {
+  display: block;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.token-revoke {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.token-reveal {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.token-reveal p {
+  margin: 6px 0 8px;
+}
+
+.token-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .loading-screen {
   height: 100%;
   display: grid;

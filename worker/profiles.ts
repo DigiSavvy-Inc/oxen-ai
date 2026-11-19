@@ -217,6 +217,20 @@ export async function ensureDefaultProfile(db: D1Database, userId: string): Prom
   return chosen;
 }
 
+/** True when `profileId` is one of this account's profiles. False before the profiles migration. */
+export async function ownsProfile(db: D1Database, userId: string, profileId: string): Promise<boolean> {
+  try {
+    const row = await db
+      .prepare(`SELECT id FROM profiles WHERE id = ? AND user_id = ?`)
+      .bind(profileId, userId)
+      .first<{ id: string }>();
+    return Boolean(row);
+  } catch (err) {
+    if (!missingProfileStorage(err)) throw err;
+    return false;
+  }
+}
+
 export async function profileState(db: D1Database, userId: string): Promise<ProfileState> {
   const activeId = await ensureDefaultProfile(db, userId);
   if (!activeId) return { profiles: [], activeId: null };

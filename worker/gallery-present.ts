@@ -126,8 +126,10 @@ export async function presentGalleryList(
   env: Env,
   userId: string,
   query: string,
+  /** Defaults to the account's active profile. */
+  profile?: string | null,
 ): Promise<GalleryCardJson[]> {
-  const profileId = await ensureDefaultProfile(env.DB, userId);
+  const profileId = profile === undefined ? await ensureDefaultProfile(env.DB, userId) : profile;
   const galleries = await listGalleries(env.DB, userId, query, profileId);
   const loaded = await Promise.all(
     galleries.map(async (gallery) => {

@@ -4,12 +4,15 @@ import {
   ALL_MODES,
   MODE_LABELS,
   api,
+  type ApiToken,
   type GenerationMode,
   type OxenModel,
   type InstanceBranding,
   type StudioSettings,
 } from "../lib/api";
 import { brandMarkClass, DEFAULT_LOGO_URL, DEFAULT_SITE_NAME } from "../lib/branding";
+import { copyText } from "../lib/clipboard";
+import { timeAgo } from "../lib/time-ago";
 import { oxenFilesNote } from "../lib/media-delete";
 import { defaultModelChoices, modelLabel } from "../lib/model-menu";
 import { MODE_ICON_LABELS, modelModes } from "../lib/mode-icons";
@@ -39,7 +42,15 @@ type AllowRow = {
   created_at: number;
 };
 
-type SettingsPane = "api-key" | "models" | "library" | "notifications" | "cleanup" | "branding" | "allowlist";
+type SettingsPane =
+  | "api-key"
+  | "api-tokens"
+  | "models"
+  | "library"
+  | "notifications"
+  | "cleanup"
+  | "branding"
+  | "allowlist";
 type CleanupAction = "failed" | "thumbs" | "all";
 
 function cleanupWaitLabel(action: CleanupAction): string {
@@ -132,6 +143,64 @@ export function SettingsModal({
   const [brandBusy, setBrandBusy] = useState(false);
   const [brandMessage, setBrandMessage] = useState<string | null>(null);
   const [brandError, setBrandError] = useState<string | null>(null);
+  const [tokens, setTokens] = useState<ApiToken[]>([]);
+  const [tokensReady, setTokensReady] = useState(true);
+  const [tokenName, setTokenName] = useState("");
+  const [tokenCap, setTokenCap] = useState("5");
+  const [tokenBusy, setTokenBusy] = useState(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [newToken, setNewToken] = useState<{ name: string; token: string } | null>(null);
+  const [tokenCopied, setTokenCopied] = useState(false);
+  const [revokeConfirm, setRevokeConfirm] = useState<string | null>(null);
+
+  async function loadTokens() {
+    const data = await api.apiTokens();
+    setTokens(data.tokens);
+    setTokensReady(data.ready);
+  }
+
+  useEffect(() => {
+    if (pane !== "api-tokens") return;
+    void loadTokens().catch((err) =>
+      setTokenError(err instanceof Error ? err.message : "Failed to load tokens"),
+    );
+  }, [pane]);
+
+  async function createApiToken() {
+    setTokenBusy(true);
+    setTokenError(null);
+    try {
+      const created = await api.createApiToken(tokenName.trim(), Number(tokenCap));
+      setNewToken({ name: created.item.name, token: created.token });
+      setTokenCopied(false);
+      setTokenName("");
+      await loadTokens();
+    } catch (err) {
+      setTokenError(err instanceof Error ? err.message : "Failed to create token");
+    } finally {
+      setTokenBusy(false);
+    }
+  }
+
+  async function copyNewToken() {
+    if (!newToken) return;
+    setTokenCopied(await copyText(newToken.token));
+  }
+
+  async function revokeApiToken(id: string) {
+    setTokenBusy(true);
+    setTokenError(null);
+    try {
+      await api.revokeApiToken(id);
+      setRevokeConfirm(null);
+      await loadTokens();
+    } catch (err) {
+      setTokenError(err instanceof Error ? err.message : "Failed to revoke token");
+    } finally {
+      setTokenBusy(false);
+    }
+  }
+
   async function loadAllowlist() {
     const data = await api.allowlist();
     setOrg(data.org);
@@ -248,6 +317,10 @@ export function SettingsModal({
   function selectPane(next: SettingsPane) {
     setPane(next);
     if (next !== "cleanup") setNukeConfirm(false);
+    if (next !== "api-tokens") {
+      setRevokeConfirm(null);
+      setNewToken(null);
+    }
   }
 
   async function save() {
@@ -899,6 +972,128 @@ export function SettingsModal({
           </>
         );
       }
+      case "api-tokens": {
+        const capValue = Number(tokenCap);
+        const capValid = Number.isFinite(capValue) && capValue >= 0.5 && capValue <= 500;
+        return (
+          <>
+            <h3>API tokens</h3>
+            <p>
+              A token lets a script or an agent use the Studio API as you: generate, read your
+              library, and organise galleries, slots, and collections. It cannot change settings
+              or delete anything. Each token has a daily dollar cap; the day is UTC.
+            </p>
+            {!tokensReady ? <p className="settings-bad">API tokens are not available yet.</p> : null}
+            {newToken ? (
+              <div className="token-reveal">
+                <label htmlFor="new-token">New token: {newToken.name}</label>
+                <div className="allow-add">
+                  <input
+                    id="new-token"
+                    className="field token-value"
+                    readOnly
+                    value={newToken.token}
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    style={{ marginLeft: 0 }}
+                    onClick={() => void copyNewToken()}
+                  >
+                    {tokenCopied ? "Copied" : "Copy"}
+                  </button>
+                </div>
+                <p>This is the only time it is shown.</p>
+                <button type="button" className="ghost-btn" onClick={() => setNewToken(null)}>
+                  Done
+                </button>
+              </div>
+            ) : null}
+            <div className="allow-list" aria-label="API tokens">
+              {tokens.length === 0 ? (
+                <div className="history-empty" style={{ margin: 0 }}>
+                  No tokens yet.
+                </div>
+              ) : (
+                tokens.map((token) => (
+                  <div className="allow-row token-row" key={token.id}>
+                    <span>
+                      <strong>{token.name}</strong> <code>{token.prefix}…</code>
+                      <span className="token-meta">
+                        ${token.dailyCapUsd.toFixed(2)} a day · ${token.spentTodayUsd.toFixed(2)} spent today ·{" "}
+                        {token.lastUsedAt ? `used ${timeAgo(token.lastUsedAt)}` : "never used"}
+                      </span>
+                    </span>
+                    {revokeConfirm === token.id ? (
+                      <span className="token-revoke">
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          disabled={tokenBusy}
+                          onClick={() => setRevokeConfirm(null)}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost-btn danger-btn"
+                          disabled={tokenBusy}
+                          onClick={() => void revokeApiToken(token.id)}
+                        >
+                          Yes, revoke
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="ghost-btn danger-btn"
+                        disabled={tokenBusy}
+                        onClick={() => setRevokeConfirm(token.id)}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+            <label htmlFor="token-name">Name</label>
+            <input
+              id="token-name"
+              className="field"
+              placeholder="Render agent"
+              maxLength={60}
+              value={tokenName}
+              onChange={(e) => setTokenName(e.target.value)}
+            />
+            <label htmlFor="token-cap">Daily cap (USD, 0.50 to 500)</label>
+            <div className="allow-add">
+              <input
+                id="token-cap"
+                className="field"
+                type="number"
+                min={0.5}
+                max={500}
+                step={0.5}
+                value={tokenCap}
+                onChange={(e) => setTokenCap(e.target.value)}
+              />
+              <button
+                type="button"
+                className="primary-btn"
+                style={{ marginLeft: 0 }}
+                disabled={tokenBusy || !tokensReady || !tokenName.trim() || !capValid}
+                onClick={() => void createApiToken()}
+              >
+                Create
+              </button>
+            </div>
+            {tokenError ? <p className="settings-bad">{tokenError}</p> : null}
+            {tokenBusy ? <StatusWait label="Updating tokens" /> : null}
+          </>
+        );
+      }
       case "allowlist":
         return (
           <>
@@ -985,6 +1180,13 @@ export function SettingsModal({
               onClick={() => selectPane("api-key")}
             >
               API key
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-btn${pane === "api-tokens" ? " active" : ""}`}
+              onClick={() => selectPane("api-tokens")}
+            >
+              API tokens
             </button>
             <button
               type="button"

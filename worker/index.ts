@@ -45,6 +45,27 @@ import {
 } from "./qa-login";
 import { creditBalanceResponse, fetchOxenCredits, OXEN_BILLING_URL } from "./credits";
 import {
+  authenticateBearer,
+  capExceededMessage,
+  costCents,
+  createToken,
+  listTokens,
+  releaseSpend,
+  reserveSpend,
+  revokeToken,
+  spentTodayCents,
+  tokenSummary,
+  utcDay,
+  TOKEN_CAP_MAX_USD,
+  TOKEN_CAP_MIN_USD,
+  TOKEN_MAX_LIVE,
+  TOKEN_NAME_MAX,
+  type ApiTokenFailure,
+  type SignedInToken,
+} from "./api-tokens";
+import { TOKEN_SCOPE_DENIED, tokenMayCall } from "./api-scope";
+import { estimateGenerationCost } from "./pricing";
+import {
   buildReferenceMediaUrl,
   displayStoredMediaUrl,
   guessMediaContentType,
@@ -204,6 +225,7 @@ import {
   createProfile,
   deleteProfile,
   ensureDefaultProfile,
+  ownsProfile,
   profileState,
   renameProfile,
   stampGenerationProfile,
@@ -251,6 +273,10 @@ import {
 type Variables = {
   user: UserRow;
   sessionUser: SessionUser;
+  /** Set only for a request signed in with an API token. */
+  apiToken: SignedInToken | undefined;
+  /** The X-Studio-Profile a token request chose, already checked against the owner. */
+  profileOverride: string | undefined;
 };
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -310,13 +336,48 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
-async function requireUser(c: {
-  req: { header: (name: string) => string | undefined };
-  env: Env;
-  set: (key: "user" | "sessionUser", value: unknown) => void;
-}): Promise<UserRow> {
+/** Header a token request may send to work in one of the owner's profiles for that request. */
+const PROFILE_HEADER = "X-Studio-Profile";
+
+/** The token from `Authorization: Bearer …`, or null when there is no bearer header. */
+function bearerToken(header: string | undefined): string | null {
+  const match = header?.match(/^Bearer(?:\s+(\S*))?\s*$/i);
+  return match ? (match[1] ?? "") : null;
+}
+
+// API tokens (#78). A token is read only when there is no session cookie, so a cookie always
+// wins. A signed-in token request is checked against worker/api-scope.ts here, once, before
+// any route runs.
+app.use("/api/*", async (c, next) => {
+  const presented = bearerToken(c.req.header("Authorization"));
+  if (presented === null || getSessionId(c.req.header("Cookie"))) {
+    await next();
+    return;
+  }
+  const ip = c.req.header("CF-Connecting-IP")?.trim() || "unknown";
+  const result = await authenticateBearer(c.env, presented, ip);
+  if (!result.ok) {
+    throw new HTTPException(result.status, { message: result.message });
+  }
+  if (!tokenMayCall(c.req.method, c.req.path)) {
+    throw new HTTPException(403, { message: TOKEN_SCOPE_DENIED });
+  }
+  const requested = c.req.header(PROFILE_HEADER)?.trim();
+  if (requested && !(await ownsProfile(c.env.DB, result.user.id, requested))) {
+    throw new HTTPException(400, { message: "Profile not found" });
+  }
+  c.set("user", result.user);
+  c.set("sessionUser", toSessionUser(result.user, c.env));
+  c.set("apiToken", result.token);
+  c.set("profileOverride", requested || undefined);
+  await next();
+});
+
+async function requireUser(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<UserRow> {
   const sessionId = getSessionId(c.req.header("Cookie"));
   if (!sessionId) {
+    // Signed in by the token middleware above, which runs only when there is no cookie.
+    if (c.get("apiToken")) return c.get("user");
     throw new HTTPException(401, { message: "Unauthorized" });
   }
   const user = await loadAuthorizedUser(c.env, sessionId);
@@ -326,6 +387,25 @@ async function requireUser(c: {
   c.set("user", user);
   c.set("sessionUser", toSessionUser(user, c.env));
   return user;
+}
+
+/** A browser session only: an API token can never reach routes that manage tokens. */
+async function requireSessionUser(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<UserRow> {
+  if (c.get("apiToken")) {
+    throw new HTTPException(403, { message: TOKEN_SCOPE_DENIED });
+  }
+  return requireUser(c);
+}
+
+/**
+ * The profile this request works in: the X-Studio-Profile a token request named, or else the
+ * account's active profile. Never changes the active profile.
+ */
+async function requestProfile(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  user: UserRow,
+): Promise<string | null> {
+  return c.get("profileOverride") ?? ensureDefaultProfile(c.env.DB, user.id);
 }
 
 function requireAdmin(sessionUser: SessionUser) {
@@ -1038,16 +1118,65 @@ app.get("/api/auth/me", async (c) => {
   try {
     const user = await requireUser(c);
     const sessionUser = c.get("sessionUser");
+    const apiToken = c.get("apiToken");
+    // A token request learns its own name, cap, and spend. Never the Oxen key.
+    const token = apiToken ? { token: await tokenSummary(c.env.DB, apiToken) } : {};
     if (sessionUser.hasOxenKey) {
       const { unreadable } = await readOxenKey(user, c.env.ENCRYPTION_KEY);
       if (unreadable) {
-        return c.json({ user: { ...sessionUser, hasOxenKey: false, oxenKeyUnreadable: true } });
+        return c.json({ user: { ...sessionUser, hasOxenKey: false, oxenKeyUnreadable: true }, ...token });
       }
     }
-    return c.json({ user: sessionUser });
+    return c.json({ user: sessionUser, ...token });
   } catch {
     return c.json({ user: null });
   }
+});
+
+function tokenError(error: ApiTokenFailure): never {
+  switch (error) {
+    case "name":
+      throw new HTTPException(400, { message: `A token needs a name of up to ${TOKEN_NAME_MAX} characters` });
+    case "cap":
+      throw new HTTPException(400, {
+        message: `Set a daily cap from $${TOKEN_CAP_MIN_USD.toFixed(2)} to $${TOKEN_CAP_MAX_USD}`,
+      });
+    case "limit":
+      throw new HTTPException(400, {
+        message: `You can have ${TOKEN_MAX_LIVE} tokens. Revoke one to make another.`,
+      });
+    case "unavailable":
+      throw new HTTPException(400, { message: "API tokens are not available yet" });
+    default: {
+      const _never: never = error;
+      return _never;
+    }
+  }
+}
+
+// Token management is for the browser only: a token can never list, create, or revoke tokens.
+app.get("/api/settings/tokens", async (c) => {
+  const user = await requireSessionUser(c);
+  return c.json(await listTokens(c.env.DB, user.id));
+});
+
+app.post("/api/settings/tokens", async (c) => {
+  const user = await requireSessionUser(c);
+  const body = await c.req
+    .json<{ name?: unknown; dailyCapUsd?: unknown }>()
+    .catch((): { name?: unknown; dailyCapUsd?: unknown } => ({}));
+  const result = await createToken(c.env.DB, user.id, { name: body.name, dailyCapUsd: body.dailyCapUsd });
+  if ("error" in result) tokenError(result.error);
+  // The only response that ever carries the token itself.
+  return c.json(result);
+});
+
+app.delete("/api/settings/tokens/:id", async (c) => {
+  const user = await requireSessionUser(c);
+  if (!(await revokeToken(c.env.DB, user.id, c.req.param("id")))) {
+    throw new HTTPException(404, { message: "Token not found" });
+  }
+  return c.json({ ok: true });
 });
 
 app.get("/api/auth/config", (c) => {
@@ -1495,7 +1624,12 @@ app.delete("/api/profiles/:id", async (c) => {
 
 app.get("/api/galleries", async (c) => {
   const user = await requireUser(c);
-  const galleries = await presentGalleryList(c.env, user.id, c.req.query("q") || "");
+  const galleries = await presentGalleryList(
+    c.env,
+    user.id,
+    c.req.query("q") || "",
+    await requestProfile(c, user),
+  );
   return c.json({ galleries });
 });
 
@@ -1548,7 +1682,7 @@ app.post("/api/galleries", async (c) => {
     collectionId?: unknown;
   }>();
   const id = typeof body.id === "string" ? body.id : null;
-  const profileId = id ? null : await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = id ? null : await requestProfile(c, user);
   // Create only: a gallery made inside an open collection is filed there. A full save ignores it.
   let fileInto = !id && typeof body.collectionId === "string" && body.collectionId ? body.collectionId : null;
   if (fileInto) {
@@ -1620,13 +1754,13 @@ async function collectionJson(env: Env, userId: string, profileId: string | null
 
 app.get("/api/collections", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   return c.json(await listCollections(c.env, user.id, profileId));
 });
 
 app.post("/api/collections", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   const body = await c.req.json<{ name?: unknown }>().catch(() => ({ name: null }));
   const result = await createCollection(c.env.DB, user.id, profileId, body.name);
   if ("error" in result) collectionError(result.error);
@@ -1635,7 +1769,7 @@ app.post("/api/collections", async (c) => {
 
 app.put("/api/collections/order", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   const body = await c.req.json<{ ids?: unknown }>().catch(() => ({ ids: null }));
   const result = await orderCollections(c.env.DB, user.id, profileId, body.ids);
   if ("error" in result) collectionError(result.error);
@@ -1644,7 +1778,7 @@ app.put("/api/collections/order", async (c) => {
 
 app.patch("/api/collections/:id", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   const body = await c.req
     .json<{ name?: unknown; coverKey?: unknown }>()
     .catch((): { name?: unknown; coverKey?: unknown } => ({}));
@@ -1658,7 +1792,7 @@ app.patch("/api/collections/:id", async (c) => {
 
 app.delete("/api/collections/:id", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   const result = await deleteCollection(c.env.DB, user.id, profileId, c.req.param("id"));
   if ("error" in result) collectionError(result.error);
   return c.json({ ok: true, ungrouped: result.ungrouped });
@@ -1666,7 +1800,7 @@ app.delete("/api/collections/:id", async (c) => {
 
 app.put("/api/collections/:id/order", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   const body = await c.req.json<{ galleryIds?: unknown }>().catch(() => ({ galleryIds: null }));
   const result = await orderCollectionGalleries(c.env.DB, user.id, profileId, c.req.param("id"), body.galleryIds);
   if ("error" in result) collectionError(result.error);
@@ -1675,7 +1809,7 @@ app.put("/api/collections/:id/order", async (c) => {
 
 app.get("/api/collections/:id/assets", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   const settings = await getStudioSettings(c.env.DB, user.id);
   const query = parseCollectionAssetsQuery(
     c.req.query("media"),
@@ -1692,7 +1826,7 @@ app.get("/api/collections/:id/assets", async (c) => {
 // which rewrites every item row and bumps updated_at.
 app.put("/api/galleries/:id/collection", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   const body = await c.req.json<{ collectionId?: unknown }>().catch((): { collectionId?: unknown } => ({}));
   let target: string | null;
   if (body.collectionId === null) {
@@ -1709,14 +1843,14 @@ app.put("/api/galleries/:id/collection", async (c) => {
 
 app.get("/api/slots", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   if (!profileId) return c.json({ slots: [] });
   return c.json({ slots: await listSlots(c.env, user.id, profileId) });
 });
 
 app.post("/api/slots", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   if (!profileId) throw new HTTPException(400, { message: "A slot needs a profile" });
   const body = await c.req.json<{
     name?: unknown;
@@ -1737,7 +1871,7 @@ app.post("/api/slots", async (c) => {
 
 app.post("/api/slots/as-gallery", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   if (!profileId) throw new HTTPException(400, { message: "A slot needs a profile" });
   const body = await c.req.json<{ projectId?: unknown }>();
   const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
@@ -1754,7 +1888,7 @@ app.post("/api/slots/as-gallery", async (c) => {
 
 app.patch("/api/slots/:id", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   if (!profileId) throw new HTTPException(400, { message: "A slot needs a profile" });
   const body = await c.req.json<{
     name?: unknown;
@@ -1775,7 +1909,7 @@ app.patch("/api/slots/:id", async (c) => {
 
 app.delete("/api/slots/:id", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   if (!profileId) throw new HTTPException(404, { message: "Slot not found" });
   const removed = await deleteSlot(c.env.DB, user.id, profileId, c.req.param("id"));
   if (!removed) throw new HTTPException(404, { message: "Slot not found" });
@@ -1784,7 +1918,7 @@ app.delete("/api/slots/:id", async (c) => {
 
 app.post("/api/slots/:id/files", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   if (!profileId) throw new HTTPException(404, { message: "Slot not found" });
   const body = await c.req.json<{ files?: unknown }>();
   const result = await appendSlotFiles(c.env, user.id, profileId, c.req.param("id"), body.files).catch(
@@ -1799,7 +1933,7 @@ app.post("/api/slots/:id/files", async (c) => {
 
 app.post("/api/slots/:id/as-gallery", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   if (!profileId) throw new HTTPException(400, { message: "A slot needs a profile" });
   const saved = await saveSlotAsGallery(c.env, user.id, profileId, c.req.param("id")).catch((err: unknown) => {
     if (err instanceof SlotRejected) throw new HTTPException(400, { message: err.message });
@@ -1814,7 +1948,7 @@ app.post("/api/slots/:id/as-gallery", async (c) => {
 
 app.get("/api/projects", async (c) => {
   const user = await requireUser(c);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   if (!profileId) return c.json({ projects: [], looks: [] });
   const [projects, looks] = await Promise.all([
     listProjects(c.env.DB, user.id, profileId),
@@ -1828,7 +1962,7 @@ app.post("/api/projects", async (c) => {
   const body = await c.req.json<{ name?: unknown }>();
   const name = acceptProjectName(body.name);
   if (!name) throw new HTTPException(400, { message: "Project needs a name" });
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   if (!profileId) throw new HTTPException(400, { message: "Project needs a profile" });
   const id = await createProject(c.env.DB, user.id, profileId, name);
   const project = await getProject(c.env, user.id, id);
@@ -1887,7 +2021,7 @@ app.post("/api/styles", async (c) => {
   if (body.group != null && body.group !== "" && !acceptLookGroup(body.group)) {
     throw new HTTPException(400, { message: "That look group is not one of Camera, Light, Color, Era, Motion, or Other" });
   }
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   if (!profileId) throw new HTTPException(400, { message: "A look needs a profile" });
   const look = await createStyle(c.env.DB, user.id, profileId, name, text, acceptLookGroup(body.group));
   return c.json({ look });
@@ -2538,6 +2672,22 @@ app.post("/api/generate", async (c) => {
       ? shots.map((shot, index) => `Shot ${index + 1}: ${shot.prompt}`).join("\n\n")
       : promptText;
 
+  // Resolved once so the payload and a token's price use the same settings.
+  const runDuration = lockedDuration(controls.durationLock, referenceTask, controls.duration, body.duration);
+  const runGenerateAudio =
+    controls.generateAudio || useFallback
+      ? typeof body.generate_audio === "boolean"
+        ? body.generate_audio
+        : (controls.generateAudioDefault ?? undefined)
+      : undefined;
+  const runCount = draftTaskId ? 1 : body.num_generations;
+  const runQuality = pickCompatible(body.quality, controls.quality) ?? (useFallback ? body.quality : undefined);
+  const runResolution = lockedResolution(
+    !draftTaskId && body.draft === true,
+    controls.resolutionDraftLock,
+    pickCompatible(body.resolution, controls.resolution) ?? (useFallback ? body.resolution : undefined),
+  );
+
   const payload = buildEnqueuePayload(meta.mediaType, {
     model: modelId,
     prompt: shots ? "" : promptText,
@@ -2560,25 +2710,12 @@ app.post("/api/generate", async (c) => {
             ),
           ),
     omni_reference_task_type: meta.mediaType === "video" ? referenceTask : undefined,
-    duration: lockedDuration(controls.durationLock, referenceTask, controls.duration, body.duration),
+    duration: runDuration,
     seed: controls.seed || useFallback ? body.seed : undefined,
-    generate_audio:
-      controls.generateAudio || useFallback
-        ? typeof body.generate_audio === "boolean"
-          ? body.generate_audio
-          : (controls.generateAudioDefault ?? undefined)
-        : undefined,
-    num_generations: draftTaskId ? 1 : body.num_generations,
-    quality: pickCompatible(body.quality, controls.quality) ?? (useFallback ? body.quality : undefined),
-    ...resolutionPayloadFields(
-      controls.resolutionField,
-      lockedResolution(
-        !draftTaskId && body.draft === true,
-        controls.resolutionDraftLock,
-        pickCompatible(body.resolution, controls.resolution) ??
-          (useFallback ? body.resolution : undefined),
-      ),
-    ),
+    generate_audio: runGenerateAudio,
+    num_generations: runCount,
+    quality: runQuality,
+    ...resolutionPayloadFields(controls.resolutionField, runResolution),
     output_format:
       pickCompatible(body.output_format, controls.outputFormat) ??
       (useFallback ? body.output_format : undefined),
@@ -2636,10 +2773,41 @@ app.post("/api/generate", async (c) => {
     throw new HTTPException(404, { message: "Project not found" });
   }
 
-  const generations = await enqueueGeneration(apiKey, payload);
+  // A token run is priced here from the model and the settings above. The client's
+  // estimated_cost is a record only and never counts toward the cap.
+  const apiToken = c.get("apiToken");
+  const spendDay = utcDay();
+  let reservedCents = 0;
+  if (apiToken) {
+    const estimate = estimateGenerationCost({
+      pricing: controls.pricing,
+      numGenerations: runCount ?? 1,
+      duration: runDuration,
+      generateAudio: runGenerateAudio,
+      resolution: runResolution,
+      quality: runQuality,
+    });
+    if (estimate.amount == null || !Number.isFinite(estimate.amount) || estimate.amount < 0) {
+      throw new HTTPException(400, { message: "Studio cannot price this model, so a token cannot run it." });
+    }
+    reservedCents = costCents(estimate.amount);
+    if (!(await reserveSpend(c.env.DB, apiToken, reservedCents, spendDay))) {
+      const spent = await spentTodayCents(c.env.DB, apiToken.id, spendDay);
+      throw new HTTPException(402, { message: capExceededMessage(apiToken.dailyCapCents, spent) });
+    }
+  }
+
+  let generations: Awaited<ReturnType<typeof enqueueGeneration>>;
+  try {
+    generations = await enqueueGeneration(apiKey, payload);
+  } catch (err) {
+    // Nothing reached the queue, so the run does not count.
+    if (apiToken && reservedCents > 0) await releaseSpend(c.env.DB, apiToken.id, reservedCents, spendDay);
+    throw err;
+  }
   const now = Math.floor(Date.now() / 1000);
   const batchId = crypto.randomUUID();
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   const appliedLooks = draftTaskId ? [] : acceptAppliedLooks(body.looks);
   const studioRecord: Record<string, unknown> = {};
   if (appliedLooks.length > 0) studioRecord.studio_looks = appliedLooks;
@@ -2793,7 +2961,7 @@ app.get("/api/generations", async (c) => {
     throw new HTTPException(400, { message: "Invalid generation list scope" });
   }
   const apiKey = await getOxenKey(user, c.env.ENCRYPTION_KEY);
-  const profileId = await ensureDefaultProfile(c.env.DB, user.id);
+  const profileId = await requestProfile(c, user);
   let pageMeta: { page: number; pageSize: number; total: number; tags: string[] } | null = null;
   let rows: { results?: GenerationRow[] };
   if (scope === "library") {
