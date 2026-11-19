@@ -28,6 +28,8 @@ export type CollectionControls = {
   onFile: (galleryId: string, collectionId: string | null) => Promise<boolean>;
   /** Makes a collection and files the gallery into it. */
   onFileNew: (galleryId: string, name: string) => Promise<boolean>;
+  /** Saves the order of the galleries inside one collection. */
+  onOrderGalleries: (collectionId: string, galleryIds: string[]) => Promise<boolean>;
 };
 
 /**
@@ -102,5 +104,6 @@ export function useCollections(options: {
       store.order(dropCollection(collectionOrder(store.getState().collections), dragId, targetId)),
     onFile,
     onFileNew,
+    onOrderGalleries: store.orderGalleries,
   };
 }

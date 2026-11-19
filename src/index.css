@@ -4043,6 +4043,197 @@ button.history-expand-preview {
   }
 }
 
+/* With no room under the last card, Move to collection opens above its row instead. */
+.collection-move-pop.history-gallery-pop.is-above {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.collection-open,
+.collection-open-cover {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.collection-open:hover .collection-name,
+.collection-open:focus-visible .collection-name {
+  text-decoration: underline;
+}
+
+.collection-open-cover {
+  background: var(--bg-hover);
+}
+
+/* An opened collection: the head, the two tabs, then its galleries or every file in them. */
+.collection-view-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 8px;
+}
+
+.collection-view-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.collection-view-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.collection-tabs {
+  margin-bottom: 10px;
+}
+
+.collection-view-tools {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.collection-add {
+  position: relative;
+}
+
+.collection-add-pop.history-gallery-pop {
+  top: calc(100% + 4px);
+  right: 0;
+  bottom: auto;
+  z-index: 8;
+  width: min(280px, calc(100vw - 48px));
+  max-height: min(360px, 60vh);
+}
+
+.collection-add-list {
+  flex: 1 1 auto;
+}
+
+.collection-add-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.collection-add-choice:hover {
+  background: var(--bg-hover);
+}
+
+.collection-add-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-add-home {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.collection-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.collection-tile {
+  position: relative;
+  min-width: 0;
+}
+
+.collection-tile.is-dragging {
+  opacity: 0.45;
+}
+
+.collection-tile.is-drop-before::after,
+.collection-tile.is-drop-after::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 4;
+  width: 3px;
+  background: var(--text);
+  pointer-events: none;
+}
+
+.collection-tile.is-drop-before::after {
+  left: -5px;
+}
+
+.collection-tile.is-drop-after::after {
+  right: -5px;
+}
+
+/* A gallery opened from a collection: Galleries / the collection / the gallery. */
+.gallery-trail-sep {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+}
+
+.gallery-trail {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  /* The head wraps to two rows: back, count, and Delete, then the name; the tabs sit under it. */
+  .collection-view-head {
+    flex-wrap: wrap;
+  }
+
+  .collection-view-name {
+    order: 5;
+    flex: 1 1 100%;
+    font-size: 16px;
+  }
+
+  .collection-view-count {
+    margin-left: auto;
+  }
+
+  .collection-tile-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gallery-manage-head.has-trail {
+    flex-wrap: wrap;
+  }
+
+  .gallery-manage-head.has-trail .gallery-name {
+    flex: 1 1 100%;
+  }
+
+  .gallery-trail {
+    max-width: 60%;
+  }
+}
+
 .gallery-manage-head,
 .gallery-manage-actions {
   display: flex;

@@ -36,7 +36,9 @@ import { prunePicked, selectionInsideGroup, togglePicked } from "../lib/media-se
 import type { SlotAddItem, SlotAddNotice, SlotChoice } from "../lib/slot-add";
 import { runModes } from "../lib/mode-icons";
 import { suggestTags } from "../lib/tags";
+import type { CollectionViewControls } from "../lib/use-collection-view";
 import type { CollectionControls } from "../lib/use-collections";
+import { CollectionView } from "./CollectionView";
 import { CopyPrompt } from "./CopyPrompt";
 import { CreateGalleryPalette } from "./CreateGalleryPalette";
 import { GalleryBrowser, type GalleryPlace } from "./GalleryBrowser";
@@ -316,6 +318,9 @@ export function Sidebar({
   onAddToSlot,
   onCreateSlot,
   collections = null,
+  collectionView = null,
+  onOpenCollection,
+  onShowGalleryList,
   managingGallery,
   onManagingGallery,
   pane,
@@ -390,6 +395,11 @@ export function Sidebar({
   onCreateSlot: (name: string, items: SlotAddItem[]) => Promise<SlotAddNotice>;
   /** Collection controls for the Galleries list; null until collections are ready. */
   collections?: CollectionControls | null;
+  /** The collection open in the Galleries pane, also the way back from a gallery opened in it. */
+  collectionView?: CollectionViewControls | null;
+  onOpenCollection?: (id: string) => void;
+  /** The plain Galleries list, with no collection open. */
+  onShowGalleryList?: () => void;
   /** True while one gallery is open in the panel; false shows the list of galleries. */
   managingGallery: boolean;
   onManagingGallery: (value: boolean) => void;
@@ -685,6 +695,7 @@ export function Sidebar({
             aria-pressed={galleriesOpen}
             onClick={() => {
               if (createGalleryOpen) onCreateGalleryClose();
+              onShowGalleryList?.();
               onManagingGallery(false);
               onPaneChange(galleriesOpen ? "history" : "galleries");
             }}
@@ -752,12 +763,34 @@ export function Sidebar({
         />
       ) : null}
 
-      {galleriesOpen ? (
+      {galleriesOpen && collectionView && !galleryDetail ? (
+        <CollectionView
+          view={collectionView}
+          summaries={gallerySummaries}
+          onOpenGallery={(id) => {
+            onManagingGallery(true);
+            onGalleryOpen(id);
+          }}
+          onRenameGallery={onGalleryRename}
+          onDeleteGallery={onGalleryDelete}
+          onAddToGallery={onHistoryAddToGallery}
+          onCreateGallery={onHistoryCreateGallery}
+          slotChoices={slotChoices}
+          onAddToSlot={onAddToSlot}
+          onCreateSlot={onCreateSlot}
+        />
+      ) : galleriesOpen ? (
         <GalleryBrowser
           slotChoices={slotChoices}
           onAddToSlot={onAddToSlot}
           onCreateSlot={onCreateSlot}
           collections={collections}
+          onOpenCollection={onOpenCollection}
+          collectionName={galleryDetail ? (collectionView?.collection.name ?? null) : null}
+          onList={() => {
+            onShowGalleryList?.();
+            onManagingGallery(false);
+          }}
           summaries={gallerySummaries}
           detail={galleryDetail}
           galleryId={galleryId}

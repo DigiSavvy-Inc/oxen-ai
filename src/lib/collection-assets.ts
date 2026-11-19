@@ -1,6 +1,7 @@
 import { GALLERY_MAX_ITEMS } from "../../worker/gallery-limits";
 import { normalizeMediaRole } from "../../worker/schema";
 import type { CollectionAsset, LibraryMediaFilter } from "./api";
+import { downloadMedia } from "./download";
 import type { GalleryDraftItem } from "./gallery-draft";
 import type { HistoryGalleryItem } from "./gallery-history";
 import { gallerySwipeSlides, type GallerySwipeSlide } from "./gallery-slides";
@@ -133,4 +134,29 @@ export function emptyAssetsMessage(media: LibraryMediaFilter): string {
 export function assetGalleryCaption(asset: Pick<CollectionAsset, "galleryName" | "galleryCount">): string {
   const more = Math.max(0, Math.floor(asset.galleryCount) - 1);
   return more > 0 ? `${asset.galleryName} +${more}` : asset.galleryName;
+}
+
+/** The file name a download is saved as: the stored name, with an extension for its kind if it has none. */
+export function assetDownloadName(asset: Pick<CollectionAsset, "name" | "kind">): string {
+  const base = asset.name.replace(/[\\/]+/g, "-").trim() || "ds-studio-file";
+  if (/\.[a-z0-9]{2,5}$/i.test(base)) return base;
+  const ext = asset.kind === "video" ? "mp4" : asset.kind === "audio" ? "mp3" : "png";
+  return `${base}.${ext}`;
+}
+
+/** Downloads the files one at a time, in the order given. */
+export async function downloadAssets(
+  assets: readonly CollectionAsset[],
+  save: (url: string, filename: string) => Promise<void> = downloadMedia,
+): Promise<void> {
+  for (const asset of assets) {
+    if (asset.url) await save(asset.url, assetDownloadName(asset));
+  }
+}
+
+/** What Attach says afterwards: how many went on, and how many the current model could not take. */
+export function assetAttachNote(total: number, skipped: number): string {
+  if (total <= 0) return "Nothing to attach.";
+  if (skipped >= total) return "This model can’t take the selected media.";
+  return skipped > 0 ? `Attached ${total - skipped}. Skipped ${skipped}.` : `Attached ${total}.`;
 }

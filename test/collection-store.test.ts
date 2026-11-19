@@ -28,6 +28,7 @@ function fakeClient(list: StudioCollection[] = []) {
     })),
     deleteCollection: vi.fn(async () => ({ ok: true })),
     orderCollections: vi.fn(async (ids: string[]) => ({ ids })),
+    orderCollectionGalleries: vi.fn(async (_id: string, galleryIds: string[]) => ({ galleryIds })),
     fileGallery: vi.fn(async () => ({ ok: true })),
   } satisfies CollectionClient;
   return client;
@@ -196,5 +197,57 @@ describe("collection order", () => {
     expect(ids(store)).toEqual(["c", "a", "b"]);
     save.resolve({ ids: ["c", "a", "b"] });
     await flush();
+  });
+});
+
+describe("gallery order inside a collection", () => {
+  const filed = (): StudioCollection[] => [{ ...collection("c"), galleryIds: ["g1", "g2", "g3"] }];
+  const galleryIds = (store: ReturnType<typeof createCollectionStore>) =>
+    store.getState().collections.find((item) => item.id === "c")?.galleryIds;
+
+  it("shows a dragged order at once and saves it with the small order route", async () => {
+    const client = fakeClient(filed());
+    const save = deferred<unknown>();
+    client.orderCollectionGalleries.mockReturnValueOnce(save.promise);
+    const store = createCollectionStore(client);
+    await store.refresh("p1");
+    const done = store.orderGalleries("c", ["g3", "g1", "g2"]);
+    expect(galleryIds(store)).toEqual(["g3", "g1", "g2"]);
+    save.resolve({ galleryIds: ["g3", "g1", "g2"] });
+    expect(await done).toBe(true);
+    expect(client.orderCollectionGalleries).toHaveBeenCalledWith("c", ["g3", "g1", "g2"]);
+    // Ordering never rewrites or refiles a gallery.
+    expect(client.fileGallery).not.toHaveBeenCalled();
+  });
+
+  it("puts the old order back and says so when the save fails", async () => {
+    const client = fakeClient(filed());
+    client.orderCollectionGalleries.mockRejectedValueOnce(new Error("offline"));
+    const store = createCollectionStore(client);
+    await store.refresh("p1");
+    expect(await store.orderGalleries("c", ["g2", "g1", "g3"])).toBe(false);
+    expect(galleryIds(store)).toEqual(["g1", "g2", "g3"]);
+    expect(store.getState().status).toBe("offline");
+  });
+
+  it("keeps a newer order when an older save fails afterwards", async () => {
+    const client = fakeClient(filed());
+    const first = deferred<unknown>();
+    client.orderCollectionGalleries.mockReturnValueOnce(first.promise);
+    const store = createCollectionStore(client);
+    await store.refresh("p1");
+    const older = store.orderGalleries("c", ["g2", "g1", "g3"]);
+    await store.orderGalleries("c", ["g3", "g2", "g1"]);
+    first.reject(new Error("blip"));
+    expect(await older).toBe(false);
+    expect(galleryIds(store)).toEqual(["g3", "g2", "g1"]);
+  });
+
+  it("does nothing for a collection that is not listed", async () => {
+    const client = fakeClient(filed());
+    const store = createCollectionStore(client);
+    await store.refresh("p1");
+    expect(await store.orderGalleries("gone", ["g1"])).toBe(false);
+    expect(client.orderCollectionGalleries).not.toHaveBeenCalled();
   });
 });

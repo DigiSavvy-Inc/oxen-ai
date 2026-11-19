@@ -185,7 +185,7 @@ describe("one gallery panel, two ways in", () => {
     expect(composer).not.toContain("createPortal(drawer");
   });
 
-  it("opens the library panel from the prompt, on the gallery last opened or on the list", () => {
+  it("opens the library panel from the prompt, on what was open last: a gallery, a collection, or the list", () => {
     expect(composer).toContain('aria-controls="media-library"');
     expect(composer).toContain("onClick={() => props.onGalleryToggle?.()}");
     expect(sidebar).toContain('<aside className="sidebar" id="media-library">');
@@ -194,7 +194,8 @@ describe("one gallery panel, two ways in", () => {
     expect(app).toContain("galleryOpen={galleryPanelOpen}");
     const toggle = app.slice(app.indexOf("function toggleGalleryPanel()"), app.indexOf("function openProjectsPane()"));
     expect(toggle).toContain("closeLibrary();");
-    expect(toggle).toContain("setManagingGallery(Boolean(galleryId));");
+    // A gallery reopens only if it was open last; otherwise the open collection or the list shows.
+    expect(toggle).toContain("setManagingGallery(collectionNav.resumeGallery && Boolean(galleryId));");
     expect(toggle).toContain('setLibraryPane("galleries");');
     expect(toggle).toContain("setLibraryOpen(true);");
   });
@@ -226,7 +227,10 @@ describe("one gallery panel, two ways in", () => {
     expect(reorder).toContain("galleryAutosave.current = Boolean(galleryId && galleryName.trim());");
     expect(reorder).toContain("if (gallerySaving || !galleryAutosave.current) return;");
     const hook = source("../src/lib/tile-reorder.ts");
-    expect(hook).toContain("event.dataTransfer.setData(GALLERY_ITEM_DRAG_TYPE, item.id);");
+    // Gallery tiles carry the prompt's attach type unless a set asks for its own.
+    expect(hook).toContain("const dragType = options.dragType ?? GALLERY_ITEM_DRAG_TYPE;");
+    expect(hook).toContain("event.dataTransfer.setData(dragType, item.id);");
+    expect(browser).not.toContain("dragType:");
     expect(hook).not.toContain("text/plain");
   });
 
@@ -246,7 +250,7 @@ describe("one gallery panel, two ways in", () => {
   });
 
   it("keeps a canvas result above the scrim while a gallery is open, so it can be dragged in", () => {
-    expect(app).toContain('${galleryPanelOpen && managingGallery ? " is-gallery-open" : ""}');
+    expect(app).toContain('${galleryPanelOpen && (managingGallery || collectionNav.shown) ? " is-gallery-open" : ""}');
     const scrim = Number(css.match(/\.slide-backdrop\s*\{[^}]*z-index:\s*(\d+)/)?.[1]);
     const raised = css.match(
       /\.app-shell\.is-gallery-open \.result-media,\s*\.app-shell\.is-gallery-open \.variation-thumb\s*\{[^}]*z-index:\s*(\d+)/,
@@ -312,7 +316,9 @@ describe("collections on the Galleries screen", () => {
   it("shows no collection controls until the server says collections are ready", () => {
     expect(hook).toContain("if (scope === null || state.scope !== scope || !state.ready) return null;");
     expect(browser).toContain("{collections ? (");
-    expect(browser).toContain("{collections ? <MoveToCollection gallery={gallery} controls={collections} /> : null}");
+    expect(browser).toContain(
+      "{collections ? <MoveToCollection gallery={gallery} controls={collections} order={tile?.order} /> : null}",
+    );
     expect(browser).toContain("draggable={filing || undefined}");
   });
 
@@ -370,5 +376,77 @@ describe("collections on the Galleries screen", () => {
     expect(lib).toContain('export const COLLECTION_FOLD_KEY = "ds-studio-collection-folds";');
     expect(lib).toContain("window.localStorage.setItem(COLLECTION_FOLD_KEY, JSON.stringify(folded));");
     expect(hook).toContain("useState<string[]>(() => readFolded())");
+  });
+});
+
+describe("an opened collection", () => {
+  const app = source("../src/App.tsx");
+  const sidebar = source("../src/components/Sidebar.tsx");
+  const browser = source("../src/components/GalleryBrowser.tsx");
+  const view = source("../src/components/CollectionView.tsx");
+  const nav = source("../src/lib/use-collection-view.ts");
+  const assets = source("../src/components/CollectionAssets.tsx");
+  const composer = source("../src/components/Composer.tsx");
+  const css = source("../src/index.css");
+
+  it("keeps the open collection and its handlers in a hook, not in App", () => {
+    expect(app).toContain("const collectionNav = useCollectionView({");
+    expect(app).toContain("collectionView={collectionNav.view}");
+    expect(app).toContain("onManagingGallery={collectionNav.onManagingGallery}");
+    expect(app).not.toContain("api.orderCollectionGalleries(");
+    expect(app).not.toContain("api.collectionAssets(");
+    expect(app).not.toContain("<CollectionView");
+    expect(nav).toContain("api.deleteGalleryFiles(keys, { fromOxen: scope === \"everywhere\" })");
+  });
+
+  it("fills the library column and hides past work, the way an open gallery does", () => {
+    expect(app).toContain("(managingGallery || collectionNav.shown) ? \" is-gallery-open\"");
+    expect(sidebar).toContain("{galleriesOpen && collectionView && !galleryDetail ? (");
+    expect(sidebar).toContain("{!galleriesOpen ? (");
+  });
+
+  it("opens from the list, and an open gallery leads back to it", () => {
+    expect(sidebar).toContain("onOpenCollection={onOpenCollection}");
+    expect(browser).toContain("onOpen={props.onOpenCollection}");
+    // Back from the gallery returns to the collection; Galleries in its head goes to the list.
+    expect(sidebar).toContain("collectionName={galleryDetail ? (collectionView?.collection.name ?? null) : null}");
+    expect(browser).toContain("onClick={props.collectionName && props.onList ? props.onList : props.onBack}");
+    expect(browser).toContain("aria-label={`Back to ${props.collectionName}`}");
+  });
+
+  it("returns ⌘⇧G to the list from Library then Galleries and from the phone menu", () => {
+    const header = sidebar.slice(sidebar.indexOf('<div className="sidebar-header">'), sidebar.indexOf("{createGalleryOpen ? ("));
+    expect(header).toContain("onShowGalleryList?.();");
+    const pane = app.slice(app.indexOf("function openLibraryPane("), app.indexOf("function toggleGalleryPanel()"));
+    expect(pane).toContain('if (pane === "galleries") collectionNav.onList();');
+  });
+
+  it("files a gallery made with Create gallery into the collection on screen", () => {
+    const open = app.slice(app.indexOf("function openCreateGallery()"), app.indexOf("async function saveCreateGallery()"));
+    expect(open).toContain("collectionNav.beginCreate();");
+    const save = app.slice(app.indexOf("async function onGallerySave("), app.indexOf("function onDropHistoryMedia("));
+    expect(save).toContain("const fileInto = !galleryId && createGalleryOpen ? collectionNav.createInto : null;");
+    expect(save).toContain("...(fileInto ? { collectionId: fileInto } : {}),");
+  });
+
+  it("reorders tiles with the card's own drag, saved through the collection order route", () => {
+    expect(view).toContain("dragType: GALLERY_CARD_DRAG_TYPE,");
+    expect(view).toContain("controls.onOrderGalleries(collection.id, next)");
+    expect(view).not.toContain("saveGallery");
+    expect(css).toMatch(/\.collection-tile\.is-drop-before::after\s*\{[^}]*left:/);
+  });
+
+  it("hands one All assets tile to the prompt with the gallery tile's drag type", () => {
+    expect(assets).toContain("event.dataTransfer.setData(GALLERY_ITEM_DRAG_TYPE, asset.key);");
+    expect(composer).toContain("galleryItemsForDrop(dropCandidates(props.galleryItems, props.dragItem), id)");
+    expect(app).toContain("dragItem={collectionNav.dragAsset}");
+    // The tile passes through the scrim on its way, as a gallery tile does.
+    expect(nav).toContain("setTileDrag(Boolean(item));");
+  });
+
+  it("wraps the head on a phone and lays tiles in one column", () => {
+    const phone = css.slice(css.indexOf("/* An opened collection:"));
+    expect(phone).toMatch(/@media \(max-width: 860px\)\s*\{[^@]*\.collection-view-head\s*\{\s*flex-wrap:\s*wrap/);
+    expect(phone).toMatch(/\.collection-tile-grid\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\)/);
   });
 });

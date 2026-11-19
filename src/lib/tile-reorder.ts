@@ -33,6 +33,8 @@ type Options<T> = {
   items: readonly T[];
   onReorder: (from: number, to: number) => void;
   onDragChange?: (dragging: boolean) => void;
+  /** The drag's own type. Gallery tiles keep the default, so the prompt can take one as an attachment. */
+  dragType?: string;
 };
 
 /**
@@ -44,6 +46,7 @@ export function useTileReorder<T extends { id: string }>(options: Options<T>) {
   const [over, setOver] = useState<{ index: number; insertBefore: number } | null>(null);
   const pressedControl = useRef(false);
   const { onDragChange } = options;
+  const dragType = options.dragType ?? GALLERY_ITEM_DRAG_TYPE;
 
   const finish = useCallback(() => {
     setDragId(null);
@@ -77,7 +80,7 @@ export function useTileReorder<T extends { id: string }>(options: Options<T>) {
             return;
           }
           event.dataTransfer.effectAllowed = "copyMove";
-          event.dataTransfer.setData(GALLERY_ITEM_DRAG_TYPE, item.id);
+          event.dataTransfer.setData(dragType, item.id);
           setDragId(item.id);
           onDragChange?.(true);
         },

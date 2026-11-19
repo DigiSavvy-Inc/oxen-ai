@@ -8,6 +8,8 @@ import { modelSupportsMode } from "../worker/model-modes";
 import { Canvas } from "../src/components/Canvas";
 import { Sidebar } from "../src/components/Sidebar";
 import { GalleryBrowser } from "../src/components/GalleryBrowser";
+import { CollectionView } from "../src/components/CollectionView";
+import type { CollectionViewControls } from "../src/lib/use-collection-view";
 import type { CollectionControls } from "../src/lib/use-collections";
 import { StagedStill, StagedVideo } from "../src/components/StagedStill";
 import { Composer } from "../src/components/Composer";
@@ -2196,6 +2198,7 @@ describe("grouped galleries screen", () => {
       onDropOn: noop,
       onFile: async () => true,
       onFileNew: async () => true,
+      onOrderGalleries: async () => true,
       ...partial,
     };
   }
@@ -2231,8 +2234,16 @@ describe("grouped galleries screen", () => {
     expect(html).toContain('aria-label="Move Faces to collection"');
     expect(html).toContain('aria-label="Move Rooms to collection"');
     expect(html).toContain('draggable="true"');
-    // Opening a collection is slice 3.
-    expect(html).not.toMatch(/>Open</);
+    // Without a way to open one, the cover and name are plain text.
+    expect(html).not.toContain('aria-label="Open Maya"');
+  });
+
+  it("opens a collection from its cover and its name", () => {
+    const html = renderToStaticMarkup(
+      createElement(GalleryBrowser, { ...browserProps, collections: controls(), onOpenCollection: noop }),
+    );
+    expect(html).toContain('aria-label="Open Maya"');
+    expect(html).toMatch(/<button type="button" class="collection-title collection-open">/);
   });
 
   it("hides a folded section's galleries and keeps its header", () => {
@@ -2250,5 +2261,100 @@ describe("grouped galleries screen", () => {
     expect(html).toContain(">Faces<");
     expect(html).toContain(">Rooms<");
     expect(html).not.toContain(">Ungrouped<");
+  });
+
+  describe("an opened collection", () => {
+    const filed = [
+      { id: "g-hair", name: "Hair", updatedAt: 1, count: 4, previews: [], collectionId: "c-maya" },
+      ...summaries,
+    ];
+    function view(partial: Partial<CollectionViewControls> = {}): CollectionViewControls {
+      const base = controls();
+      const maya = { ...base.collections[0]!, galleryIds: ["g-faces", "g-hair"] };
+      return {
+        collection: maya,
+        controls: { ...base, collections: [maya, base.collections[1]!] },
+        tab: "galleries",
+        onTab: noop,
+        onClose: noop,
+        onDownload: async () => {},
+        onAttach: () => "",
+        onDeleteFiles: async () => ({}),
+        onDeleted: noop,
+        onAssetDrag: noop,
+        ...partial,
+      };
+    }
+    const renderView = (partial: Partial<CollectionViewControls> = {}) =>
+      renderToStaticMarkup(
+        createElement(CollectionView, {
+          view: view(partial),
+          summaries: filed,
+          onOpenGallery: noop,
+          onRenameGallery: noop,
+          onDeleteGallery: noop,
+          onAddToGallery: async () => ({ kind: "error", message: "" }),
+          onCreateGallery: async () => ({ kind: "error", message: "" }),
+          slotChoices: [],
+          onAddToSlot: async () => ({ kind: "error", message: "" }),
+          onCreateSlot: async () => ({ kind: "error", message: "" }),
+        } as Parameters<typeof CollectionView>[0]),
+      );
+
+    it("has a head with the way back, the name to edit, the count, and Delete collection", () => {
+      const html = renderView();
+      const head = html.slice(html.indexOf("collection-view-head"), html.indexOf('role="tablist"'));
+      expect(head).toContain(">Galleries<");
+      expect(head).toMatch(/aria-label="Collection name"[^>]*value="Maya"|value="Maya"[^>]*aria-label="Collection name"/);
+      expect(head).toContain("2 galleries, 212 items");
+      expect(head).toContain(">Delete collection<");
+      expect(head).toContain('title="Deletes this collection. Its galleries and files stay."');
+    });
+
+    it("has two tabs styled like the media filter, Galleries chosen first", () => {
+      const html = renderView();
+      expect(html).toContain('class="history-kind collection-tabs" role="tablist"');
+      expect(html).toMatch(/role="tab" aria-selected="true" class="ghost-btn active">Galleries</);
+      expect(html).toMatch(/role="tab" aria-selected="false" class="ghost-btn">All assets</);
+    });
+
+    it("shows its galleries as tiles in saved order, each with Move to collection, and Add galleries", () => {
+      const html = renderView();
+      expect(html.indexOf(">Faces<")).toBeGreaterThan(-1);
+      expect(html.indexOf(">Faces<")).toBeLessThan(html.indexOf(">Hair<"));
+      expect(html).not.toContain(">Rooms<");
+      expect(html).toContain('aria-label="Move Faces to collection"');
+      expect(html).toContain('aria-label="Move Hair to collection"');
+      expect(html).toContain("gallery-card collection-tile");
+      expect(html).toContain(">Add galleries<");
+    });
+
+    it("shows All assets on its tab instead of the tiles", () => {
+      const html = renderView({ tab: "assets" });
+      expect(html).toContain('aria-label="All assets"');
+      expect(html).toContain("Loading files…");
+      expect(html).not.toContain(">Add galleries<");
+    });
+  });
+
+  it("reads Galleries, then the collection, then the gallery, when opened from a collection", () => {
+    const html = renderToStaticMarkup(
+      createElement(GalleryBrowser, {
+        ...browserProps,
+        detail: true,
+        galleryId: "g-faces",
+        name: "Faces",
+        collectionName: "Maya",
+        onList: noop,
+      }),
+    );
+    const head = html.slice(html.indexOf("gallery-manage-head"), html.indexOf('aria-label="Gallery name"'));
+    expect(head).toContain("has-trail");
+    expect(head.indexOf(">Galleries<")).toBeLessThan(head.indexOf('aria-label="Back to Maya"'));
+    expect(head).toContain(">Maya<");
+    const plain = renderToStaticMarkup(
+      createElement(GalleryBrowser, { ...browserProps, detail: true, galleryId: "g-faces", name: "Faces" }),
+    );
+    expect(plain).not.toContain("Back to");
   });
 });

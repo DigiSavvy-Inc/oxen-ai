@@ -20,6 +20,19 @@ export function galleryItemsForDrop<T extends { id: string }>(items: readonly T[
   return item ? [item] : [];
 }
 
+/**
+ * What a tile dropped on the prompt can be: a tile of the open gallery, or the All assets tile
+ * being dragged from an opened collection.
+ */
+export function dropCandidates<T extends { id: string }>(
+  open: readonly T[] | undefined,
+  dragged: T | null | undefined,
+): T[] {
+  const items = [...(open ?? [])];
+  if (dragged && !items.some((item) => item.id === dragged.id)) items.push(dragged);
+  return items;
+}
+
 export type GalleryAttachPlan<T extends GalleryAttachItem> = {
   add: T[];
   tokens: string[];

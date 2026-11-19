@@ -8,6 +8,7 @@ export type CollectionClient = {
   updateCollection: (id: string, patch: { name?: string }) => Promise<{ collection: StudioCollection }>;
   deleteCollection: (id: string) => Promise<unknown>;
   orderCollections: (ids: string[]) => Promise<unknown>;
+  orderCollectionGalleries: (id: string, galleryIds: string[]) => Promise<unknown>;
   fileGallery: (galleryId: string, collectionId: string | null) => Promise<unknown>;
 };
 
@@ -202,6 +203,33 @@ export function createCollectionStore(client: CollectionClient) {
     },
 
     file,
+
+    /**
+     * Shows a new order of galleries inside one collection at once and saves it. A failed save
+     * puts back the order from before, unless a newer order has been chosen since.
+     */
+    async orderGalleries(collectionId: string, galleryIds: string[]): Promise<boolean> {
+      const scope = state.scope;
+      const before = state.collections.find((item) => item.id === collectionId);
+      if (!before || scope === null) return false;
+      const withIds = (ids: string[]) =>
+        state.collections.map((item) => (item.id === collectionId ? { ...item, galleryIds: ids } : item));
+      set({ collections: withIds(galleryIds), status: null });
+      try {
+        await client.orderCollectionGalleries(collectionId, galleryIds);
+        afterWrite();
+        return sameScope(scope);
+      } catch (err) {
+        if (!sameScope(scope)) return false;
+        const now = state.collections.find((item) => item.id === collectionId);
+        if (now && now.galleryIds.join("\0") === galleryIds.join("\0")) {
+          set({ collections: withIds(before.galleryIds), status: message(err, "Couldn’t save the order") });
+        } else {
+          set({ status: message(err, "Couldn’t save the order") });
+        }
+        return false;
+      }
+    },
 
     /**
      * Makes a collection and files the gallery into it. If filing fails the new collection is
