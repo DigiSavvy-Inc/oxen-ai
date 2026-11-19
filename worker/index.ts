@@ -64,6 +64,7 @@ import {
   type SignedInToken,
 } from "./api-tokens";
 import { TOKEN_SCOPE_DENIED, tokenMayCall } from "./api-scope";
+import { resolvePromptNames } from "./api-names";
 import { estimateGenerationCost } from "./pricing";
 import {
   buildReferenceMediaUrl,
@@ -2486,6 +2487,40 @@ app.post("/api/generate", async (c) => {
     }
   }
 
+  // A token caller writes @Maya the way a person does in the composer. The browser has already
+  // turned its names into files and numbers, so this runs for token requests only.
+  let namesReport: { notes: { token: string; note: string }[]; missing: string[]; trimmed: string[] } | null = null;
+  if (c.get("apiToken") && body.prompt) {
+    const named = await resolvePromptNames(c.env, user.id, await requestProfile(c, user), {
+      prompt: body.prompt,
+      modelControls: controls,
+      mode,
+      images: body.images,
+      videos: body.videos,
+      audios: body.audios,
+      projectId: typeof body.project_id === "string" ? body.project_id.trim() || null : null,
+    });
+    // A role the caller sent for its own file stays; a named file brings its saved role.
+    const roles = (given: string[] | undefined, found: (string | null)[]) =>
+      found.map((role, index) => role ?? given?.[index] ?? "");
+    // Named files come back as stored keys. The rest of this route takes signed Studio links,
+    // so a key this user owns is signed here. A link the caller sent is left as it is.
+    const signed = (values: string[]) =>
+      Promise.all(
+        values.map(async (value) => {
+          const key = ownedMediaKey(user.id, value);
+          return key ? ((await displayStoredMediaUrl(c.env, key, null)) ?? value) : value;
+        }),
+      );
+    body.prompt = named.prompt;
+    body.images = await signed(named.images);
+    body.videos = await signed(named.videos);
+    body.audios = await signed(named.audios);
+    body.image_roles = roles(body.image_roles, named.roles.image);
+    body.video_roles = roles(body.video_roles, named.roles.video);
+    namesReport = { notes: named.notes, missing: named.missing, trimmed: named.trimmed };
+  }
+
   const imageHasFace = controls.slots.some((slot) => slot.field === "input_face_images");
   const videoHasFace = controls.slots.some((slot) => slot.field === "input_face_videos");
   // Image refs stay Studio https. A data URI is rehosted as a hub playground
@@ -2962,7 +2997,7 @@ app.post("/api/generate", async (c) => {
     console.error("settings persist error", err);
   }
 
-  return c.json({ generations: saved });
+  return c.json(namesReport ? { generations: saved, names: namesReport } : { generations: saved });
 });
 
 app.post("/api/chat", async (c) => {

@@ -664,6 +664,37 @@ describe("daily cap", () => {
     expect(raw.prepare(`SELECT * FROM api_token_spend`).all()).toEqual([]);
   });
 
+  it("expands a slot handle in a token's prompt, and leaves a browser prompt as sent", async () => {
+    const { db, raw, env, queued } = await generateEnv({ method: "per_image", cost_per_image: 0.01 });
+    raw
+      .prepare(
+        `INSERT INTO slots (id, user_id, profile_id, project_id, name, handle, take_count, note, gallery_id, position, created_at, updated_at)
+         VALUES ('s-skin', ?, ?, NULL, 'Skin', 'Skin', 1, 'fine pores, soft light', NULL, 0, 1, 1)`,
+      )
+      .run(USER, PROFILE);
+    const token = await newToken(db);
+    const res = await run(env, bearer(token), { prompt: "@Skin portrait with @Nobody", num_generations: 1 });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { names?: { notes: { token: string }[]; missing: string[] } };
+    expect(body.names?.notes.map((note) => note.token)).toEqual(["@Skin"]);
+    expect(JSON.stringify(queued[0])).toContain("fine pores, soft light portrait");
+    expect(JSON.stringify(queued[0])).not.toContain("@Skin");
+
+    // The composer has already resolved its names, so a browser request is not touched.
+    const browser = await run(env, cookie(), { prompt: "@Skin portrait", num_generations: 1 });
+    expect(browser.status).toBe(200);
+    expect(((await browser.json()) as { names?: unknown }).names).toBeUndefined();
+    expect(JSON.stringify(queued[1])).toContain("@Skin portrait");
+
+    // Another profile's slot is not read.
+    const other = await run(env, bearer(token, { "X-Studio-Profile": OTHER_PROFILE }), {
+      prompt: "@Skin portrait",
+      num_generations: 1,
+    });
+    expect(other.status).toBe(200);
+    expect(JSON.stringify(queued[2])).toContain("@Skin portrait");
+  });
+
   it("treats no price, zero, negative, NaN, and infinite as unpriced", () => {
     for (const amount of [null, undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, 0.000001]) {
       expect(tokenRunCents(amount), String(amount)).toBeNull();
