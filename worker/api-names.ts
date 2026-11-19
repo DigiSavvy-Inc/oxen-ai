@@ -8,6 +8,8 @@ import {
   type NameCatalogItem,
 } from "../src/lib/name-mentions";
 import { parseNameMentions } from "../src/lib/mentions";
+import { mediaKindCap } from "../src/lib/kind-caps";
+import type { GenerationMode } from "./model-modes";
 import { getGallery, listGalleries, ownedMediaKey } from "./galleries";
 import { acceptGalleryTake } from "./gallery-handle";
 import { studioMediaKeyFromUrl } from "./oxen-refs";
@@ -29,6 +31,11 @@ export type PromptNamesInput = {
   images?: readonly string[];
   videos?: readonly string[];
   audios?: readonly string[];
+  /**
+   * The generation mode, as sent to /api/generate. On a model that takes keyframes or a
+   * continuation clip but not both, the mode decides which kind is sent, as in the app.
+   */
+  mode?: GenerationMode | null;
   /** Adds that project's slots ahead of the Everywhere slots. */
   projectId?: string | null;
 };
@@ -78,29 +85,13 @@ function missingTable(err: unknown): boolean {
   return message.includes("no such table") || message.includes("no such column");
 }
 
-function slotMax(controls: PromptNamesInput["modelControls"], kind: Kind): number {
-  const sizes = controls.slots.filter((slot) => slot.kind === kind).map((slot) => slot.maxItems);
-  return sizes.length > 0 ? Math.max(0, ...sizes) : 0;
-}
-
-/** Per-kind limits from the model's schema. A kind with no input on the model is 0. */
-function slotCaps(controls: PromptNamesInput["modelControls"]): Record<Kind, number> {
+/** The app's own per-kind limits, so a script and the browser attach the same files. */
+function kindCaps(controls: PromptNamesInput["modelControls"], mode: GenerationMode | null): Record<Kind, number> {
   return {
-    image: slotMax(controls, "image"),
-    video: slotMax(controls, "video"),
-    audio: slotMax(controls, "audio"),
+    image: mediaKindCap(controls, mode, "image"),
+    video: mediaKindCap(controls, mode, "video"),
+    audio: mediaKindCap(controls, mode, "audio"),
   };
-}
-
-/**
- * A frames-only model takes its first and last frame by hand and no reference images.
- * A name with a note keeps the note and its other files and loses its images, so it still
- * expands. A name with no note keeps its images, which the planner then drops as over the limit.
- */
-function framesOnlyCatalog(entries: readonly NameCatalogEntry[]): NameCatalogEntry[] {
-  return entries.map((entry) =>
-    (entry.note ?? "").trim() ? { ...entry, items: entry.items.filter((item) => item.kind !== "image") } : entry,
-  );
 }
 
 function handKey(userId: string, value: string): string | undefined {
@@ -316,13 +307,14 @@ export async function resolvePromptNames(
   const refsOn = controls.mentions;
   const framesOnly = Boolean(controls.frames && !controls.frames.references);
   const full = await loadCatalog(env, userId, profileId, input.projectId ?? null, input.prompt, refsOn);
-  const catalog = !refsOn ? noteOnlyCatalog(full) : framesOnly ? framesOnlyCatalog(full) : full;
+  const catalog = refsOn ? full : noteOnlyCatalog(full);
 
-  const caps = slotCaps(controls);
-  // Hand images on a frames-only model are its first and last frame, as in the app.
-  const handCaps: Record<Kind, number> = { ...caps, image: framesOnly ? 2 : caps.image };
-  const planCaps: Record<Kind, number> = { ...caps, image: framesOnly ? 0 : caps.image };
-  let exclusiveOut: Kind | null = null;
+  // The same limits the app uses. Hand images on a frames-only model are its first and last
+  // frame, and names add no images there.
+  const handCaps = kindCaps(controls, input.mode ?? null);
+  const planCaps: Record<Kind, number> = { ...handCaps, image: framesOnly ? 0 : handCaps.image };
+  const exclusiveOut = (kind: Kind) =>
+    Boolean(controls.imageVideoExclusive) && (kind === "image" || kind === "video") && handCaps[kind] === 0;
 
   const attempt = () => {
     const hand: Record<Kind, string[]> = { image: [], video: [], audio: [] };
@@ -335,7 +327,7 @@ export async function resolvePromptNames(
       const left = given[kind].length - hand[kind].length;
       if (left <= 0) continue;
       trimmed.push(
-        kind === exclusiveOut
+        exclusiveOut(kind)
           ? `Left out ${left} attached ${kindWord(kind, left)}; keyframes and a continuation clip can’t be used together`
           : `Left out ${left} attached ${kindWord(kind, left)}; the model takes ${cap}`,
       );
@@ -350,24 +342,7 @@ export async function resolvePromptNames(
     return { hand, trimmed, plan };
   };
 
-  let planned = attempt();
-  if (controls.imageVideoExclusive) {
-    // Images and a video can't go together. Hand files decide; otherwise the first named file does.
-    const keep: Kind | null =
-      given.image.length > 0
-        ? "image"
-        : given.video.length > 0
-          ? "video"
-          : (planned.plan.files.find((file) => file.kind !== "audio")?.kind ?? null);
-    if (keep === "image" || keep === "video") {
-      exclusiveOut = keep === "image" ? "video" : "image";
-      if (handCaps[exclusiveOut] > 0 || planCaps[exclusiveOut] > 0) {
-        handCaps[exclusiveOut] = 0;
-        planCaps[exclusiveOut] = 0;
-        planned = attempt();
-      }
-    }
-  }
+  const planned = attempt();
   const { hand, trimmed, plan } = planned;
 
   const byHandle = new Map(full.map((entry) => [entry.handle.toLowerCase(), entry]));

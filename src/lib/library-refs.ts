@@ -1,6 +1,9 @@
-import { mentionToken, slotMax, type Generation, type GenerationMode, type ModelControls } from "./api";
+import { mentionToken, slotMax, type Generation, type GenerationMode } from "./api";
 import { downloadFilename } from "./download";
 import type { MediaKind } from "./files";
+import { DEFAULT_ATTACH_MAX, mediaKindCap, type CapControls } from "./kind-caps";
+
+export { DEFAULT_ATTACH_MAX, mediaKindCap };
 
 const MEDIA_KINDS: MediaKind[] = ["image", "video", "audio"];
 
@@ -38,66 +41,6 @@ export function libraryRefFromGeneration(generation: Generation): LibraryRef | n
     url: generation.resultUrl,
     kind,
   };
-}
-
-export const DEFAULT_ATTACH_MAX = 16;
-
-function modeMinForKind(mode: GenerationMode | null | undefined, kind: MediaKind): number {
-  switch (kind) {
-    case "image":
-      return mode === "image-to-image" || mode === "reference-to-video" || mode === "video-to-video"
-        ? 1
-        : 0;
-    case "video":
-      return mode === "video-to-video" ? 1 : 0;
-    case "audio":
-      return 0;
-    case "document":
-      return 0;
-    default: {
-      const _exhaustive: never = kind;
-      return _exhaustive;
-    }
-  }
-}
-
-type CapControls = Pick<ModelControls, "slots"> & {
-  imageVideoExclusive?: boolean;
-  frames?: ModelControls["frames"];
-};
-
-/** Keyframes and continuation stay on different modes and cannot be combined. */
-function exclusiveKindCap(
-  controls: CapControls,
-  mode: GenerationMode | null | undefined,
-  kind: MediaKind,
-): number | null {
-  if (!controls.imageVideoExclusive) return null;
-  if (kind === "image" && mode === "reference-to-video") return slotMax(controls, "image");
-  if (kind === "video" && mode === "video-to-video") return slotMax(controls, "video");
-  if (kind === "image" || kind === "video") return 0;
-  return null;
-}
-
-export function mediaKindCap(
-  controls: CapControls | null,
-  mode: GenerationMode | null | undefined,
-  kind: MediaKind,
-): number {
-  if (kind === "document") return mode === "chat" ? 4 : 0;
-  if (mode === "chat" && kind === "image") return 4;
-  if (controls) {
-    const exclusive = exclusiveKindCap(controls, mode, kind);
-    if (exclusive != null) return exclusive;
-  }
-  // A frames-only model takes a first and a last frame, and no references.
-  if (kind === "image" && controls?.frames && !controls.frames.references) return 2;
-  const fromSlots = slotMax(controls, kind);
-  const modeMin = modeMinForKind(mode, kind);
-  if (fromSlots > 0) return Math.max(fromSlots, modeMin);
-  if (controls) return modeMin;
-  if (modeMin > 0 || !mode) return DEFAULT_ATTACH_MAX;
-  return 0;
 }
 
 /**

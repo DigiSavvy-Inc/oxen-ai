@@ -5,7 +5,9 @@ import {
   orderedNameCatalog,
   planNameAttachments,
   type NameCatalogEntry,
+  noteOnlyCatalog,
 } from "../src/lib/name-mentions";
+import { mediaKindCap } from "../src/lib/kind-caps";
 import { resolvePromptNames, type PromptNamesInput } from "../worker/api-names";
 import { getGallery, listGalleries, saveGallery } from "../worker/galleries";
 import { createProject } from "../worker/projects";
@@ -220,8 +222,9 @@ describe("resolvePromptNames", () => {
   it("adds a slot's note and no image on a frames-only model", async () => {
     const { env } = openDb();
     await seed(env);
+    // First/last-frame models take no references, so the app expands notes only (mentions is off).
     const framesOnly: PromptNamesInput["modelControls"] = {
-      mentions: true,
+      mentions: false,
       slots: [slot("image", 1, "input_image")],
       frames: { references: false, firstFace: false, lastFace: false },
       imageVideoExclusive: false,
@@ -237,66 +240,52 @@ describe("resolvePromptNames", () => {
     expect(both.prompt).toBe("long waves, warm, fine pores at dusk");
     expect(both.images).toEqual(frames);
     expect(both.roles.image).toEqual([null, null]);
-    expect(both.notes.map((note) => note.token)).toEqual(["@Hair", "@Skin", "@Texture"]);
     expect(both.missing).toEqual([]);
     expect(both.trimmed).toEqual([]);
 
-    // A name with images and no note has nothing to add, so it is dropped as in the app.
+    // A name with files and no note has no words to add, so it stays as typed, as in the app.
     const noNote = await run(env, { prompt: "@Mood on @Loft", modelControls: framesOnly });
-    expect(noNote.prompt).toBe("golden hour on");
+    expect(noNote.prompt).toBe("golden hour on @Loft");
     expect(noNote.images).toEqual([]);
-    expect(noNote.trimmed).toEqual(["Dropped @Loft; the model can’t take more files"]);
+    expect(noNote.missing).toEqual([]);
+    expect(noNote.trimmed).toEqual(["Left @Loft as typed; the model takes no files"]);
 
-    // A label on an image was found, so it is not reported missing.
-    await createSlot(env, USER, PROFILE, { name: "Den", note: "a den", files: [image("den.png", "wide")] });
-    const label = await run(env, { prompt: "@Den.wide", modelControls: framesOnly });
-    expect(label.prompt).toBe("@Den.wide");
-    expect(label.missing).toEqual([]);
-    expect(label.trimmed).toEqual(["Left @Den.wide as typed; the model takes no reference images"]);
-
-    // A model that takes no references: notes expand, files-only names stay as typed.
-    const noRefs = { ...framesOnly, mentions: false };
-    const plain = await run(env, { prompt: "@Hair on @Loft", modelControls: noRefs });
-    expect(plain.prompt).toBe("long waves, warm, fine pores on @Loft");
-    expect(plain.images).toEqual([]);
-    expect(plain.missing).toEqual([]);
-    expect(plain.trimmed).toEqual(["Left @Loft as typed; the model takes no files"]);
+    // A frames model whose schema still allows mentions: the app plans with no room for images,
+    // so a name that holds images is dropped whole. The server does the same.
+    const mentionsOn = { ...framesOnly, mentions: true };
+    const dropped = await run(env, { prompt: "@Mood on @Loft", modelControls: mentionsOn });
+    expect(dropped.prompt).toBe("golden hour on");
+    expect(dropped.images).toEqual([]);
+    expect(dropped.trimmed).toEqual(["Dropped @Loft; the model can’t take more files"]);
   });
 
-  it("sends images or a video on a model that can't take both, with no mode given", async () => {
+  it("lets the mode decide between keyframes and a continuation clip, as the app does", async () => {
     const { env } = openDb();
     await seed(env);
     await saveGallery(env.DB, USER, { name: "Clip", handle: "Clip", profileId: PROFILE, items: [video("clip.mp4")] });
 
-    // No hand files: the first named file decides.
-    const imagesFirst = await run(env, { prompt: "@Maya then @Clip", modelControls: exclusive });
+    // Reference-to-video takes the images and no clip.
+    const keyframes = await run(env, { prompt: "@Maya then @Clip", modelControls: exclusive, mode: "reference-to-video" });
     // As in the app, takes shrink before a name is dropped.
-    expect(imagesFirst.images).toEqual([key("maya-face.png")]);
-    expect(imagesFirst.videos).toEqual([]);
-    expect(imagesFirst.prompt).toBe("@Image1 then");
-    expect(imagesFirst.trimmed).toEqual([
+    expect(keyframes.images).toEqual([key("maya-face.png")]);
+    expect(keyframes.videos).toEqual([]);
+    expect(keyframes.prompt).toBe("@Image1 then");
+    expect(keyframes.trimmed).toEqual([
       "Trimmed @Maya from 2 to 1 file",
       "Dropped @Clip; the model can’t take more files",
     ]);
 
-    const videoFirst = await run(env, { prompt: "@Clip then @Maya", modelControls: exclusive });
-    expect(videoFirst.videos).toEqual([key("clip.mp4")]);
-    expect(videoFirst.images).toEqual([]);
-    expect(videoFirst.prompt).toBe("@Video1 then");
+    // Video-to-video takes the clip and no images.
+    const continuation = await run(env, { prompt: "@Clip then @Maya", modelControls: exclusive, mode: "video-to-video" });
+    expect(continuation.videos).toEqual([key("clip.mp4")]);
+    expect(continuation.images).toEqual([]);
+    expect(continuation.prompt).toBe("@Video1 then");
 
-    // A hand file decides before any name.
-    const handVideo = await run(env, {
-      prompt: "@Video1 with @Maya",
-      modelControls: exclusive,
-      videos: [key("hand.mp4")],
-    });
-    expect(handVideo.videos).toEqual([key("hand.mp4")]);
-    expect(handVideo.images).toEqual([]);
-    expect(handVideo.prompt).toBe("@Video1 with");
-
+    // A hand file of the kind the mode does not take is left out, and the result says why.
     const handBoth = await run(env, {
       prompt: "@Image1 near @Maya",
       modelControls: exclusive,
+      mode: "reference-to-video",
       images: [key("a.png")],
       videos: [key("hand.mp4")],
     });
@@ -430,21 +419,27 @@ describe("resolvePromptNames", () => {
       everywhere: slots.filter((s) => s.projectId == null).map(entry),
       galleries,
     });
+    // Exactly what App.tsx does: the app's limits for the model and mode, no room for named
+    // images on a frames-only model, and notes only when the model takes no references.
     const compare = async (
       text: string,
       modelControls: PromptNamesInput["modelControls"],
-      // The caps App.tsx passes for this model and mode.
-      caps: { image: number; video: number; audio: number },
+      mode: "reference-to-video" | "video-to-video" | "image-to-image",
       images: string[],
     ) => {
+      const framesOnly = Boolean(modelControls.frames && !modelControls.frames.references);
       const app = planNameAttachments({
         prompt: text,
-        galleries: catalog,
+        galleries: modelControls.mentions ? catalog : noteOnlyCatalog(catalog),
         hand: images.map((value) => ({ key: value, kind: "image" as const })),
-        caps,
-        flagMissing: true,
+        caps: {
+          image: framesOnly ? 0 : mediaKindCap(modelControls, mode, "image"),
+          video: mediaKindCap(modelControls, mode, "video"),
+          audio: mediaKindCap(modelControls, mode, "audio"),
+        },
+        flagMissing: modelControls.mentions,
       });
-      const server = await run(env, { prompt: text, images, projectId: project, modelControls });
+      const server = await run(env, { prompt: text, images, projectId: project, modelControls, mode });
       expect(server.prompt).toBe(app.expanded);
       const appFiles = [...app.files].sort((a, b) => a.number - b.number);
       const ofKind = (kind: "image" | "video" | "audio") => appFiles.filter((f) => f.kind === kind);
@@ -455,19 +450,19 @@ describe("resolvePromptNames", () => {
       return app;
     };
 
-    const app = await compare(prompt, refs, { image: 4, video: 1, audio: 1 }, hand);
+    const app = await compare(prompt, refs, "reference-to-video", hand);
     expect(app.files.length).toBeGreaterThan(2);
 
-    // Frames-only: the app passes an image cap of 0. Names with a note or no images agree.
-    const frames = await compare(
-      "@Texture light with @Song on @Loft",
-      { ...framesNoRefs, slots: [...framesNoRefs.slots, slot("audio", 1, "input_audios")] },
-      { image: 0, video: 0, audio: 1 },
-      [key("first.png")],
-    );
+    // Frames-only with mentions on: a slot holding images and a note, the case the two sides
+    // must agree on. The app drops the name; so does the server.
+    const framesWithAudio = { ...framesNoRefs, slots: [...framesNoRefs.slots, slot("audio", 1, "input_audios")] };
+    await compare("@Hair at dusk with @Song", framesWithAudio, "reference-to-video", [key("first.png")]);
+    const frames = await compare("@Texture light with @Song on @Loft", framesWithAudio, "reference-to-video", [key("first.png")]);
     expect(frames.expanded).toBe("fine pores light with @Audio1 on");
+    // Frames-only with mentions off, as real first/last-frame models are: notes only.
+    await compare("@Hair at dusk on @Loft", { ...framesNoRefs, mentions: false }, "reference-to-video", [key("first.png")]);
 
-    // Keyframes or a continuation clip: in reference-to-video the app's video cap is 0.
+    // Keyframes or a continuation clip: the mode decides, on both sides.
     await saveGallery(env.DB, USER, { name: "Clip", handle: "Clip", profileId: PROFILE, items: [video("clip.mp4")] });
     const clipCatalog = await getGallery(
       env.DB,
@@ -475,10 +470,9 @@ describe("resolvePromptNames", () => {
       (await listGalleries(env.DB, USER, "", PROFILE)).find((g) => g.handle === "Clip")!.id,
     );
     catalog.push({ id: clipCatalog!.id, name: "Clip", handle: "Clip", take: 1, items: clipCatalog!.items });
-    const keyframes = await compare("@Maya then @Clip", exclusive, { image: 4, video: 0, audio: 0 }, []);
+    const keyframes = await compare("@Maya then @Clip", exclusive, "reference-to-video", []);
     expect(keyframes.files.map((f) => f.kind)).toEqual(["image"]);
-    // In video-to-video the image cap is 0.
-    const continuation = await compare("@Clip then @Maya", exclusive, { image: 0, video: 1, audio: 0 }, []);
+    const continuation = await compare("@Clip then @Maya", exclusive, "video-to-video", []);
     expect(continuation.files.map((f) => f.kind)).toEqual(["video"]);
   });
 });
