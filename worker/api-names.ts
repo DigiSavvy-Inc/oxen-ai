@@ -32,8 +32,9 @@ export type PromptNamesInput = {
   videos?: readonly string[];
   audios?: readonly string[];
   /**
-   * The generation mode, as sent to /api/generate. On a model that takes keyframes or a
-   * continuation clip but not both, the mode decides which kind is sent, as in the app.
+   * The generation mode, as sent to /api/generate. Without one, or in chat, names are left
+   * as typed, as in the app. On a model that takes keyframes or a continuation clip but not
+   * both, the mode decides which kind is sent.
    */
   mode?: GenerationMode | null;
   /** Adds that project's slots ahead of the Everywhere slots. */
@@ -300,7 +301,9 @@ export async function resolvePromptNames(
     missing: [],
     trimmed: [],
   };
-  if (!profileId || parseNameMentions(input.prompt).length === 0) return unchanged;
+  // As in the app, names do nothing until a mode other than chat is chosen.
+  const mode = input.mode ?? null;
+  if (!profileId || !mode || mode === "chat" || parseNameMentions(input.prompt).length === 0) return unchanged;
 
   // Files need a model that takes references. A note is plain text, so it expands for any model.
   const controls = input.modelControls;
@@ -311,7 +314,7 @@ export async function resolvePromptNames(
 
   // The same limits the app uses. Hand images on a frames-only model are its first and last
   // frame, and names add no images there.
-  const handCaps = kindCaps(controls, input.mode ?? null);
+  const handCaps = kindCaps(controls, mode);
   const planCaps: Record<Kind, number> = { ...handCaps, image: framesOnly ? 0 : handCaps.image };
   const exclusiveOut = (kind: Kind) =>
     Boolean(controls.imageVideoExclusive) && (kind === "image" || kind === "video") && handCaps[kind] === 0;

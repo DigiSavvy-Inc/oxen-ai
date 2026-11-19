@@ -147,7 +147,7 @@ async function seed(env: Env) {
 }
 
 function run(env: Env, input: Partial<PromptNamesInput> & { prompt: string }, profile: string | null = PROFILE) {
-  return resolvePromptNames(env, USER, profile, { modelControls: refs, ...input });
+  return resolvePromptNames(env, USER, profile, { modelControls: refs, mode: "reference-to-video", ...input });
 }
 
 describe("resolvePromptNames", () => {
@@ -295,6 +295,17 @@ describe("resolvePromptNames", () => {
     expect(handBoth.trimmed).toEqual([
       "Left out 1 attached video; keyframes and a continuation clip can’t be used together",
     ]);
+  });
+
+  it("leaves names as typed with no mode or in chat, as the app does", async () => {
+    const { env } = openDb();
+    await seed(env);
+    for (const mode of [null, "chat"] as const) {
+      const result = await run(env, { prompt: "@Maya at @Loft", mode });
+      expect(result.prompt).toBe("@Maya at @Loft");
+      expect(result.images).toEqual([]);
+      expect(result.notes).toEqual([]);
+    }
   });
 
   it("follows take, labels, the featured file, and whole-gallery slots", async () => {
