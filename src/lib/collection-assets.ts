@@ -14,25 +14,31 @@ export const COLLECTION_DELETE_BATCH = GALLERY_MAX_ITEMS;
 /** Sends one request of at most COLLECTION_DELETE_BATCH keys. Resolves with the reply, rejects on failure. */
 export type DeleteFilesRequest = (keys: string[], scope: DeleteScope) => Promise<unknown>;
 
+/** One tally for the whole delete, plus the keys that left Studio (only batches the route accepted). */
+export type BatchedDelete = DeleteTally & { removedKeys: string[] };
+
 /**
  * Deletes files in batches the route accepts, one request at a time, and adds the answers into
- * one tally. A failed batch is counted as failed and the next batch still goes.
+ * one tally. A failed batch is counted as failed, its keys stay out of `removedKeys`, and the next
+ * batch still goes.
  */
 export async function deleteFilesInBatches(
   keys: readonly string[],
   scope: DeleteScope,
   send: DeleteFilesRequest,
-): Promise<DeleteTally> {
+): Promise<BatchedDelete> {
   const results: DeleteResult[] = [];
+  const removedKeys: string[] = [];
   for (const batch of deleteBatches(keys, COLLECTION_DELETE_BATCH)) {
     try {
       const reply = await send(batch, scope);
       results.push({ ok: true, count: batch.length, reply });
+      removedKeys.push(...batch);
     } catch {
       results.push({ ok: false, count: batch.length });
     }
   }
-  return tallyDelete(scope, results);
+  return { ...tallyDelete(scope, results), removedKeys };
 }
 
 /** A ticked file and its place in the filtered list, so ticks kept across pages stay in grid order. */

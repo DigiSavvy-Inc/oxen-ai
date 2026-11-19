@@ -230,17 +230,50 @@ describe("gallery order inside a collection", () => {
     expect(store.getState().status).toBe("offline");
   });
 
-  it("keeps a newer order when an older save fails afterwards", async () => {
+  it("keeps a newer order when an older save fails, then saves the newer one", async () => {
     const client = fakeClient(filed());
     const first = deferred<unknown>();
     client.orderCollectionGalleries.mockReturnValueOnce(first.promise);
     const store = createCollectionStore(client);
     await store.refresh("p1");
     const older = store.orderGalleries("c", ["g2", "g1", "g3"]);
-    await store.orderGalleries("c", ["g3", "g2", "g1"]);
+    const newer = store.orderGalleries("c", ["g3", "g2", "g1"]);
     first.reject(new Error("blip"));
     expect(await older).toBe(false);
+    expect(await newer).toBe(true);
     expect(galleryIds(store)).toEqual(["g3", "g2", "g1"]);
+    expect(client.orderCollectionGalleries).toHaveBeenLastCalledWith("c", ["g3", "g2", "g1"]);
+    expect(store.getState().status).toBeNull();
+  });
+
+  it("sends rapid moves one at a time so the server ends on the newest order", async () => {
+    const client = fakeClient(filed());
+    const first = deferred<unknown>();
+    let active = 0;
+    let most = 0;
+    client.orderCollectionGalleries.mockImplementation(async (_id: string, ids: string[]) => {
+      active += 1;
+      most = Math.max(most, active);
+      // The first save is slow; if the later ones went out beside it, it would land last.
+      if (client.orderCollectionGalleries.mock.calls.length === 1) await first.promise;
+      active -= 1;
+      return { galleryIds: ids };
+    });
+    const store = createCollectionStore(client);
+    await store.refresh("p1");
+    const a = store.orderGalleries("c", ["g2", "g1", "g3"]);
+    const b = store.orderGalleries("c", ["g3", "g1", "g2"]);
+    const c = store.orderGalleries("c", ["g1", "g3", "g2"]);
+    expect(client.orderCollectionGalleries).toHaveBeenCalledTimes(1);
+    first.resolve({});
+    expect(await Promise.all([a, b, c])).toEqual([true, true, true]);
+    expect(most).toBe(1);
+    // The replaced middle order is never sent; the newest goes last.
+    expect(client.orderCollectionGalleries.mock.calls.map((call) => call[1])).toEqual([
+      ["g2", "g1", "g3"],
+      ["g1", "g3", "g2"],
+    ]);
+    expect(galleryIds(store)).toEqual(["g1", "g3", "g2"]);
   });
 
   it("does nothing for a collection that is not listed", async () => {

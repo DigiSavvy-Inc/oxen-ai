@@ -190,10 +190,12 @@ export function CollectionAssets(props: CollectionAssetsProps) {
     setDeleting(true);
     setNote(null);
     try {
-      const outcome = deleteOutcome(await deleteFilesInBatches(keys, scope, send));
+      const result = await deleteFilesInBatches(keys, scope, send);
+      const outcome = deleteOutcome(result);
       setNote(outcome);
       setPicked([]);
-      props.onDeleted?.(keys, outcome);
+      // Only files that actually left Studio come out of the other views; a failed batch stays.
+      if (result.removedKeys.length > 0) props.onDeleted?.(result.removedKeys, outcome);
     } finally {
       setDeleting(false);
       setReloadToken((value) => value + 1);

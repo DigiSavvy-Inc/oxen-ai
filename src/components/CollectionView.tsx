@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { GallerySummary } from "../lib/api";
 import { collectionGalleries, galleryChoices, type CollectionTab } from "../lib/collection-view";
 import { GALLERY_CARD_DRAG_TYPE, collectionCountLabel, stepCollection } from "../lib/collections";
@@ -256,11 +256,14 @@ function AddGalleries({ view, summaries }: { view: CollectionViewControls; summa
 /** The name in an editable field. It saves on Enter or when the field loses focus; Escape puts it back. */
 function CollectionName({ name, onRename }: { name: string; onRename: (name: string) => Promise<boolean> }) {
   const [draft, setDraft] = useState(name);
+  const [shownName, setShownName] = useState(name);
   const skip = useRef(false);
 
-  useEffect(() => {
+  // A rename from elsewhere (or another collection opened) resets the field, without an effect.
+  if (shownName !== name) {
+    setShownName(name);
     setDraft(name);
-  }, [name]);
+  }
 
   async function commit() {
     const next = draft.trim();

@@ -30,8 +30,10 @@ function message(err: unknown, fallback: string) {
  *   so it cannot put back a list from before the write.
  * - A failed read keeps the list already on screen; only a first read that fails leaves today's
  *   screen.
- * - Order saves go one at a time. A failed save rolls back to the last saved order unless a newer
- *   order is already waiting to go.
+ * - Order saves go one at a time, for the collection list and for the galleries inside each
+ *   collection. Only the newest waiting order is sent next, so the server always ends on the order
+ *   the user chose last. A failed save rolls back to the last saved order unless a newer order is
+ *   already waiting to go.
  */
 export function createCollectionStore(client: CollectionClient) {
   let state: CollectionState = { scope: null, collections: [], ready: false, status: null };
@@ -41,6 +43,30 @@ export function createCollectionStore(client: CollectionClient) {
   let savedOrder: string[] = [];
   let orderSending = false;
   let orderWaiting: string[] | null = null;
+  /** Gallery order saves per collection: one in flight, the newest order waiting behind it. */
+  type GalleryOrderQueue = {
+    saved: string[];
+    waiting: string[] | null;
+    /** Calls whose order is `waiting` (or was replaced by it); they settle with that save. */
+    waiters: ((ok: boolean) => void)[];
+  };
+  const galleryQueues = new Map<string, GalleryOrderQueue>();
+
+  function withGalleryIds(collectionId: string, ids: string[]) {
+    return state.collections.map((item) => (item.id === collectionId ? { ...item, galleryIds: ids } : item));
+  }
+
+  /** While a gallery order is saving, a read keeps the order on screen when it holds the same galleries. */
+  function keepGalleryOrders(collections: StudioCollection[]): StudioCollection[] {
+    if (galleryQueues.size === 0) return collections;
+    return collections.map((item) => {
+      if (!galleryQueues.has(item.id)) return item;
+      const shown = state.collections.find((now) => now.id === item.id)?.galleryIds;
+      const same =
+        shown && shown.length === item.galleryIds.length && shown.every((id) => item.galleryIds.includes(id));
+      return same ? { ...item, galleryIds: shown } : item;
+    });
+  }
 
   function set(patch: Partial<CollectionState>) {
     state = { ...state, ...patch };
@@ -57,9 +83,9 @@ export function createCollectionStore(client: CollectionClient) {
       const orderBusy = orderSending || orderWaiting !== null;
       if (!orderBusy) savedOrder = collectionOrder(data.collections);
       // While an order save is going out, keep the order the user just chose.
-      const collections = orderBusy
-        ? orderedCollections(data.collections, collectionOrder(state.collections))
-        : data.collections;
+      const collections = keepGalleryOrders(
+        orderBusy ? orderedCollections(data.collections, collectionOrder(state.collections)) : data.collections,
+      );
       set({ scope, collections, ready: data.ready });
     } catch {
       if (ticket !== readTicket) return;
@@ -99,6 +125,40 @@ export function createCollectionStore(client: CollectionClient) {
     orderWaiting = null;
     if (next && sameScope(scope)) await sendOrder(next);
     else afterWrite();
+  }
+
+  /** Saves one gallery order, then the newest order that was chosen while it was going out. */
+  async function sendGalleryOrder(
+    collectionId: string,
+    queue: GalleryOrderQueue,
+    scope: string | null,
+    ids: string[],
+  ): Promise<boolean> {
+    let ok = false;
+    try {
+      await client.orderCollectionGalleries(collectionId, ids);
+      ok = sameScope(scope);
+      if (ok) queue.saved = ids;
+    } catch (err) {
+      // A newer order waiting to go replaces this one, so only roll back when nothing is waiting.
+      if (sameScope(scope) && !queue.waiting) {
+        set({ collections: withGalleryIds(collectionId, queue.saved), status: message(err, "Couldn’t save the order") });
+      }
+    }
+    const next = queue.waiting;
+    const waiters = queue.waiters;
+    queue.waiting = null;
+    queue.waiters = [];
+    if (next && sameScope(scope)) {
+      void sendGalleryOrder(collectionId, queue, scope, next).then((result) => {
+        for (const settle of waiters) settle(result);
+      });
+      return ok;
+    }
+    if (galleryQueues.get(collectionId) === queue) galleryQueues.delete(collectionId);
+    for (const settle of waiters) settle(false);
+    afterWrite();
+    return ok;
   }
 
   async function create(name: string): Promise<StudioCollection | null> {
@@ -145,11 +205,13 @@ export function createCollectionStore(client: CollectionClient) {
       if (scope === null) {
         readTicket += 1;
         reading = false;
+        galleryQueues.clear();
         if (state.scope !== null || state.ready) set({ scope: null, collections: [], ready: false, status: null });
         return Promise.resolve();
       }
       if (state.scope !== scope) {
         orderWaiting = null;
+        galleryQueues.clear();
         set({ scope, collections: [], ready: false, status: null });
       }
       return read(scope);
@@ -205,30 +267,24 @@ export function createCollectionStore(client: CollectionClient) {
     file,
 
     /**
-     * Shows a new order of galleries inside one collection at once and saves it. A failed save
-     * puts back the order from before, unless a newer order has been chosen since.
+     * Shows a new order of galleries inside one collection at once and saves it, one request at a
+     * time per collection. An order chosen while a save is going out waits, and a newer one replaces
+     * it, so only the newest is sent next. A failed save puts back the last saved order, unless a
+     * newer order is waiting to go. Resolves true once this order, or a newer one, is saved.
      */
-    async orderGalleries(collectionId: string, galleryIds: string[]): Promise<boolean> {
+    orderGalleries(collectionId: string, galleryIds: string[]): Promise<boolean> {
       const scope = state.scope;
       const before = state.collections.find((item) => item.id === collectionId);
-      if (!before || scope === null) return false;
-      const withIds = (ids: string[]) =>
-        state.collections.map((item) => (item.id === collectionId ? { ...item, galleryIds: ids } : item));
-      set({ collections: withIds(galleryIds), status: null });
-      try {
-        await client.orderCollectionGalleries(collectionId, galleryIds);
-        afterWrite();
-        return sameScope(scope);
-      } catch (err) {
-        if (!sameScope(scope)) return false;
-        const now = state.collections.find((item) => item.id === collectionId);
-        if (now && now.galleryIds.join("\0") === galleryIds.join("\0")) {
-          set({ collections: withIds(before.galleryIds), status: message(err, "Couldn’t save the order") });
-        } else {
-          set({ status: message(err, "Couldn’t save the order") });
-        }
-        return false;
+      if (!before || scope === null) return Promise.resolve(false);
+      set({ collections: withGalleryIds(collectionId, galleryIds), status: null });
+      const busy = galleryQueues.get(collectionId);
+      if (busy) {
+        busy.waiting = galleryIds;
+        return new Promise((resolve) => busy.waiters.push(resolve));
       }
+      const queue: GalleryOrderQueue = { saved: before.galleryIds, waiting: null, waiters: [] };
+      galleryQueues.set(collectionId, queue);
+      return sendGalleryOrder(collectionId, queue, scope, galleryIds);
     },
 
     /**
