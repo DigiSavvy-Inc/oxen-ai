@@ -1,6 +1,6 @@
 # Handles in an API prompt
 
-Status: the resolver is `resolvePromptNames` in `worker/api-names.ts`. `POST /api/generate` does not call it yet; it is wired in after API tokens land. This note will be merged into the API doc.
+`POST /api/generate` does this for requests made with an API token. A browser request is not touched, because the composer has already resolved its names. Send `mode` as usual; the response adds `names` with `notes`, `missing`, and `trimmed`, so a script can see what was attached and what was left out. Files you attach yourself can be signed Studio links or the `key` that `POST /api/upload` returned.
 
 A handle in a prompt works the way it does in the composer. `@Maya` names a slot or a gallery on your active profile. `@Maya.wide` names the file labeled `wide` in it. Studio does three things with a handle:
 

@@ -161,3 +161,7 @@ curl -s -X PUT "$STUDIO/api/galleries/$GALLERY/collection" -H "Authorization: Be
 - Never commit, print, or log a token. Keep it in an environment variable or a secrets manager.
 - Give each script its own token with the smallest cap that works, so you can revoke one without touching the others.
 - If a token leaks, revoke it in Settings → API tokens and make a new one.
+
+## Handles in a prompt
+
+Write `@Maya` or `@Loft.wide` in `prompt` and Studio attaches that slot's or gallery's files and writes the slot's note, as the composer does. The response's `names` field says what was attached and what was left out. See [api-names.md](api-names.md).
