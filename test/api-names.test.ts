@@ -44,17 +44,22 @@ function openDb() {
       .run(id, user);
   }
   const sql: string[] = [];
+  /** Every value bound to a statement that ran, so a test can prove a row was never asked for. */
+  const bound: unknown[] = [];
   const statement = (text: string, args: unknown[]) => ({
     async first() {
       sql.push(text);
+      bound.push(...args);
       return raw.prepare(text).get(...(args as (string | number | null)[])) ?? null;
     },
     async all() {
       sql.push(text);
+      bound.push(...args);
       return { results: raw.prepare(text).all(...(args as (string | number | null)[])) };
     },
     async run() {
       sql.push(text);
+      bound.push(...args);
       const info = raw.prepare(text).run(...(args as (string | number | null)[]));
       return { success: true, meta: { changes: Number(info.changes) } };
     },
@@ -75,7 +80,7 @@ function openDb() {
     MEDIA_SIGNING_KEY: "test-signing-key",
     MEDIA: { get: async () => null },
   } as unknown as Env;
-  return { raw, env, sql };
+  return { raw, env, sql, bound };
 }
 
 function key(name: string, user = USER) {
@@ -323,7 +328,7 @@ describe("resolvePromptNames", () => {
   });
 
   it("reads only the caller's profile, and returns only the user's own media keys", async () => {
-    const { env, raw } = openDb();
+    const { env, raw, bound } = openDb();
     await seed(env);
     await saveGallery(env.DB, USER, {
       name: "Elsewhere",
@@ -352,7 +357,10 @@ describe("resolvePromptNames", () => {
       )
       .run(USER, PROFILE, elsewhere.id);
 
+    bound.length = 0;
     const result = await run(env, { prompt: "@Elsewhere @Theirs @Maya @Cross" });
+    // The gallery on the other profile is never loaded, not just left out of the result.
+    expect(bound).not.toContain(elsewhere.id);
     expect(result.missing).toEqual(["@Elsewhere", "@Theirs", "@Cross"]);
     expect(result.images).toEqual([key("maya-face.png"), key("maya-turn.png")]);
     expect(result.images.every((value) => value.startsWith(`u/${USER}/`))).toBe(true);

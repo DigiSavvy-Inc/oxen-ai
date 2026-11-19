@@ -224,9 +224,11 @@ async function loadCatalog(
     const id = loaders.get(entry)?.slotId;
     return id ? [id] : [];
   });
+  // Only galleries on this profile are ever loaded, even when an older slot links somewhere else.
+  const onProfile = new Set(summaries.map((summary) => summary.id));
   const galleryIds = [...new Set(wanted.flatMap((entry) => {
     const id = loaders.get(entry)?.galleryId;
-    return id ? [id] : [];
+    return id && onProfile.has(id) ? [id] : [];
   }))];
   const [fileRows, loadedGalleries] = await Promise.all([
     slotFiles(env.DB, userId, slotIds),
