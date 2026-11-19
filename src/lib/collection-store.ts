@@ -5,7 +5,10 @@ import { collectionOrder, orderedCollections } from "./collections";
 export type CollectionClient = {
   collections: () => Promise<{ collections: StudioCollection[]; ready: boolean }>;
   createCollection: (name: string) => Promise<{ collection: StudioCollection }>;
-  updateCollection: (id: string, patch: { name?: string }) => Promise<{ collection: StudioCollection }>;
+  updateCollection: (
+    id: string,
+    patch: { name?: string; coverKey?: string | null },
+  ) => Promise<{ collection: StudioCollection }>;
   deleteCollection: (id: string) => Promise<unknown>;
   orderCollections: (ids: string[]) => Promise<unknown>;
   orderCollectionGalleries: (id: string, galleryIds: string[]) => Promise<unknown>;
@@ -232,6 +235,23 @@ export function createCollectionStore(client: CollectionClient) {
         return true;
       } catch (err) {
         if (sameScope(scope)) set({ status: message(err, "Couldn’t rename that collection") });
+        return false;
+      }
+    },
+
+    /** Makes one file the cover, or goes back to the automatic cover with null. */
+    async setCover(id: string, coverKey: string | null): Promise<boolean> {
+      const scope = state.scope;
+      if (scope === null) return false;
+      set({ status: null });
+      try {
+        const { collection } = await client.updateCollection(id, { coverKey });
+        if (!sameScope(scope)) return false;
+        set({ collections: state.collections.map((item) => (item.id === id ? collection : item)) });
+        afterWrite();
+        return true;
+      } catch (err) {
+        if (sameScope(scope)) set({ status: message(err, "Couldn’t change the cover") });
         return false;
       }
     },

@@ -164,6 +164,59 @@ test("All assets shows each file of a collection once, with the selection bar", 
   await expect(view).toBeVisible();
 });
 
+test("Set as cover on an All assets image changes the list cover, and Reset cover puts it back", async ({ page }) => {
+  await page.goto("/");
+  const gallery = await makeGallery(page, "CoverSet", await uploadTiles(page, "cover76", 2));
+  await makeCollection(page, "Cover76", [gallery]);
+  const savedCover = async () => {
+    const { collections } = (await (await page.request.get("/api/collections")).json()) as {
+      collections: { name: string; cover: { key: string; chosen: boolean } | null }[];
+    };
+    return collections.find((entry) => entry.name === "Cover76")?.cover ?? null;
+  };
+  const automatic = (await savedCover())!;
+  expect(automatic.chosen).toBe(false);
+
+  const panel = await openLibrary(page);
+  await panel.getByRole("button", { name: "Galleries", exact: true }).click();
+  const listCover = panel.getByRole("button", { name: "Open Cover76" }).locator("img");
+  const before = await listCover.getAttribute("src");
+  await panel.getByRole("button", { name: "Open Cover76" }).click();
+
+  const view = panel.getByLabel("Collection", { exact: true });
+  // The automatic cover is not a choice, so there is nothing to reset yet.
+  await expect(view.getByRole("button", { name: "Reset cover" })).toBeHidden();
+  await view.getByRole("tab", { name: "All assets" }).click();
+  const grid = view.getByLabel("All assets", { exact: true });
+  await grid.getByRole("button", { name: "Set cover76-2.png as cover" }).click();
+  await expect(grid.getByRole("img", { name: "Cover", exact: true })).toHaveCount(1);
+  await expect(grid.getByRole("button", { name: "Set cover76-2.png as cover" })).toHaveCount(0);
+  await expect.poll(savedCover).toMatchObject({ chosen: true });
+  const chosen = (await savedCover())!;
+  expect(chosen.key).not.toBe(automatic.key);
+
+  // The list shows the chosen file, and it is still the cover after a reload.
+  await view.getByRole("button", { name: "Galleries", exact: true }).click();
+  await expect.poll(() => listCover.getAttribute("src")).not.toBe(before);
+  const picked = await listCover.getAttribute("src");
+  // The library stays open across a reload, so clicking Library again would close it.
+  await page.reload();
+  const reopened = library(page);
+  const galleriesTab = reopened.getByRole("button", { name: "Galleries", exact: true });
+  await expect(galleriesTab).toBeVisible();
+  const openCover = reopened.getByRole("button", { name: "Open Cover76" });
+  if (!(await openCover.isVisible())) await galleriesTab.click();
+  await openCover.click();
+  const again = reopened.getByLabel("Collection", { exact: true });
+  await again.getByRole("button", { name: "Reset cover" }).click();
+  await expect(again.getByRole("button", { name: "Reset cover" })).toBeHidden();
+  await expect.poll(savedCover).toEqual(expect.objectContaining({ key: automatic.key, chosen: false }));
+  await again.getByRole("button", { name: "Galleries", exact: true }).click();
+  await expect
+    .poll(() => reopened.getByRole("button", { name: "Open Cover76" }).locator("img").getAttribute("src"))
+    .not.toBe(picked);
+});
+
 test("a slot keeps what fits from an open gallery and says what did not", async ({ page }) => {
   await page.goto("/");
   await makeGallery(page, "BigSet", await uploadTiles(page, "big", 13));

@@ -49,6 +49,9 @@ export function CollectionView(props: Props) {
           onRename={(name) => controls.onRename(collection.id, name)}
         />
         <span className="collection-view-count">{collectionCountLabel(galleries.length, collection.itemCount)}</span>
+        {collection.cover?.chosen ? (
+          <ResetCover key={collection.id} onReset={() => controls.onSetCover(collection.id, null)} />
+        ) : null}
         <DeleteCollection
           onDelete={async () => {
             const ok = await controls.onDelete(collection.id);
@@ -105,6 +108,8 @@ export function CollectionView(props: Props) {
             onDeleteFiles={view.onDeleteFiles}
             onDeleted={(keys) => view.onDeleted(keys)}
             onDragItem={view.onAssetDrag}
+            cover={collection.cover}
+            onSetCover={(key) => controls.onSetCover(collection.id, key)}
           />
         </>
       )}
@@ -303,6 +308,25 @@ function CollectionName({ name, onRename }: { name: string; onRename: (name: str
         }
       }}
     />
+  );
+}
+
+/** Back to the automatic cover: the featured image of the first gallery that has one. */
+function ResetCover({ onReset }: { onReset: () => Promise<boolean> }) {
+  const [pending, setPending] = useState(false);
+  return (
+    <button
+      type="button"
+      className="ghost-btn"
+      title="Go back to the featured image of the first gallery that has one"
+      disabled={pending}
+      onClick={() => {
+        setPending(true);
+        void onReset().finally(() => setPending(false));
+      }}
+    >
+      {pending ? <Loader size="sm" label="Resetting…" /> : "Reset cover"}
+    </button>
   );
 }
 

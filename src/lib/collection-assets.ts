@@ -1,6 +1,6 @@
 import { GALLERY_MAX_ITEMS } from "../../worker/gallery-limits";
 import { normalizeMediaRole } from "../../worker/schema";
-import type { CollectionAsset, LibraryMediaFilter } from "./api";
+import type { CollectionAsset, CollectionCover, LibraryMediaFilter } from "./api";
 import { downloadMedia } from "./download";
 import type { GalleryDraftItem } from "./gallery-draft";
 import type { HistoryGalleryItem } from "./gallery-history";
@@ -165,4 +165,16 @@ export function assetAttachNote(total: number, skipped: number): string {
   if (total <= 0) return "Nothing to attach.";
   if (skipped >= total) return "This model can’t take the selected media.";
   return skipped > 0 ? `Attached ${total - skipped}. Skipped ${skipped}.` : `Attached ${total}.`;
+}
+
+/**
+ * Set as cover on a tile. Only images take it. "current" is the file already chosen as the cover,
+ * so the tile shows it as the cover instead of offering it again.
+ */
+export function assetCoverState(
+  asset: Pick<CollectionAsset, "key" | "kind">,
+  cover: Pick<CollectionCover, "key" | "chosen"> | null | undefined,
+): "set" | "current" | null {
+  if (asset.kind !== "image") return null;
+  return cover?.chosen && cover.key === asset.key ? "current" : "set";
 }

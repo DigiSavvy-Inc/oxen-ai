@@ -5,6 +5,7 @@ import {
   api,
   type CollectionAsset,
   type CollectionAssetsPage,
+  type CollectionCover,
   type GallerySummary,
   type LibraryMediaFilter,
 } from "../lib/api";
@@ -12,6 +13,7 @@ import {
   assetDraftItems,
   assetGalleryCaption,
   assetGalleryItems,
+  assetCoverState,
   assetPageCount,
   assetSlides,
   assetOrder,
@@ -62,6 +64,10 @@ export type CollectionAssetsProps = {
   onClear?: () => void;
   /** A tile is being dragged toward the prompt (the item), or the drag ended (null). */
   onDragItem?: (item: GalleryDraftItem | null) => void;
+  /** The collection's cover now, so the chosen one shows as the cover. */
+  cover?: CollectionCover | null;
+  /** Set as cover on an image tile. Left out, tiles offer no cover control. */
+  onSetCover?: (key: string) => Promise<boolean>;
 };
 
 type Playing = { key: string; src: string; name: string };
@@ -81,6 +87,7 @@ export function CollectionAssets(props: CollectionAssetsProps) {
   const [deleting, setDeleting] = useState(false);
   const [fitKey, setFitKey] = useState<string | null>(null);
   const [playing, setPlaying] = useState<Playing | null>(null);
+  const [coverPending, setCoverPending] = useState<string | null>(null);
   const skipLoad = useRef(Boolean(initialPage));
   const shownId = useRef(collectionId);
 
@@ -202,6 +209,17 @@ export function CollectionAssets(props: CollectionAssetsProps) {
     }
   }
 
+  async function setCover(key: string) {
+    const save = props.onSetCover;
+    if (!save || coverPending) return;
+    setCoverPending(key);
+    try {
+      await save(key);
+    } finally {
+      setCoverPending(null);
+    }
+  }
+
   function openAsset(asset: CollectionAsset) {
     if (asset.kind === "audio") {
       setFitKey(null);
@@ -290,6 +308,16 @@ export function CollectionAssets(props: CollectionAssetsProps) {
               onOpen={() => openAsset(entry.asset)}
               onOpenGallery={() => props.onOpenGallery(entry.asset.galleryId)}
               onDragItem={props.onDragItem}
+              cover={
+                props.onSetCover
+                  ? {
+                      state: assetCoverState(entry.asset, props.cover),
+                      pending: coverPending === entry.asset.key,
+                      busy: coverPending !== null,
+                      onSet: () => void setCover(entry.asset.key),
+                    }
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -323,6 +351,7 @@ function AssetTile({
   onOpen,
   onOpenGallery,
   onDragItem,
+  cover,
 }: {
   asset: CollectionAsset;
   picked: boolean;
@@ -330,12 +359,14 @@ function AssetTile({
   onOpen: () => void;
   onOpenGallery: () => void;
   onDragItem?: (item: GalleryDraftItem | null) => void;
+  cover?: { state: "set" | "current" | null; pending: boolean; busy: boolean; onSet: () => void };
 }) {
   const preview = asset.thumbUrl || asset.url;
   const audio = asset.kind === "audio";
   const role = audio ? null : normalizeMediaRole(asset.role);
   const caption = assetGalleryCaption(asset);
   const draggable = Boolean(onDragItem && asset.url && asset.key);
+  const coverState = cover?.state ?? null;
   return (
     <div
       className={`gallery-manage-tile collection-asset${picked ? " is-selected" : ""}`}
@@ -369,16 +400,36 @@ function AssetTile({
         <label className="gallery-select">
           <input type="checkbox" checked={picked} aria-label={`Select ${asset.name}`} onChange={onToggle} />
         </label>
-        {role ? (
+        {role || coverState ? (
           <span className="gallery-tile-actions">
-            <span
-              className={`gallery-role-chip collection-asset-role is-${role}`}
-              role="img"
-              aria-label={`Role: ${referenceRoleLabel(role)}`}
-              title={referenceRoleTitle(role)}
-            >
-              <RoleGlyph role={role} />
-            </span>
+            {role ? (
+              <span
+                className={`gallery-role-chip collection-asset-role is-${role}`}
+                role="img"
+                aria-label={`Role: ${referenceRoleLabel(role)}`}
+                title={referenceRoleTitle(role)}
+              >
+                <RoleGlyph role={role} />
+              </span>
+            ) : null}
+            {coverState === "current" ? (
+              <span className="collection-asset-cover is-cover" role="img" aria-label="Cover" title="Cover">
+                <CoverIcon />
+              </span>
+            ) : coverState === "set" ? (
+              // Always shown, not on hover, so a phone reaches it with one tap.
+              <button
+                type="button"
+                className="collection-asset-cover"
+                aria-label={`Set ${asset.name} as cover`}
+                title="Set as cover"
+                disabled={cover?.busy}
+                aria-busy={cover?.pending || undefined}
+                onClick={cover?.onSet}
+              >
+                {cover?.pending ? <Loader size="sm" /> : <CoverIcon />}
+              </button>
+            ) : null}
           </span>
         ) : null}
       </div>
@@ -392,6 +443,15 @@ function AssetTile({
         {caption}
       </button>
     </div>
+  );
+}
+
+function CoverIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="2.5" y="3" width="11" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M4.5 11 7 8.2l1.7 1.7L10.4 8l1.6 3H4.5z" fill="currentColor" />
+    </svg>
   );
 }
 

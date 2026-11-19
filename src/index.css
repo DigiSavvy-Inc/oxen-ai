@@ -7731,6 +7731,38 @@ select.attach-role {
   margin: 10px -12px -12px;
 }
 
+/* Set as cover: a light ghost square on every image tile, ink once it is the cover. */
+.collection-asset-cover {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--neutral-1);
+  color: var(--neutral-9);
+  box-shadow: var(--shadow-s);
+  cursor: pointer;
+}
+
+.collection-asset-cover svg {
+  width: 14px;
+  height: 14px;
+}
+
+.collection-asset-cover:disabled {
+  cursor: default;
+}
+
+.collection-asset-cover.is-cover {
+  border-color: var(--neutral-9);
+  background: var(--neutral-9);
+  color: var(--neutral-1);
+  cursor: default;
+}
+
 @media (max-width: 860px) {
   /* The bar wraps onto more rows; its menus hang from the bar, so none can run past the screen. */
   .collection-assets-bar .history-gallery-tools {
@@ -7748,5 +7780,11 @@ select.attach-role {
     min-height: 32px;
     padding: 6px 2px;
     font-size: 12px;
+  }
+
+  /* A bigger target for a finger. */
+  .collection-asset-cover {
+    width: 30px;
+    height: 30px;
   }
 }

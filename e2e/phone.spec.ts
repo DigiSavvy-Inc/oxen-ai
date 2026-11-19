@@ -192,3 +192,50 @@ test("on a narrow phone an opened collection fills the screen and works from men
     ),
   ).toEqual([]);
 });
+
+// Set as cover on a 390px touch phone: shown on the tile without hover, big enough to tap, and
+// Reset cover in the head stays on screen.
+test.describe("on a touch phone", () => {
+  test.use({ hasTouch: true });
+
+  test("Set as cover is tapped on an All assets tile, and Reset cover puts the automatic one back", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    const gallery = await makeGallery(page, "PhoneCoverSet", await uploadTiles(page, "phonecover", 2));
+    await makeCollection(page, "PhoneCover", [gallery]);
+    const savedCover = async () => {
+      const { collections } = (await (await page.request.get("/api/collections")).json()) as {
+        collections: { name: string; cover: { key: string; chosen: boolean } | null }[];
+      };
+      return collections.find((entry) => entry.name === "PhoneCover")?.cover ?? null;
+    };
+    await page.reload();
+    await openFromMenu(page, "Library");
+    const panel = library(page);
+    await panel.getByRole("button", { name: "Galleries", exact: true }).tap();
+    await panel.getByRole("button", { name: "Open PhoneCover" }).tap();
+    const view = panel.getByLabel("Collection", { exact: true });
+    await view.getByRole("tab", { name: "All assets" }).tap();
+    const grid = view.getByLabel("All assets", { exact: true });
+
+    // No pointer has hovered the tile: the control is there and a finger-sized target.
+    const set = grid.getByRole("button", { name: "Set phonecover-2.png as cover" });
+    await expect(set).toBeVisible();
+    const box = (await set.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(30);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    await set.tap();
+    await expect(grid.getByRole("img", { name: "Cover", exact: true })).toHaveCount(1);
+    await expect.poll(savedCover).toMatchObject({ chosen: true });
+
+    const reset = view.getByRole("button", { name: "Reset cover" });
+    await expect(reset).toBeVisible();
+    const resetBox = (await reset.boundingBox())!;
+    expect(resetBox.x + resetBox.width).toBeLessThanOrEqual(390);
+    await reset.tap();
+    await expect(reset).toBeHidden();
+    await expect.poll(savedCover).toMatchObject({ chosen: false });
+    await expectFullScreen(page, panel);
+  });
+});
