@@ -7,6 +7,8 @@ import { parseModelControls } from "../worker/schema";
 import { modelSupportsMode } from "../worker/model-modes";
 import { Canvas } from "../src/components/Canvas";
 import { Sidebar } from "../src/components/Sidebar";
+import { GalleryBrowser } from "../src/components/GalleryBrowser";
+import type { CollectionControls } from "../src/lib/use-collections";
 import { StagedStill, StagedVideo } from "../src/components/StagedStill";
 import { Composer } from "../src/components/Composer";
 import { LibraryPeek } from "../src/components/LibraryPeek";
@@ -2122,5 +2124,131 @@ describe("Flux 3 Video composer", () => {
     expect(withModeration).toContain(">low<");
     expect(withModeration).toContain(">auto<");
     expect(withModeration).toContain('value="low"');
+  });
+});
+
+describe("grouped galleries screen", () => {
+  const noop = () => {};
+  const summaries = [
+    { id: "g-faces", name: "Faces", updatedAt: 3, count: 3, previews: [], collectionId: "c-maya" },
+    { id: "g-rooms", name: "Rooms", updatedAt: 2, count: 2, previews: [], collectionId: null },
+  ];
+  const browserProps = {
+    summaries,
+    detail: false,
+    galleryId: null,
+    name: "",
+    handle: "",
+    take: 1,
+    onHandleChange: noop,
+    onTakeChange: noop,
+    onLabelChange: noop,
+    items: [],
+    saving: false,
+    adding: false,
+    status: null,
+    skipped: [],
+    accept: "image/*",
+    dropLabel: "Drop media",
+    onAddFiles: noop,
+    onDropHistory: noop,
+    onOpen: noop,
+    onBack: noop,
+    onNameChange: noop,
+    onSave: noop,
+    onAttach: noop,
+    onRemove: noop,
+    onReorder: noop,
+    onRoleChange: noop,
+    onFeature: noop,
+    onDelete: noop,
+    onRenameGallery: noop,
+    onDeleteGallery: noop,
+    onDeleteSelected: async () => true,
+    onDeleteFiles: async () => true,
+    onPlaceSelected: async () => true,
+    slotChoices: [],
+    onAddToSlot: noop,
+    onCreateSlot: noop,
+  } as unknown as Parameters<typeof GalleryBrowser>[0];
+
+  function controls(partial: Partial<CollectionControls> = {}): CollectionControls {
+    return {
+      collections: [
+        {
+          id: "c-maya",
+          name: "Maya",
+          position: 0,
+          updatedAt: 1,
+          galleryIds: ["g-faces"],
+          itemCount: 212,
+          cover: { key: "u/1/a.png", kind: "image", thumbUrl: "https://studio.example/a.png", chosen: false },
+        },
+        { id: "c-empty", name: "Client", position: 1, updatedAt: 1, galleryIds: [], itemCount: 0, cover: null },
+      ],
+      folded: new Set(),
+      status: null,
+      onToggleFold: noop,
+      onCreate: async () => null,
+      onRename: async () => true,
+      onDelete: async () => true,
+      onStep: noop,
+      onDropOn: noop,
+      onFile: async () => true,
+      onFileNew: async () => true,
+      ...partial,
+    };
+  }
+
+  const render = (collections: CollectionControls | null) =>
+    renderToStaticMarkup(createElement(GalleryBrowser, { ...browserProps, collections }));
+
+  it("looks and works as before while collections are not ready", () => {
+    const html = render(null);
+    expect(html).toContain(">Faces<");
+    expect(html).toContain(">Rooms<");
+    for (const control of ["New collection", "Ungrouped", "to collection", 'draggable="true"', "collection-"]) {
+      expect(html).not.toContain(control);
+    }
+  });
+
+  it("groups cards into sections with cover, name, and counts, then Ungrouped", () => {
+    const html = render(controls());
+    expect(html).toContain("New collection");
+    expect(html).toContain('aria-label="Maya"');
+    expect(html).toContain(">Maya<");
+    // Gallery count from the cards on screen, item count from the collection.
+    expect(html).toContain("1 gallery, 212 items");
+    expect(html).toContain("0 galleries, 0 items");
+    expect(html).toContain("No galleries yet. Drag one here.");
+    expect(html).toContain("https://studio.example/a.png");
+    expect(html).toContain('aria-label="Fold Maya"');
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain(">Ungrouped<");
+    expect(html.indexOf(">Faces<")).toBeLessThan(html.indexOf(">Ungrouped<"));
+    expect(html.indexOf(">Ungrouped<")).toBeLessThan(html.indexOf(">Rooms<"));
+    expect(html).toContain('aria-label="Maya options"');
+    expect(html).toContain('aria-label="Move Faces to collection"');
+    expect(html).toContain('aria-label="Move Rooms to collection"');
+    expect(html).toContain('draggable="true"');
+    // Opening a collection is slice 3.
+    expect(html).not.toMatch(/>Open</);
+  });
+
+  it("hides a folded section's galleries and keeps its header", () => {
+    const html = render(controls({ folded: new Set(["c-maya"]) }));
+    expect(html).toContain('aria-label="Show Maya"');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain("1 gallery, 212 items");
+    expect(html).not.toContain(">Faces<");
+    expect(html).toContain(">Rooms<");
+  });
+
+  it("shows no Ungrouped heading when there are no collections", () => {
+    const html = render(controls({ collections: [] }));
+    expect(html).toContain("New collection");
+    expect(html).toContain(">Faces<");
+    expect(html).toContain(">Rooms<");
+    expect(html).not.toContain(">Ungrouped<");
   });
 });

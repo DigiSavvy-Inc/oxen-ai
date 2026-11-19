@@ -36,6 +36,7 @@ import { prunePicked, selectionInsideGroup, togglePicked } from "../lib/media-se
 import type { SlotAddItem, SlotAddNotice, SlotChoice } from "../lib/slot-add";
 import { runModes } from "../lib/mode-icons";
 import { suggestTags } from "../lib/tags";
+import type { CollectionControls } from "../lib/use-collections";
 import { CopyPrompt } from "./CopyPrompt";
 import { CreateGalleryPalette } from "./CreateGalleryPalette";
 import { GalleryBrowser, type GalleryPlace } from "./GalleryBrowser";
@@ -314,6 +315,7 @@ export function Sidebar({
   slotChoices,
   onAddToSlot,
   onCreateSlot,
+  collections = null,
   managingGallery,
   onManagingGallery,
   pane,
@@ -386,6 +388,8 @@ export function Sidebar({
   slotChoices: SlotChoice[];
   onAddToSlot: (slotId: string, items: SlotAddItem[]) => Promise<SlotAddNotice>;
   onCreateSlot: (name: string, items: SlotAddItem[]) => Promise<SlotAddNotice>;
+  /** Collection controls for the Galleries list; null until collections are ready. */
+  collections?: CollectionControls | null;
   /** True while one gallery is open in the panel; false shows the list of galleries. */
   managingGallery: boolean;
   onManagingGallery: (value: boolean) => void;
@@ -753,6 +757,7 @@ export function Sidebar({
           slotChoices={slotChoices}
           onAddToSlot={onAddToSlot}
           onCreateSlot={onCreateSlot}
+          collections={collections}
           summaries={gallerySummaries}
           detail={galleryDetail}
           galleryId={galleryId}

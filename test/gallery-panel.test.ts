@@ -285,3 +285,90 @@ describe("one gallery panel, two ways in", () => {
     expect(composer).toContain("props.onGalleryAttach?.(picked, promptCaret());");
   });
 });
+
+describe("collections on the Galleries screen", () => {
+  const app = source("../src/App.tsx");
+  const sidebar = source("../src/components/Sidebar.tsx");
+  const browser = source("../src/components/GalleryBrowser.tsx");
+  const sections = source("../src/components/CollectionSections.tsx");
+  const hook = source("../src/lib/use-collections.ts");
+  const composer = source("../src/components/Composer.tsx");
+  const css = source("../src/index.css");
+
+  it("keeps collection state and handlers in a hook, not in App", () => {
+    // The list follows the active profile, so a profile with no galleries never shows another's.
+    expect(app).toMatch(/useCollections\(\{\s*signedIn: Boolean\(user\),\s*profileId: activeProfileId,/);
+    expect(app).toContain("collections={collectionControls}");
+    expect(app).not.toContain("api.collections(");
+    expect(app).not.toContain("api.fileGallery(");
+    expect(hook).toContain("createCollectionStore(api)");
+    // Filing is the small route, never a full gallery save that rewrites items and updated_at.
+    expect(source("../src/lib/collection-store.ts")).not.toContain("saveGallery");
+    // Read again on the profile and the filed-gallery key only, not on every card list change.
+    expect(hook).toContain("}, [store, scope, watch]);");
+    expect(hook).not.toMatch(/\[[^\]]*gallerySummaries[^\]]*\]\);/);
+  });
+
+  it("shows no collection controls until the server says collections are ready", () => {
+    expect(hook).toContain("if (scope === null || state.scope !== scope || !state.ready) return null;");
+    expect(browser).toContain("{collections ? (");
+    expect(browser).toContain("{collections ? <MoveToCollection gallery={gallery} controls={collections} /> : null}");
+    expect(browser).toContain("draggable={filing || undefined}");
+  });
+
+  it("leaves the panel header's buttons and their order alone", () => {
+    const header = sidebar.slice(
+      sidebar.indexOf('<div className="sidebar-header">'),
+      sidebar.indexOf("{createGalleryOpen ? ("),
+    );
+    expect(header).not.toContain("ollection");
+    const order = ["Galleries\n", "Create gallery\n", '"Download all"', "<PanelPlaceSwitch />", 'aria-label="Close library"'];
+    const at = order.map((piece) => header.indexOf(piece));
+    expect(at.every((index) => index >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(sections).toContain("<NewCollectionRow onCreate={controls.onCreate} />");
+  });
+
+  it("drags a card with its own type that the prompt and an open gallery ignore", () => {
+    expect(browser).toContain("event.dataTransfer.setData(GALLERY_CARD_DRAG_TYPE, gallery.id);");
+    expect(composer).not.toContain("GALLERY_CARD_DRAG_TYPE");
+    expect(composer).not.toContain("x-oxen-gallery-card");
+    const openDrop = browser.slice(browser.indexOf("function offeredDrop("), browser.indexOf("function onDragEnter("));
+    expect(openDrop).not.toContain("GALLERY_CARD_DRAG_TYPE");
+    // Ungrouped takes a card out (null); a section files it there. The drop itself is unit tested.
+    expect(sections).toContain("useDropTarget(null, controls, [GALLERY_CARD_DRAG_TYPE]);");
+    expect(sections).toContain("useDropTarget(collection.id, controls, [GALLERY_CARD_DRAG_TYPE, COLLECTION_DRAG_TYPE]);");
+    expect(sections).toContain("collectionDrop((type) => event.dataTransfer.getData(type), target)");
+  });
+
+  it("offers every section action from a menu, with the two-step delete", () => {
+    for (const piece of [
+      "Rename",
+      "Move up",
+      "Move down",
+      "Delete collection",
+      "Delete this collection",
+      "Deletes this collection. Its galleries and files stay.",
+      "New collection…",
+      "No collection",
+    ]) {
+      expect(sections).toContain(piece);
+    }
+    expect(sections).toContain('<Loader size="sm" label="Creating…" />');
+  });
+
+  it("keeps menus inside the panel on a phone and gives the header a touch height", () => {
+    expect(css).toMatch(/\.gallery-card-tools\s*\{[^}]*position:\s*relative/);
+    expect(css).toMatch(
+      /\.collection-move-pop\.history-gallery-pop\s*\{[^}]*right:\s*0;[^}]*width:\s*min\(240px, calc\(100vw - 48px\)\)/,
+    );
+    expect(css).toMatch(/@media \(max-width: 860px\)\s*\{\s*\.collection-head\s*\{\s*min-height:\s*48px/);
+  });
+
+  it("remembers folded sections in this browser", () => {
+    const lib = source("../src/lib/collections.ts");
+    expect(lib).toContain('export const COLLECTION_FOLD_KEY = "ds-studio-collection-folds";');
+    expect(lib).toContain("window.localStorage.setItem(COLLECTION_FOLD_KEY, JSON.stringify(folded));");
+    expect(hook).toContain("useState<string[]>(() => readFolded())");
+  });
+});

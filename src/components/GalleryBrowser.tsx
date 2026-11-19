@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { createPortal, flushSync } from "react-dom";
 import type { GallerySummary } from "../lib/api";
+import { GALLERY_CARD_DRAG_TYPE } from "../lib/collections";
 import type { GalleryDraftItem } from "../lib/gallery-draft";
 import { gallerySwipeSlides } from "../lib/gallery-slides";
 import { fileDragOffered, historyDragOffered, readHistoryDrag } from "../lib/history-drag";
 import type { DeleteScope } from "../lib/media-delete";
 import type { SlotAddItem, SlotAddNotice, SlotChoice } from "../lib/slot-add";
 import { useTileReorder } from "../lib/tile-reorder";
+import type { CollectionControls } from "../lib/use-collections";
 import type { MediaRole } from "../../worker/schema";
+import { CollectionSections, MoveToCollection } from "./CollectionSections";
 import { DeleteMenu } from "./DeleteMenu";
 import { FullSizeMedia } from "./FullSizeMedia";
 import { GalleryMentionFields } from "./GalleryMentionFields";
@@ -63,6 +66,8 @@ type Props = {
   slotChoices: SlotChoice[];
   onAddToSlot: (slotId: string, items: SlotAddItem[]) => Promise<SlotAddNotice>;
   onCreateSlot: (name: string, items: SlotAddItem[]) => Promise<SlotAddNotice>;
+  /** Null until collections are ready: the list then stays exactly as it was before them. */
+  collections?: CollectionControls | null;
 };
 
 export function GalleryBrowser(props: Props) {
@@ -90,23 +95,26 @@ export function GalleryBrowser(props: Props) {
   }, [props.galleryId]);
 
   if (!props.detail) {
+    const collections = props.collections ?? null;
+    const card = (gallery: GallerySummary) => (
+      <GalleryCard
+        key={gallery.id}
+        gallery={gallery}
+        collections={collections}
+        onOpen={props.onOpen}
+        onRename={props.onRenameGallery}
+        onDelete={props.onDeleteGallery}
+      />
+    );
     return (
       <div className="gallery-browser" aria-label="Galleries">
         {props.status ? <p className="gallery-status">{props.status}</p> : null}
-        {props.summaries.length === 0 ? (
+        {collections ? (
+          <CollectionSections controls={collections} summaries={props.summaries} renderCard={card} />
+        ) : props.summaries.length === 0 ? (
           <div className="history-empty">No galleries yet. Create one, then pick library tiles.</div>
         ) : (
-          <div className="gallery-card-list">
-            {props.summaries.map((gallery) => (
-              <GalleryCard
-                key={gallery.id}
-                gallery={gallery}
-                onOpen={props.onOpen}
-                onRename={props.onRenameGallery}
-                onDelete={props.onDeleteGallery}
-              />
-            ))}
-          </div>
+          <div className="gallery-card-list">{props.summaries.map(card)}</div>
         )}
       </div>
     );
@@ -517,11 +525,13 @@ export function GalleryBrowser(props: Props) {
 
 function GalleryCard({
   gallery,
+  collections = null,
   onOpen,
   onRename,
   onDelete,
 }: {
   gallery: GallerySummary;
+  collections?: CollectionControls | null;
   onOpen: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
@@ -533,8 +543,22 @@ function GalleryCard({
   const count = gallery.count ?? previews.length;
   const featured = count > 4;
 
+  const filing = Boolean(collections) && !editing;
+
   return (
-    <div className="gallery-card">
+    <div
+      className="gallery-card"
+      draggable={filing || undefined}
+      onDragStart={
+        filing
+          ? (event) => {
+              // Its own drag type: the prompt, an open gallery, and library drops ignore it.
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData(GALLERY_CARD_DRAG_TYPE, gallery.id);
+            }
+          : undefined
+      }
+    >
       <button type="button" className="gallery-card-open" onClick={() => onOpen(gallery.id)}>
         <span className={`gallery-card-mosaic${featured ? " is-featured" : ""}`}>
           {previews.length === 0 ? (
@@ -615,6 +639,7 @@ function GalleryCard({
                 <PencilIcon />
                 Edit
               </button>
+              {collections ? <MoveToCollection gallery={gallery} controls={collections} /> : null}
               {confirm ? (
                 <button
                   type="button"
