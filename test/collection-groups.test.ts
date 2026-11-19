@@ -3,7 +3,10 @@ import type { GallerySummary, StudioCollection } from "../src/lib/api";
 import {
   COLLECTION_DRAG_TYPE,
   GALLERY_CARD_DRAG_TYPE,
+  applyCollectionDrop,
   collectionCountLabel,
+  collectionDrop,
+  collectionWatchKey,
   collectionOrder,
   dragOffers,
   dropCollection,
@@ -15,8 +18,8 @@ import {
   ungroupCollection,
   withGalleryCollection,
 } from "../src/lib/collections";
-import { GALLERY_ITEM_DRAG_TYPE } from "../src/lib/gallery-attach";
-import { HISTORY_MEDIA_DRAG_TYPE } from "../src/lib/history-drag";
+import { GALLERY_ITEM_DRAG_TYPE, isGalleryItemDrag } from "../src/lib/gallery-attach";
+import { HISTORY_MEDIA_DRAG_TYPE, fileDragOffered, historyDragOffered } from "../src/lib/history-drag";
 
 function gallery(id: string, collectionId: string | null = null): GallerySummary {
   return { id, name: id.toUpperCase(), updatedAt: 0, collectionId };
@@ -139,5 +142,79 @@ describe("the gallery card drag", () => {
     }
     expect(dragOffers([GALLERY_CARD_DRAG_TYPE], GALLERY_CARD_DRAG_TYPE)).toBe(true);
     expect(dragOffers([GALLERY_ITEM_DRAG_TYPE], GALLERY_CARD_DRAG_TYPE)).toBe(false);
+  });
+});
+
+describe("dropping on a section or on Ungrouped", () => {
+  const reader = (data: Record<string, string>) => (type: string) => data[type] ?? "";
+
+  it("files a dragged gallery card into the section, or takes it out on Ungrouped", () => {
+    const card = reader({ [GALLERY_CARD_DRAG_TYPE]: "g1" });
+    expect(collectionDrop(card, "c1")).toEqual({ kind: "file", galleryId: "g1", collectionId: "c1" });
+    expect(collectionDrop(card, null)).toEqual({ kind: "file", galleryId: "g1", collectionId: null });
+  });
+
+  it("moves a dragged section header to the section it lands on, and nowhere else", () => {
+    const header = reader({ [COLLECTION_DRAG_TYPE]: "c2" });
+    expect(collectionDrop(header, "c1")).toEqual({ kind: "order", dragId: "c2", targetId: "c1" });
+    expect(collectionDrop(header, "c2")).toBeNull();
+    expect(collectionDrop(header, null)).toBeNull();
+  });
+
+  it("ignores library tiles, gallery tiles, and files", () => {
+    for (const type of [GALLERY_ITEM_DRAG_TYPE, HISTORY_MEDIA_DRAG_TYPE, "text/plain", "Files"]) {
+      expect(collectionDrop(reader({ [type]: "x" }), "c1")).toBeNull();
+    }
+  });
+
+  it("hands the drop to the screen's handlers", () => {
+    const filed: unknown[] = [];
+    const moved: unknown[] = [];
+    const handlers = {
+      onFile: async (...args: unknown[]) => {
+        filed.push(args);
+        return true;
+      },
+      onDropOn: (...args: unknown[]) => {
+        moved.push(args);
+      },
+    };
+    applyCollectionDrop({ kind: "file", galleryId: "g1", collectionId: null }, handlers);
+    applyCollectionDrop({ kind: "order", dragId: "c2", targetId: "c1" }, handlers);
+    applyCollectionDrop(null, handlers);
+    expect(filed).toEqual([["g1", null]]);
+    expect(moved).toEqual([["c2", "c1"]]);
+  });
+
+  it("is not picked up by the prompt or library drop checks", () => {
+    expect(historyDragOffered([GALLERY_CARD_DRAG_TYPE])).toBe(false);
+    expect(isGalleryItemDrag([GALLERY_CARD_DRAG_TYPE])).toBe(false);
+    expect(fileDragOffered([GALLERY_CARD_DRAG_TYPE])).toBe(false);
+  });
+});
+
+describe("when the collections list is read again", () => {
+  let signed = 0;
+  const card = (id: string, collectionId: string | null, count: number, preview = "a.png", name = id): GallerySummary => ({
+    id,
+    name,
+    updatedAt: 0,
+    count,
+    collectionId,
+    previews: [{ kind: "image", name: preview, thumbUrl: `https://studio.example/${(signed += 1)}` }],
+  });
+
+  it("does not change for a rename, fresh signed links, or an ungrouped gallery's edits", () => {
+    const before = collectionWatchKey([card("g1", "c1", 2), card("g2", null, 1)]);
+    expect(collectionWatchKey([card("g1", "c1", 2, "a.png", "Renamed"), card("g2", null, 7, "z.png")])).toBe(before);
+    expect(collectionWatchKey([card("g2", null, 1), card("g1", "c1", 2)])).toBe(before);
+  });
+
+  it("changes when a filed gallery's count or cover changes, or a gallery is filed", () => {
+    const before = collectionWatchKey([card("g1", "c1", 2), card("g2", null, 1)]);
+    expect(collectionWatchKey([card("g1", "c1", 3), card("g2", null, 1)])).not.toBe(before);
+    expect(collectionWatchKey([card("g1", "c1", 2, "b.png"), card("g2", null, 1)])).not.toBe(before);
+    expect(collectionWatchKey([card("g1", "c1", 2), card("g2", "c1", 1)])).not.toBe(before);
+    expect(collectionWatchKey([card("g2", null, 1)])).not.toBe(before);
   });
 });

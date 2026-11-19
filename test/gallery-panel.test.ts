@@ -296,18 +296,21 @@ describe("collections on the Galleries screen", () => {
   const css = source("../src/index.css");
 
   it("keeps collection state and handlers in a hook, not in App", () => {
-    expect(app).toContain("useCollections({ signedIn: Boolean(user), gallerySummaries, setGallerySummaries })");
+    // The list follows the active profile, so a profile with no galleries never shows another's.
+    expect(app).toMatch(/useCollections\(\{\s*signedIn: Boolean\(user\),\s*profileId: activeProfileId,/);
     expect(app).toContain("collections={collectionControls}");
     expect(app).not.toContain("api.collections(");
     expect(app).not.toContain("api.fileGallery(");
-    expect(hook).toContain("api.collections()");
+    expect(hook).toContain("createCollectionStore(api)");
     // Filing is the small route, never a full gallery save that rewrites items and updated_at.
-    expect(hook).toContain("api.fileGallery(galleryId, collectionId)");
-    expect(hook).not.toContain("saveGallery");
+    expect(source("../src/lib/collection-store.ts")).not.toContain("saveGallery");
+    // Read again on the profile and the filed-gallery key only, not on every card list change.
+    expect(hook).toContain("}, [store, scope, watch]);");
+    expect(hook).not.toMatch(/\[[^\]]*gallerySummaries[^\]]*\]\);/);
   });
 
   it("shows no collection controls until the server says collections are ready", () => {
-    expect(hook).toContain("if (!signedIn || !ready) return null;");
+    expect(hook).toContain("if (scope === null || state.scope !== scope || !state.ready) return null;");
     expect(browser).toContain("{collections ? (");
     expect(browser).toContain("{collections ? <MoveToCollection gallery={gallery} controls={collections} /> : null}");
     expect(browser).toContain("draggable={filing || undefined}");
@@ -332,9 +335,10 @@ describe("collections on the Galleries screen", () => {
     expect(composer).not.toContain("x-oxen-gallery-card");
     const openDrop = browser.slice(browser.indexOf("function offeredDrop("), browser.indexOf("function onDragEnter("));
     expect(openDrop).not.toContain("GALLERY_CARD_DRAG_TYPE");
-    expect(sections).toContain("void controls.onFile(id, null);");
-    expect(sections).toContain("void controls.onFile(gallery, collection.id);");
-    expect(sections).toContain("controls.onDropOn(moved, collection.id);");
+    // Ungrouped takes a card out (null); a section files it there. The drop itself is unit tested.
+    expect(sections).toContain("useDropTarget(null, controls, [GALLERY_CARD_DRAG_TYPE]);");
+    expect(sections).toContain("useDropTarget(collection.id, controls, [GALLERY_CARD_DRAG_TYPE, COLLECTION_DRAG_TYPE]);");
+    expect(sections).toContain("collectionDrop((type) => event.dataTransfer.getData(type), target)");
   });
 
   it("offers every section action from a menu, with the two-step delete", () => {

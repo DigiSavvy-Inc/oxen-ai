@@ -325,7 +325,6 @@ export default function App() {
   const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
   const [galleryTileDrag, setGalleryTileDrag] = useState(false);
   const [gallerySummaries, setGallerySummaries] = useState<GallerySummary[]>([]);
-  const collectionControls = useCollections({ signedIn: Boolean(user), gallerySummaries, setGallerySummaries });
   const [galleryId, setGalleryId] = useState<string | null>(null);
   const [galleryName, setGalleryName] = useState("");
   const [galleryHandle, setGalleryHandle] = useState("");
@@ -342,6 +341,12 @@ export default function App() {
   const [createGalleryOpen, setCreateGalleryOpen] = useState(false);
   const [profiles, setProfiles] = useState<StudioProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const collectionControls = useCollections({
+    signedIn: Boolean(user),
+    profileId: activeProfileId,
+    gallerySummaries,
+    setGallerySummaries,
+  });
   const [quality, setQuality] = useState("");
   const [resolution, setResolution] = useState("");
   const [outputFormat, setOutputFormat] = useState("");

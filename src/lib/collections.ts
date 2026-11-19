@@ -61,6 +61,19 @@ export function groupGalleries(
   return { sections, ungrouped };
 }
 
+/**
+ * What on the gallery cards can change a collection's item count or cover: which galleries are
+ * filed where, their counts, and their first preview (by name; signed links change on every read). A rename, or any change to an ungrouped
+ * gallery, leaves it the same, so the collections list is not read again for those.
+ */
+export function collectionWatchKey(summaries: readonly GallerySummary[]): string {
+  return summaries
+    .filter((gallery) => gallery.collectionId)
+    .map((gallery) => `${gallery.id}>${gallery.collectionId}:${gallery.count ?? 0}:${gallery.previews?.[0]?.name ?? ""}`)
+    .sort()
+    .join("|");
+}
+
 /** "4 galleries, 212 items". */
 export function collectionCountLabel(galleries: number, items: number): string {
   return `${galleries} ${galleries === 1 ? "gallery" : "galleries"}, ${items} ${items === 1 ? "item" : "items"}`;
@@ -151,6 +164,36 @@ export function storeFolded(folded: readonly string[]) {
   } catch {
     /* storage unavailable */
   }
+}
+
+export type CollectionDrop =
+  | { kind: "file"; galleryId: string; collectionId: string | null }
+  | { kind: "order"; dragId: string; targetId: string };
+
+/**
+ * What a drop on a section (target id) or on Ungrouped (null) does. A gallery card files the
+ * gallery there; a section header only reorders when dropped on another section. Anything else,
+ * such as library tiles or files, does nothing here.
+ */
+export function collectionDrop(read: (type: string) => string, target: string | null): CollectionDrop | null {
+  const galleryId = read(GALLERY_CARD_DRAG_TYPE);
+  if (galleryId) return { kind: "file", galleryId, collectionId: target };
+  const dragId = read(COLLECTION_DRAG_TYPE);
+  if (dragId && target && dragId !== target) return { kind: "order", dragId, targetId: target };
+  return null;
+}
+
+/** Hands a drop to the screen's handlers: file the gallery, or move the section. */
+export function applyCollectionDrop(
+  action: CollectionDrop | null,
+  handlers: {
+    onFile: (galleryId: string, collectionId: string | null) => Promise<boolean>;
+    onDropOn: (dragId: string, targetId: string) => void;
+  },
+) {
+  if (!action) return;
+  if (action.kind === "file") void handlers.onFile(action.galleryId, action.collectionId);
+  else handlers.onDropOn(action.dragId, action.targetId);
 }
 
 export function dragOffers(types: ArrayLike<string> | readonly string[], type: string): boolean {

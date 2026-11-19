@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type DragEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type DragEvent, type ReactNode, type RefObject } from "react";
 import type { GallerySummary, StudioCollection } from "../lib/api";
 import {
   COLLECTION_DRAG_TYPE,
   GALLERY_CARD_DRAG_TYPE,
   collectionCountLabel,
+  applyCollectionDrop,
+  collectionDrop,
   dragOffers,
   groupGalleries,
 } from "../lib/collections";
@@ -21,10 +23,7 @@ type Props = {
 export function CollectionSections({ controls, summaries, renderCard }: Props) {
   const { sections, ungrouped } = groupGalleries(controls.collections, summaries);
   const grouped = sections.length > 0;
-  const drop = useDropTarget((event) => {
-    const id = event.dataTransfer.getData(GALLERY_CARD_DRAG_TYPE);
-    if (id) void controls.onFile(id, null);
-  }, [GALLERY_CARD_DRAG_TYPE]);
+  const drop = useDropTarget(null, controls, [GALLERY_CARD_DRAG_TYPE]);
 
   return (
     <div className="collection-list">
@@ -79,18 +78,7 @@ function CollectionSection({
 }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(collection.name);
-  const drop = useDropTarget(
-    (event) => {
-      const gallery = event.dataTransfer.getData(GALLERY_CARD_DRAG_TYPE);
-      if (gallery) {
-        void controls.onFile(gallery, collection.id);
-        return;
-      }
-      const moved = event.dataTransfer.getData(COLLECTION_DRAG_TYPE);
-      if (moved) controls.onDropOn(moved, collection.id);
-    },
-    [GALLERY_CARD_DRAG_TYPE, COLLECTION_DRAG_TYPE],
-  );
+  const drop = useDropTarget(collection.id, controls, [GALLERY_CARD_DRAG_TYPE, COLLECTION_DRAG_TYPE]);
   const count = collectionCountLabel(galleries.length, collection.itemCount);
   const coverUrl = collection.cover?.thumbUrl ?? null;
 
@@ -488,7 +476,7 @@ export function MoveToCollection({ gallery, controls }: { gallery: GallerySummar
 }
 
 /** Lights up while an accepted drag is over it, and hands the drop over. */
-function useDropTarget(onDrop: (event: DragEvent<HTMLElement>) => void, types: readonly string[]) {
+function useDropTarget(target: string | null, controls: CollectionControls, types: readonly string[]) {
   const [hot, setHot] = useState(false);
   const offered = (event: DragEvent<HTMLElement>) =>
     types.some((type) => dragOffers(event.dataTransfer.types, type));
@@ -512,7 +500,10 @@ function useDropTarget(onDrop: (event: DragEvent<HTMLElement>) => void, types: r
         event.preventDefault();
         event.stopPropagation();
         setHot(false);
-        onDrop(event);
+        applyCollectionDrop(
+          collectionDrop((type) => event.dataTransfer.getData(type), target),
+          controls,
+        );
       },
     },
   };
@@ -520,18 +511,17 @@ function useDropTarget(onDrop: (event: DragEvent<HTMLElement>) => void, types: r
 
 /** Closes a small menu on a press outside it or on Escape. */
 function usePopClose(open: boolean, ref: RefObject<HTMLElement | null>, close: () => void) {
-  const closeRef = useRef(close);
-  closeRef.current = close;
+  const onClose = useEffectEvent(close);
   useEffect(() => {
     if (!open) return;
     function onPointer(event: PointerEvent) {
-      if (!ref.current?.contains(event.target as Node)) closeRef.current();
+      if (!ref.current?.contains(event.target as Node)) onClose();
     }
     function onKey(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
-      closeRef.current();
+      onClose();
     }
     window.addEventListener("pointerdown", onPointer);
     window.addEventListener("keydown", onKey, true);

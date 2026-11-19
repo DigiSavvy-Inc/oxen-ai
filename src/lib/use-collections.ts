@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore, type Dispatch, type SetStateAction } from "react";
 import { api, type GallerySummary, type StudioCollection } from "./api";
+import { createCollectionStore } from "./collection-store";
 import {
   collectionOrder,
+  collectionWatchKey,
   dropCollection,
-  orderedCollections,
   readFolded,
   stepCollection,
   storeFolded,
@@ -29,51 +30,27 @@ export type CollectionControls = {
   onFileNew: (galleryId: string, name: string) => Promise<boolean>;
 };
 
-function message(err: unknown, fallback: string) {
-  return err instanceof Error && err.message ? err.message : fallback;
-}
-
 /**
  * Collections for the active profile, kept beside the gallery cards App already has. The list is
- * read again whenever the cards change (a profile switch, a gallery made, renamed, deleted, or
- * filed), so counts and covers follow without a second source of truth.
+ * read when the profile changes, and again only when a filed gallery's count or first preview
+ * changes (`collectionWatchKey`), so a rename or an ungrouped gallery's save sends no request.
  */
 export function useCollections(options: {
   signedIn: boolean;
+  profileId: string | null;
   gallerySummaries: GallerySummary[];
   setGallerySummaries: Dispatch<SetStateAction<GallerySummary[]>>;
 }): CollectionControls | null {
-  const { signedIn, gallerySummaries, setGallerySummaries } = options;
-  const [collections, setCollections] = useState<StudioCollection[]>([]);
-  const [ready, setReady] = useState(false);
+  const { signedIn, profileId, gallerySummaries, setGallerySummaries } = options;
+  const [store] = useState(() => createCollectionStore(api));
+  const state = useSyncExternalStore(store.subscribe, store.getState);
   const [folded, setFolded] = useState<string[]>(() => readFolded());
-  const [status, setStatus] = useState<string | null>(null);
-  const request = useRef(0);
-
-  const reload = useCallback(async () => {
-    const ticket = ++request.current;
-    try {
-      const data = await api.collections();
-      if (ticket !== request.current) return;
-      setCollections(data.collections);
-      setReady(data.ready);
-    } catch {
-      if (ticket !== request.current) return;
-      // A failed read shows today's screen rather than a half-working one.
-      setCollections([]);
-      setReady(false);
-    }
-  }, []);
+  const scope = signedIn ? `profile:${profileId ?? ""}` : null;
+  const watch = collectionWatchKey(gallerySummaries);
 
   useEffect(() => {
-    if (!signedIn) {
-      request.current += 1;
-      setCollections([]);
-      setReady(false);
-      return;
-    }
-    void reload();
-  }, [signedIn, gallerySummaries, reload]);
+    void store.refresh(scope);
+  }, [store, scope, watch]);
 
   const onToggleFold = useCallback((id: string) => {
     setFolded((current) => {
@@ -83,103 +60,46 @@ export function useCollections(options: {
     });
   }, []);
 
-  async function onCreate(name: string): Promise<StudioCollection | null> {
-    const trimmed = name.trim();
-    if (!trimmed) return null;
-    setStatus(null);
-    try {
-      const { collection } = await api.createCollection(trimmed);
-      setCollections((current) => [...current, collection]);
-      return collection;
-    } catch (err) {
-      setStatus(message(err, "Couldn’t make that collection"));
-      return null;
-    }
-  }
-
-  async function onRename(id: string, name: string): Promise<boolean> {
-    const trimmed = name.trim();
-    if (!trimmed) return false;
-    setStatus(null);
-    try {
-      const { collection } = await api.updateCollection(id, { name: trimmed });
-      setCollections((current) => current.map((item) => (item.id === id ? collection : item)));
-      return true;
-    } catch (err) {
-      setStatus(message(err, "Couldn’t rename that collection"));
-      return false;
-    }
-  }
-
   async function onDelete(id: string): Promise<boolean> {
-    setStatus(null);
-    try {
-      await api.deleteCollection(id);
-      setCollections((current) => current.filter((item) => item.id !== id));
-      setGallerySummaries((current) => ungroupCollection(current, id));
-      setFolded((current) => {
-        if (!current.includes(id)) return current;
-        const next = current.filter((item) => item !== id);
-        storeFolded(next);
-        return next;
-      });
-      return true;
-    } catch (err) {
-      setStatus(message(err, "Couldn’t delete that collection"));
-      return false;
-    }
-  }
-
-  function saveOrder(ids: string[] | null) {
-    if (!ids) return;
-    const before = collections;
-    setStatus(null);
-    setCollections(orderedCollections(collections, ids));
-    void api.orderCollections(ids).catch((err: unknown) => {
-      setCollections(before);
-      setStatus(message(err, "Couldn’t save the order"));
+    if (!(await store.remove(id))) return false;
+    setGallerySummaries((current) => ungroupCollection(current, id));
+    setFolded((current) => {
+      if (!current.includes(id)) return current;
+      const next = current.filter((item) => item !== id);
+      storeFolded(next);
+      return next;
     });
-  }
-
-  function onStep(id: string, step: -1 | 1) {
-    saveOrder(stepCollection(collectionOrder(collections), id, step));
-  }
-
-  function onDropOn(dragId: string, targetId: string) {
-    saveOrder(dropCollection(collectionOrder(collections), dragId, targetId));
+    return true;
   }
 
   async function onFile(galleryId: string, collectionId: string | null): Promise<boolean> {
     const current = gallerySummaries.find((gallery) => gallery.id === galleryId);
     if (!current || (current.collectionId ?? null) === collectionId) return true;
-    setStatus(null);
-    try {
-      await api.fileGallery(galleryId, collectionId);
-      setGallerySummaries((list) => withGalleryCollection(list, galleryId, collectionId));
-      return true;
-    } catch (err) {
-      setStatus(message(err, "Couldn’t move that gallery"));
-      return false;
-    }
+    if (!(await store.file(galleryId, collectionId))) return false;
+    setGallerySummaries((list) => withGalleryCollection(list, galleryId, collectionId));
+    return true;
   }
 
   async function onFileNew(galleryId: string, name: string): Promise<boolean> {
-    const collection = await onCreate(name);
-    if (!collection) return false;
-    return onFile(galleryId, collection.id);
+    if (!gallerySummaries.some((gallery) => gallery.id === galleryId)) return false;
+    const created = await store.fileNew(galleryId, name);
+    if (!created) return false;
+    setGallerySummaries((list) => withGalleryCollection(list, galleryId, created.id));
+    return true;
   }
 
-  if (!signedIn || !ready) return null;
+  if (scope === null || state.scope !== scope || !state.ready) return null;
   return {
-    collections,
+    collections: state.collections,
     folded: new Set(folded),
-    status,
+    status: state.status,
     onToggleFold,
-    onCreate,
-    onRename,
+    onCreate: store.create,
+    onRename: store.rename,
     onDelete,
-    onStep,
-    onDropOn,
+    onStep: (id, step) => store.order(stepCollection(collectionOrder(store.getState().collections), id, step)),
+    onDropOn: (dragId, targetId) =>
+      store.order(dropCollection(collectionOrder(store.getState().collections), dragId, targetId)),
     onFile,
     onFileNew,
   };

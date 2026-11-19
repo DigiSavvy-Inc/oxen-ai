@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { makeGallery, makeSlot, openLibrary, slotNamed, uploadTiles } from "./helpers.ts";
+import { library, makeGallery, makeSlot, openLibrary, slotNamed, uploadTiles } from "./helpers.ts";
 
 test("ticked library images go into a slot, once", async ({ page }) => {
   await page.goto("/");
@@ -60,8 +60,13 @@ test("a gallery is filed into a collection from Move to collection, and taken ou
   // A folded section stays folded after a reload.
   await section.getByRole("button", { name: "Fold Shoot70" }).click();
   await expect(section.getByRole("button", { name: "FileMe", exact: true })).toBeHidden();
-  const reopened = await openLibrary(page);
-  await reopened.getByRole("button", { name: "Galleries", exact: true }).click();
+  // The library remembers it was open, so after a reload it is already showing; clicking Library
+  // again would close it. Only the pane resets to past work.
+  await page.reload();
+  const reopened = library(page);
+  const galleriesTab = reopened.getByRole("button", { name: "Galleries", exact: true });
+  await expect(galleriesTab).toBeVisible();
+  if (!(await reopened.getByRole("region", { name: "Shoot70" }).isVisible())) await galleriesTab.click();
   const again = reopened.getByRole("region", { name: "Shoot70" });
   await expect(again.getByRole("button", { name: "Show Shoot70" })).toBeVisible();
   await expect(again.getByRole("button", { name: "FileMe", exact: true })).toBeHidden();
