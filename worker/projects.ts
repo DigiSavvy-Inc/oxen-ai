@@ -490,6 +490,19 @@ export async function ownsProject(db: D1Database, userId: string, projectId: str
   return Boolean(await ownedProject(db, userId, projectId));
 }
 
+/** The profile a project is on: undefined when it is not this user's, null for a row with none. */
+export async function projectProfileId(
+  db: D1Database,
+  userId: string,
+  projectId: string,
+): Promise<string | null | undefined> {
+  const row = await db
+    .prepare(`SELECT profile_id FROM projects WHERE id = ? AND user_id = ?`)
+    .bind(projectId, userId)
+    .first<{ profile_id: string | null }>();
+  return row ? (row.profile_id ?? null) : undefined;
+}
+
 export async function createShare(
   db: D1Database,
   userId: string,

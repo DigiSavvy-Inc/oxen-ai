@@ -13,9 +13,11 @@ import {
   hashToken,
   reserveSpend,
   spentTodayCents,
+  tokenRunCents,
   utcDay,
 } from "../worker/api-tokens";
 import { app } from "../worker/index";
+import { resetModelDetailCache } from "../worker/oxen";
 import type { Env } from "../worker/types";
 import { createEnv, createMockR2, TEST_SECRET } from "./helpers";
 
@@ -31,6 +33,8 @@ const OTHER_PROFILE = "profile-2";
 const originalFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  // A priced model stub from one case must not price the next case's model.
+  resetModelDetailCache();
 });
 
 type Row = Record<string, unknown>;
@@ -198,6 +202,19 @@ describe("token create, list, and revoke", () => {
     const over = await post({ name: "Eleventh", dailyCapUsd: 5 });
     expect(over.status).toBe(400);
     expect(((await over.json()) as { error: string }).error).toContain("Revoke one");
+  });
+
+  it("never passes ten live tokens when creates arrive at once", async () => {
+    const { db, raw } = openDb();
+    for (let i = 1; i < TOKEN_MAX_LIVE; i += 1) await newToken(db, 5, USER, `T${i}`);
+    const results = await Promise.all(
+      [1, 2, 3].map((n) => createToken(db, USER, { name: `Race ${n}`, dailyCapUsd: 5 })),
+    );
+    expect(results.filter((result) => "token" in result)).toHaveLength(1);
+    expect(results.filter((result) => "error" in result && result.error === "limit")).toHaveLength(2);
+    expect(
+      raw.prepare(`SELECT COUNT(*) AS n FROM api_tokens WHERE user_id = ? AND revoked_at IS NULL`).get(USER),
+    ).toMatchObject({ n: TOKEN_MAX_LIVE });
   });
 
   it("is browser-only: a token can never list, create, or revoke tokens", async () => {
@@ -463,6 +480,69 @@ describe("X-Studio-Profile", () => {
   });
 });
 
+describe("X-Studio-Profile on routes that take an id", () => {
+  async function seeded() {
+    const { db, raw } = openDb();
+    const { ciphertext, iv } = await encryptSecret("sk-user", TEST_SECRET);
+    raw.prepare(`UPDATE users SET oxen_key_ciphertext = ?, oxen_key_iv = ? WHERE id = ?`).run(ciphertext, iv, USER);
+    raw
+      .prepare(`INSERT INTO galleries (id, user_id, name, created_at, updated_at, profile_id) VALUES (?, ?, ?, 1, 1, ?)`)
+      .run("g-personal", USER, "Personal set", PROFILE);
+    raw
+      .prepare(`INSERT INTO projects (id, user_id, profile_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1)`)
+      .run("p-personal", USER, PROFILE, "Personal project");
+    raw
+      .prepare(
+        `INSERT INTO generations
+           (id, user_id, oxen_generation_id, mode, model, prompt, status, media_type, params_json, created_at, updated_at, profile_id)
+         VALUES (?, ?, 'ox-1', 'text-to-image', 'img-model', 'a cube', 'failed', 'image', '{}', 1, 1, ?)`,
+      )
+      .run("gen-personal", USER, PROFILE);
+    return { db, raw, env: makeEnv(db), token: await newToken(db) };
+  }
+
+  const requests: [string, string, unknown?][] = [
+    ["GET", "/api/galleries/g-personal"],
+    ["POST", "/api/galleries", { id: "g-personal", name: "Renamed", items: [] }],
+    ["GET", "/api/projects/p-personal"],
+    ["GET", "/api/projects/p-personal/jobs"],
+    ["GET", "/api/generations/gen-personal"],
+    ["PUT", "/api/generations/gen-personal/tags", { tags: ["moved"] }],
+    ["POST", "/api/generations/gen-personal/last-frame"],
+  ];
+
+  it("cannot read or change another profile's gallery, project, or generation", async () => {
+    const { raw, env, token } = await seeded();
+    for (const [method, path, body] of requests) {
+      const res = await call(env, path, {
+        method,
+        headers: bearer(token, { "X-Studio-Profile": OTHER_PROFILE }),
+        body,
+      });
+      expect(res.status, `${method} ${path}`).toBe(404);
+    }
+    expect(raw.prepare(`SELECT name FROM galleries WHERE id = 'g-personal'`).get()).toMatchObject({
+      name: "Personal set",
+    });
+    expect(raw.prepare(`SELECT COUNT(*) AS n FROM generation_tags`).get()).toMatchObject({ n: 0 });
+  });
+
+  it("reaches the same rows when the header names their profile, and without the header", async () => {
+    const { env, token } = await seeded();
+    for (const headers of [bearer(token, { "X-Studio-Profile": PROFILE }), bearer(token), cookie()]) {
+      expect((await call(env, "/api/galleries/g-personal", { headers })).status).toBe(200);
+      expect((await call(env, "/api/projects/p-personal", { headers })).status).toBe(200);
+      expect((await call(env, "/api/projects/p-personal/jobs", { headers })).status).toBe(200);
+      const tagged = await call(env, "/api/generations/gen-personal/tags", {
+        method: "PUT",
+        headers,
+        body: { tags: ["kept"] },
+      });
+      expect(tagged.status).toBe(200);
+    }
+  });
+});
+
 describe("daily cap", () => {
   const tokenRef = (id: string, capCents: number) => ({ id, name: "Agent", dailyCapCents: capCents });
 
@@ -551,6 +631,29 @@ describe("daily cap", () => {
     expect(raw.prepare(`SELECT profile_id FROM generations`).all()).toEqual([
       expect.objectContaining({ profile_id: OTHER_PROFILE }),
     ]);
+  });
+
+  it("will not run a project from another profile than the one the token named", async () => {
+    const { db, raw, env, queued } = await generateEnv({ method: "per_image", cost_per_image: 0.01 });
+    raw
+      .prepare(`INSERT INTO projects (id, user_id, profile_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1)`)
+      .run("p-personal", USER, PROFILE, "Personal project");
+    const token = await newToken(db);
+    const res = await run(env, bearer(token, { "X-Studio-Profile": OTHER_PROFILE }), {
+      num_generations: 1,
+      project_id: "p-personal",
+    });
+    expect(res.status).toBe(404);
+    expect(queued).toHaveLength(0);
+    expect(raw.prepare(`SELECT * FROM api_token_spend`).all()).toEqual([]);
+  });
+
+  it("treats no price, zero, negative, NaN, and infinite as unpriced", () => {
+    for (const amount of [null, undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, 0.000001]) {
+      expect(tokenRunCents(amount), String(amount)).toBeNull();
+    }
+    expect(tokenRunCents(0.25)).toBe(25);
+    expect(tokenRunCents(0.004)).toBe(0.4);
   });
 
   it("refuses a model Studio cannot price, and queues nothing", async () => {

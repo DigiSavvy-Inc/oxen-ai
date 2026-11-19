@@ -47,7 +47,7 @@ import { creditBalanceResponse, fetchOxenCredits, OXEN_BILLING_URL } from "./cre
 import {
   authenticateBearer,
   capExceededMessage,
-  costCents,
+  tokenRunCents,
   createToken,
   listTokens,
   releaseSpend,
@@ -200,6 +200,7 @@ import {
   listProjects,
   listStyles,
   ownsProject,
+  projectProfileId,
   readShare,
   revokeShare,
   saveProjectDraft,
@@ -406,6 +407,32 @@ async function requestProfile(
   user: UserRow,
 ): Promise<string | null> {
   return c.get("profileOverride") ?? ensureDefaultProfile(c.env.DB, user.id);
+}
+
+/**
+ * True when a token request named a profile with X-Studio-Profile and this row is on another
+ * one. Routes that look a row up by id answer "not found" then, so a token working in one
+ * profile can neither read nor change another profile's galleries, projects, or generations.
+ * Cookie requests and tokens without the header are unchanged.
+ */
+function outsideRequestProfile(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  rowProfileId: string | null | undefined,
+): boolean {
+  const chosen = c.get("profileOverride");
+  return chosen !== undefined && (rowProfileId ?? null) !== chosen;
+}
+
+/** A token request with X-Studio-Profile reaches only that profile's projects. */
+async function assertProjectInRequestProfile(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  userId: string,
+  projectId: string,
+): Promise<void> {
+  if (c.get("profileOverride") === undefined) return;
+  if (outsideRequestProfile(c, await projectProfileId(c.env.DB, userId, projectId))) {
+    throw new HTTPException(404, { message: "Project not found" });
+  }
 }
 
 function requireAdmin(sessionUser: SessionUser) {
@@ -1636,7 +1663,7 @@ app.get("/api/galleries", async (c) => {
 app.get("/api/galleries/:id", async (c) => {
   const user = await requireUser(c);
   const gallery = await getGallery(c.env.DB, user.id, c.req.param("id"));
-  if (!gallery) {
+  if (!gallery || outsideRequestProfile(c, gallery.profileId)) {
     throw new HTTPException(404, { message: "Gallery not found" });
   }
   return c.json({ gallery: await presentGallery(c.env, user.id, gallery) });
@@ -1683,6 +1710,12 @@ app.post("/api/galleries", async (c) => {
   }>();
   const id = typeof body.id === "string" ? body.id : null;
   const profileId = id ? null : await requestProfile(c, user);
+  if (id && c.get("profileOverride") !== undefined) {
+    const existing = await getGallery(c.env.DB, user.id, id);
+    if (existing && outsideRequestProfile(c, existing.profileId)) {
+      throw new HTTPException(404, { message: "Gallery not found" });
+    }
+  }
   // Create only: a gallery made inside an open collection is filed there. A full save ignores it.
   let fileInto = !id && typeof body.collectionId === "string" && body.collectionId ? body.collectionId : null;
   if (fileInto) {
@@ -1971,6 +2004,7 @@ app.post("/api/projects", async (c) => {
 
 app.get("/api/projects/:id", async (c) => {
   const user = await requireUser(c);
+  await assertProjectInRequestProfile(c, user.id, c.req.param("id"));
   const project = await getProject(c.env, user.id, c.req.param("id"));
   if (!project) throw new HTTPException(404, { message: "Project not found" });
   return c.json({ project });
@@ -2065,6 +2099,7 @@ app.delete("/api/styles/:id", async (c) => {
 
 app.get("/api/projects/:id/jobs", async (c) => {
   const user = await requireUser(c);
+  await assertProjectInRequestProfile(c, user.id, c.req.param("id"));
   if (!(await ownsProject(c.env.DB, user.id, c.req.param("id")))) {
     throw new HTTPException(404, { message: "Project not found" });
   }
@@ -2772,6 +2807,7 @@ app.post("/api/generate", async (c) => {
   if (projectId && !(await ownsProject(c.env.DB, user.id, projectId))) {
     throw new HTTPException(404, { message: "Project not found" });
   }
+  if (projectId) await assertProjectInRequestProfile(c, user.id, projectId);
 
   // A token run is priced here from the model and the settings above. The client's
   // estimated_cost is a record only and never counts toward the cap.
@@ -2787,10 +2823,11 @@ app.post("/api/generate", async (c) => {
       resolution: runResolution,
       quality: runQuality,
     });
-    if (estimate.amount == null || !Number.isFinite(estimate.amount) || estimate.amount < 0) {
+    const cents = tokenRunCents(estimate.amount);
+    if (cents == null) {
       throw new HTTPException(400, { message: "Studio cannot price this model, so a token cannot run it." });
     }
-    reservedCents = costCents(estimate.amount);
+    reservedCents = cents;
     if (!(await reserveSpend(c.env.DB, apiToken, reservedCents, spendDay))) {
       const spent = await spentTodayCents(c.env.DB, apiToken.id, spendDay);
       throw new HTTPException(402, { message: capExceededMessage(apiToken.dailyCapCents, spent) });
@@ -3032,7 +3069,7 @@ app.post("/api/generations/:id/last-frame", async (c) => {
   const row = await c.env.DB.prepare(`SELECT * FROM generations WHERE id = ? AND user_id = ?`)
     .bind(id, user.id)
     .first<GenerationRow>();
-  if (!row) {
+  if (!row || outsideRequestProfile(c, row.profile_id)) {
     throw new HTTPException(404, { message: "Generation not found" });
   }
   const form = await c.req.formData();
@@ -3082,7 +3119,7 @@ app.get("/api/generations/:id", async (c) => {
     .bind(id, user.id)
     .first<GenerationRow>();
 
-  if (!row) {
+  if (!row || outsideRequestProfile(c, row.profile_id)) {
     throw new HTTPException(404, { message: "Generation not found" });
   }
 
@@ -3105,7 +3142,7 @@ app.put("/api/generations/:id/tags", async (c) => {
   const row = await c.env.DB.prepare(`SELECT * FROM generations WHERE id = ? AND user_id = ?`)
     .bind(id, user.id)
     .first<GenerationRow>();
-  if (!row) {
+  if (!row || outsideRequestProfile(c, row.profile_id)) {
     throw new HTTPException(404, { message: "Generation not found" });
   }
   await replaceGenerationTags(c.env, user.id, id, tags);

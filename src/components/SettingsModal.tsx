@@ -161,9 +161,20 @@ export function SettingsModal({
 
   useEffect(() => {
     if (pane !== "api-tokens") return;
-    void loadTokens().catch((err) =>
-      setTokenError(err instanceof Error ? err.message : "Failed to load tokens"),
-    );
+    let cancelled = false;
+    void api
+      .apiTokens()
+      .then((data) => {
+        if (cancelled) return;
+        setTokens(data.tokens);
+        setTokensReady(data.ready);
+      })
+      .catch((err) => {
+        if (!cancelled) setTokenError(err instanceof Error ? err.message : "Failed to load tokens");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [pane]);
 
   async function createApiToken() {

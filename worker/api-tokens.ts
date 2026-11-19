@@ -100,8 +100,19 @@ export function acceptDailyCapCents(raw: unknown): number | null {
 }
 
 /** A run's price in cents, kept to a hundredth of a cent. */
-export function costCents(amountUsd: number): number {
+function costCents(amountUsd: number): number {
   return Math.round(amountUsd * 100 * 100) / 100;
+}
+
+/**
+ * What a token run counts against the cap, or null when Studio has no usable price for it:
+ * no price, zero, negative, NaN, or infinite. A run that would count as nothing could never
+ * reach the cap, so a token may not run it.
+ */
+export function tokenRunCents(amountUsd: number | null | undefined): number | null {
+  if (typeof amountUsd !== "number" || !Number.isFinite(amountUsd) || amountUsd <= 0) return null;
+  const cents = costCents(amountUsd);
+  return cents > 0 ? cents : null;
 }
 
 export function centsToUsd(cents: number): number {
@@ -186,14 +197,6 @@ export async function createToken(
   if (!name) return { error: "name" };
   const capCents = acceptDailyCapCents(input.dailyCapUsd);
   if (capCents == null) return { error: "cap" };
-  let live: TokenRow[];
-  try {
-    live = await liveTokenRows(db, userId);
-  } catch (err) {
-    if (!missingTokenStorage(err)) throw err;
-    return { error: "unavailable" };
-  }
-  if (live.length >= TOKEN_MAX_LIVE) return { error: "limit" };
   const token = generateToken();
   const row: TokenRow = {
     id: crypto.randomUUID(),
@@ -203,13 +206,35 @@ export async function createToken(
     created_at: nowSeconds(),
     last_used_at: null,
   };
-  await db
-    .prepare(
-      `INSERT INTO api_tokens (id, user_id, name, token_hash, prefix, daily_cap_cents, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(row.id, userId, row.name, await hashToken(token), row.prefix, row.daily_cap_cents, row.created_at)
-    .run();
+  const tokenHash = await hashToken(token);
+  // One statement counts the live tokens and inserts only while there are fewer than the
+  // limit, so two creates at once cannot both land on the last place.
+  let inserted: number;
+  try {
+    const result = await db
+      .prepare(
+        `INSERT INTO api_tokens (id, user_id, name, token_hash, prefix, daily_cap_cents, created_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?
+         WHERE (SELECT COUNT(*) FROM api_tokens WHERE user_id = ? AND revoked_at IS NULL) < ?`,
+      )
+      .bind(
+        row.id,
+        userId,
+        row.name,
+        tokenHash,
+        row.prefix,
+        row.daily_cap_cents,
+        row.created_at,
+        userId,
+        TOKEN_MAX_LIVE,
+      )
+      .run();
+    inserted = Number(result.meta?.changes ?? 0);
+  } catch (err) {
+    if (!missingTokenStorage(err)) throw err;
+    return { error: "unavailable" };
+  }
+  if (inserted === 0) return { error: "limit" };
   return { token, item: toJson(row, 0) };
 }
 

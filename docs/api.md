@@ -40,6 +40,8 @@ X-Studio-Profile: <profile id from GET /api/profiles>
 
 It applies to that request only and never changes your active profile. An id that is not yours gets `400` "Profile not found".
 
+With the header, a gallery, project, or generation on another profile answers `404` as if it were not there, including a `project_id` sent to `POST /api/generate`.
+
 ## Daily cap
 
 Each `POST /api/generate` from a token is priced by the Worker from the model's Oxen pricing and the request's count, duration, resolution, quality, and audio. The `estimated_cost` field a client sends is ignored for the cap. The run counts toward today's spend when it is queued; a run that later fails is not refunded.
