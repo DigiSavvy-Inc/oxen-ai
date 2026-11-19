@@ -58,7 +58,10 @@ async function framesModel(page: Page, references: boolean) {
   await page.goto("/");
   await page.getByRole("button", { name: "Image → Video", exact: true }).click();
   await page.locator(".model-menu-trigger").first().click();
+  // Files attached before the model's controls arrive are treated as plain references, so wait.
+  const controls = page.waitForResponse((res) => res.url().endsWith(`/api/models/${MODEL.id}`));
   await page.getByRole("option", { name: /E2E Frames/ }).click();
+  await controls;
   return sent;
 }
 
@@ -128,4 +131,47 @@ test("on a model that also takes references, an image is a reference until it is
   expect(sent[0].first_frame).toBeTruthy();
   expect(sent[0].last_frame).toBeTruthy();
   expect(sent[0].images).toHaveLength(1);
+});
+
+test("a screenshot pasted into the prompt attaches like a dropped file, and pasted text stays text", async ({ page }) => {
+  await framesModel(page, true);
+  const prompt = page.getByRole("combobox", { name: /Describe the shot/ });
+  await prompt.click();
+
+  const paste = (file: { name: string; type: string; base64: string } | null, text: string) =>
+    prompt.evaluate(
+      (node, input) => {
+        // The test project is typed for Node, so the two browser classes are named here.
+        type Clip = { items: { add(file: File): void }; setData(format: string, value: string): void };
+        const browser = globalThis as unknown as {
+          DataTransfer: new () => Clip;
+          ClipboardEvent: new (type: string, init: object) => Event;
+        };
+        const data = new browser.DataTransfer();
+        if (input.file) {
+          const bytes = Uint8Array.from(atob(input.file.base64), (char) => char.charCodeAt(0));
+          data.items.add(new File([bytes], input.file.name, { type: input.file.type }));
+        }
+        if (input.text) data.setData("text/plain", input.text);
+        const event = new browser.ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true });
+        node.dispatchEvent(event);
+        return event.defaultPrevented;
+      },
+      { file, text },
+    );
+
+  const png = readFileSync(join(FIXTURES, "tile-1.png")).toString("base64");
+  // A screenshot arrives as a generic "image.png".
+  expect(await paste({ name: "image.png", type: "image/png", base64: png }, "")).toBe(true);
+  await expect(chips(page)).toHaveCount(1);
+  await expect(chips(page).nth(0)).toContainText(/pasted-\d{6}\.png/);
+
+  // A format Studio cannot store is refused in plain words and attaches nothing.
+  expect(await paste({ name: "image.tiff", type: "image/tiff", base64: png }, "")).toBe(true);
+  await expect(chips(page)).toHaveCount(1);
+  await expect(page.getByText("A pasted image has to be PNG, JPEG, GIF, WebP, AVIF, or BMP.")).toBeVisible();
+
+  // Words on the clipboard are a text paste: the browser handles it and nothing attaches.
+  expect(await paste({ name: "image.png", type: "image/png", base64: png }, "golden hour")).toBe(false);
+  await expect(chips(page)).toHaveCount(1);
 });

@@ -41,7 +41,7 @@ import {
   type PromptMention,
 } from "../lib/mentions";
 import { shortenFileName } from "../lib/files";
-import { copyPromptText } from "../lib/clipboard";
+import { copyPromptText, pastedImages } from "../lib/clipboard";
 import { prependMissingBindings, referenceBindingText, referenceRoleTitle } from "../lib/reference-roles";
 import { GALLERY_ITEM_DRAG_TYPE, dropCandidates, galleryItemsForDrop, isGalleryItemDrag } from "../lib/gallery-attach";
 import { namePickerChoices, nameSourceLabel, type NameCatalogGallery, type NameHover, type NamePickerChoice } from "../lib/name-mentions";
@@ -236,6 +236,8 @@ type Props = {
   onBackgroundChange: (value: string) => void;
   attachments: AttachItem[];
   onAddFiles: (files: FileList | File[] | null) => void;
+  /** A pasted image was in a format Studio does not take (TIFF, HEIC). */
+  onPasteUnsupported?: () => void;
   onClearAttachment: (kind: "image" | "video" | "audio", index: number) => void;
   onAttachmentRoleChange: (index: number, role: MediaRole) => void;
   onAttachmentFrameChange?: (index: number, frame: "first" | "last" | "ref") => void;
@@ -927,6 +929,13 @@ export function Composer(props: Props) {
               ref={promptRef}
               value={props.prompt}
               onCopy={copyPromptText}
+              onPaste={(event) => {
+                const pasted = pastedImages(event.clipboardData);
+                if (pasted.text || (pasted.files.length === 0 && pasted.unsupported === 0)) return;
+                event.preventDefault();
+                if (pasted.files.length > 0) props.onAddFiles(pasted.files);
+                if (pasted.unsupported > 0) props.onPasteUnsupported?.();
+              }}
               role="combobox"
               aria-autocomplete="list"
               aria-expanded={showMentions}

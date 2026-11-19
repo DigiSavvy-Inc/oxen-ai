@@ -161,6 +161,7 @@ import { appliedLooks, joinLooks, toggleLookId } from "../worker/looks";
 import { DEFAULT_HISTORY_PAGE_SIZE } from "../worker/history-page-size";
 import { DEFAULT_VIDEO_THUMB_SECONDS } from "../worker/video-thumb";
 import { deliveryForRun } from "./lib/model-prompt";
+import { PASTE_IMAGE_FORMATS } from "./lib/clipboard";
 import { defaultGalleryHandle } from "../worker/gallery-handle";
 import {
   expandNameText,
@@ -4208,6 +4209,7 @@ export default function App() {
             nameHovers={namePlan.hovers}
             nameNotice={namesOn ? namePlanNotice(namePlan) : null}
             onAddFiles={onAddFiles}
+            onPasteUnsupported={() => setError(`A pasted image has to be ${PASTE_IMAGE_FORMATS}.`)}
             onClearAttachment={onClearAttachment}
             onReorderAttachments={onReorderAttachments}
             busy={busy || projectBusy}

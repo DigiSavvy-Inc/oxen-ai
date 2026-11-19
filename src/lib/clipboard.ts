@@ -55,3 +55,59 @@ export async function copyText(text: string, clipboard?: ClipboardWriter): Promi
     return false;
   }
 }
+
+const PASTE_IMAGE_EXT: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/avif": "avif",
+  "image/bmp": "bmp",
+};
+
+/** The image formats a paste can attach, in the words shown to the user. */
+export const PASTE_IMAGE_FORMATS = "PNG, JPEG, GIF, WebP, AVIF, or BMP";
+
+type PasteSource = {
+  files?: ArrayLike<File> | null;
+  getData?: (format: string) => string;
+};
+
+/**
+ * Images on the clipboard, ready to attach. A screenshot arrives as a nameless or generically
+ * named file, so each one gets a name that tells pasted images apart on their chips.
+ *
+ * `text` is true when the clipboard also carries words. Office apps put a picture of the copied
+ * text beside the text itself; the paste is then a text paste and the picture is ignored.
+ */
+export function pastedImages(
+  data: PasteSource | null | undefined,
+  stamp: number = Date.now(),
+): { files: File[]; unsupported: number; text: boolean } {
+  const text = Boolean(data?.getData?.("text/plain"));
+  const files: File[] = [];
+  let unsupported = 0;
+  if (text) return { files, unsupported, text };
+  for (const file of Array.from(data?.files ?? [])) {
+    if (!file.type.startsWith("image/")) continue;
+    const ext = PASTE_IMAGE_EXT[file.type];
+    if (!ext) {
+      unsupported += 1;
+      continue;
+    }
+    const generic = !file.name || /^image\.[a-z0-9]+$/i.test(file.name);
+    if (!generic) {
+      files.push(file);
+      continue;
+    }
+    const suffix = files.length > 0 ? `-${files.length + 1}` : "";
+    files.push(new File([file], `pasted-${pasteClock(stamp)}${suffix}.${ext}`, { type: file.type }));
+  }
+  return { files, unsupported, text };
+}
+
+function pasteClock(stamp: number): string {
+  const at = new Date(stamp);
+  const two = (value: number) => String(value).padStart(2, "0");
+  return `${two(at.getHours())}${two(at.getMinutes())}${two(at.getSeconds())}`;
+}
