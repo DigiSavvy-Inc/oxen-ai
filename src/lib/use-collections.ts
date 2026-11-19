@@ -21,6 +21,8 @@ export type CollectionControls = {
   onToggleFold: (id: string) => void;
   onCreate: (name: string) => Promise<StudioCollection | null>;
   onRename: (id: string, name: string) => Promise<boolean>;
+  /** Makes one file the cover, or goes back to the automatic cover with null. */
+  onSetCover: (id: string, coverKey: string | null) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
   onStep: (id: string, step: -1 | 1) => void;
   onDropOn: (dragId: string, targetId: string) => void;
@@ -98,6 +100,7 @@ export function useCollections(options: {
     onToggleFold,
     onCreate: store.create,
     onRename: store.rename,
+    onSetCover: store.setCover,
     onDelete,
     onStep: (id, step) => store.order(stepCollection(collectionOrder(store.getState().collections), id, step)),
     onDropOn: (dragId, targetId) =>

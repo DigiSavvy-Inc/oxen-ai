@@ -2,7 +2,7 @@
 
 A short pass to run against a live Studio after each deploy. It answers one question: can a
 signed-in person still do the basics? Run the steps in order at desktop width (1280), then
-steps 1 to 4 again at phone width (390).
+steps 1 to 5 again at phone width (390).
 
 Stop and report right away if step 1 or step 2 fails. Everything else depends on them.
 
@@ -12,10 +12,10 @@ and the only place a real generation is exercised.
 
 ## Before you start
 
-A person runs every step. A bot runs steps 1 to 5 and skips steps 6 to 8.
+A person runs every step. A bot runs steps 1 to 6 and skips steps 7 to 9.
 
 **A person** signs in with GitHub, as an account in the deployment's GitHub org or on its
-allowlist, in a browser profile already signed in to GitHub. Steps 6 to 8 need that account's
+allowlist, in a browser profile already signed in to GitHub. Steps 7 to 9 need that account's
 own Oxen API key saved in Settings.
 
 **A bot** has no GitHub session, so it signs in as the QA user. That only works on a
@@ -33,8 +33,8 @@ await page.goto(origin);
 ```
 
 Read the secret from where it is kept. Never paste it into a report, an issue, or a chat.
-The QA user is not an admin and has no Oxen API key, which is why a bot skips steps 6 to 8.
-In step 5 it will see the key section with no key saved. That is a pass.
+The QA user is not an admin and has no Oxen API key, which is why a bot skips steps 7 to 9.
+In step 6 it will see the key section with no key saved. That is a pass.
 
 ## Steps
 
@@ -43,11 +43,12 @@ In step 5 it will see the key section with no key saved. That is a pass.
 | 1 | Open the site. If asked, press **Continue with GitHub**. | The composer loads: a prompt box, a **Generate** button, and a top bar with Library, New, Projects, Slots, Settings. No error page, no "Access denied". |
 | 2 | Press **Library**. | The panel opens with "Past work" and image tiles, or an empty state on a new account. Thumbnails load; none are broken. |
 | 3 | In the Library, press **Galleries**, then open any gallery. | The gallery opens and its tiles load. **Galleries** returns to the list. Skip if the account has no galleries, and say so. |
-| 4 | Close the Library. Press **Slots**. Click one slot row. | The list shows one row per slot with a name, an @handle, and a file count. The clicked row opens and any other open row closes. |
-| 5 | Close Slots. Press **Settings**. | Settings opens and shows the "Oxen API key" section. Close it. |
-| 6 (people only) | Choose **Text → Image**, pick a model, type `a plain red cube on a white table`, leave Count at **1×**, press **Generate**. | A tile appears on the canvas and reaches a finished image within 5 minutes. No error message on the tile. |
-| 7 (people only) | Press **Library**. | The image from step 6 is the newest tile. |
-| 8 (people only) | Delete that image from the Library. | The tile is gone and stays gone after a reload. |
+| 4 | Back on the Galleries list, open any collection from its cover or name. Press the **All assets** tab, then the **Galleries** back button at the start of the head. | The collection fills the panel with its name and count, and its gallery tiles load. **All assets** shows its files, or "No files yet." **Galleries** returns to the list. Change nothing. Skip if the account has no collections, and say so. |
+| 5 | Close the Library. Press **Slots**. Click one slot row. | The list shows one row per slot with a name, an @handle, and a file count. The clicked row opens and any other open row closes. |
+| 6 | Close Slots. Press **Settings**. | Settings opens and shows the "Oxen API key" section. Close it. |
+| 7 (people only) | Choose **Text → Image**, pick a model, type `a plain red cube on a white table`, leave Count at **1×**, press **Generate**. | A tile appears on the canvas and reaches a finished image within 5 minutes. No error message on the tile. |
+| 8 (people only) | Press **Library**. | The image from step 7 is the newest tile. |
+| 9 (people only) | Delete that image from the Library. | The tile is gone and stays gone after a reload. |
 
 On a phone the top-left menu button opens Library, Projects, Slots, and Galleries. Library and
 Slots fill the whole screen there.
@@ -55,14 +56,14 @@ Slots fill the whole screen there.
 ## Reporting
 
 One line per step: the step number, pass or fail, and a screenshot for any failure. A bot
-run reports steps 6 to 8 as skipped. Include
-the deployed commit and the time. A failure at step 1 or 2 is urgent. A failure at step 6 with
-steps 1 to 5 passing is usually Oxen or the model, not the deploy: note the model and the
+run reports steps 7 to 9 as skipped. Include
+the deployed commit and the time. A failure at step 1 or 2 is urgent. A failure at step 7 with
+steps 1 to 6 passing is usually Oxen or the model, not the deploy: note the model and the
 error text.
 
 ## Cost
 
-A bot run costs nothing: it skips steps 6 to 8. Step 6 runs one image at 1×, a few cents. Do not raise the count, pick a video model, or run
+A bot run costs nothing: it skips steps 7 to 9. Step 7 runs one image at 1×, a few cents. Do not raise the count, pick a video model, or run
 the step more than once per deploy.
 
 ## Keeping this current

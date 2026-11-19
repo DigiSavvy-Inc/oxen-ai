@@ -2,10 +2,11 @@ import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { CollectionAssets, CollectionAssetsBar } from "../src/components/CollectionAssets";
+import { CollectionAssets, CollectionAssetsBar, type CollectionAssetsProps } from "../src/components/CollectionAssets";
 import type { CollectionAsset, CollectionAssetsPage } from "../src/lib/api";
 import {
   COLLECTION_DELETE_BATCH,
+  assetCoverState,
   assetDraftItems,
   assetGalleryCaption,
   assetGalleryItems,
@@ -180,6 +181,17 @@ describe("collection asset helpers", () => {
     ]);
   });
 
+  it("offers Set as cover on images only, and marks the chosen cover instead of offering it again", () => {
+    const chosen = { key: "a", chosen: true };
+    expect(assetCoverState(page[0], null)).toBe("set");
+    expect(assetCoverState(page[0], chosen)).toBe("current");
+    expect(assetCoverState(asset("z"), chosen)).toBe("set");
+    // The automatic cover is not a choice yet, so the tile still offers to make it one.
+    expect(assetCoverState(page[0], { key: "a", chosen: false })).toBe("set");
+    expect(assetCoverState(page[1], null)).toBeNull();
+    expect(assetCoverState(page[2], null)).toBeNull();
+  });
+
   it("counts pages and names the gallery a file came from", () => {
     expect(assetPageCount(0, 36)).toBe(1);
     expect(assetPageCount(73, 36)).toBe(3);
@@ -189,9 +201,10 @@ describe("collection asset helpers", () => {
   });
 });
 
-function renderAssets(initialPage?: CollectionAssetsPage) {
+function renderAssets(initialPage?: CollectionAssetsPage, extra: Partial<CollectionAssetsProps> = {}) {
   return renderToStaticMarkup(
     createElement(CollectionAssets, {
+      ...extra,
       collectionId: "c1",
       initialPage,
       summaries: [],
@@ -257,6 +270,23 @@ describe("CollectionAssets markup", () => {
     expect(html).not.toContain("<select");
     expect(html.match(/collection-asset-role/g)).toHaveLength(1);
     expect(html).not.toMatch(/Feature|Set as cover|Remove from gallery|Label for/);
+  });
+
+  it("puts Set as cover on image tiles only, always shown, and marks the chosen cover", () => {
+    const page: CollectionAssetsPage = {
+      ...firstPage,
+      assets: [asset("a"), asset("c"), asset("v", { kind: "video" }), firstPage.assets[1]],
+    };
+    const html = renderAssets(page, {
+      cover: { key: "c", kind: "image", thumbUrl: null, chosen: true },
+      onSetCover: async () => true,
+    });
+    expect(html).toContain('aria-label="Set a.png as cover"');
+    expect(html).not.toContain('aria-label="Set c.png as cover"');
+    expect(html).toMatch(/class="collection-asset-cover is-cover" role="img" aria-label="Cover"/);
+    expect(html).not.toContain('aria-label="Set v.png as cover"');
+    expect(html).not.toContain('aria-label="Set voice.mp3 as cover"');
+    expect(html.match(/collection-asset-cover/g)).toHaveLength(2);
   });
 
   it("shows the pager only when there is more than one page, and no bar until something is ticked", () => {

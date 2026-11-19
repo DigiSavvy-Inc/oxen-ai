@@ -23,8 +23,14 @@ function fakeClient(list: StudioCollection[] = []) {
   const client = {
     collections: vi.fn(async () => ({ collections: list, ready: true })),
     createCollection: vi.fn(async (name: string) => ({ collection: collection(`c-${name}`, list.length) })),
-    updateCollection: vi.fn(async (id: string, patch: { name?: string }) => ({
-      collection: { ...collection(id), name: patch.name ?? id },
+    updateCollection: vi.fn(async (id: string, patch: { name?: string; coverKey?: string | null }) => ({
+      collection: {
+        ...collection(id),
+        name: patch.name ?? id,
+        cover: patch.coverKey
+          ? { key: patch.coverKey, kind: "image" as const, thumbUrl: null, chosen: true }
+          : null,
+      },
     })),
     deleteCollection: vi.fn(async () => ({ ok: true })),
     orderCollections: vi.fn(async (ids: string[]) => ({ ids })),
@@ -142,8 +148,40 @@ describe("New collection from Move to collection", () => {
   });
 });
 
+describe("collection cover", () => {
+  it("sets the cover and shows the collection the server sends back, so the list cover changes", async () => {
+    const client = fakeClient([collection("a"), collection("b")]);
+    const store = createCollectionStore(client);
+    await store.refresh("p1");
+    expect(await store.setCover("a", "u/1/pick.png")).toBe(true);
+    expect(client.updateCollection).toHaveBeenCalledWith("a", { coverKey: "u/1/pick.png" });
+    expect(store.getState().collections[0].cover).toMatchObject({ key: "u/1/pick.png", chosen: true });
+    expect(store.getState().collections[1].cover).toBeNull();
+  });
+
+  it("resets with null, which goes back to the automatic cover", async () => {
+    const client = fakeClient([collection("a")]);
+    const store = createCollectionStore(client);
+    await store.refresh("p1");
+    await store.setCover("a", "u/1/pick.png");
+    expect(await store.setCover("a", null)).toBe(true);
+    expect(client.updateCollection).toHaveBeenLastCalledWith("a", { coverKey: null });
+    expect(store.getState().collections[0].cover).toBeNull();
+  });
+
+  it("keeps the cover on screen and says why when the save fails", async () => {
+    const client = fakeClient([collection("a")]);
+    client.updateCollection.mockRejectedValueOnce(new Error("That file is not in this collection."));
+    const store = createCollectionStore(client);
+    await store.refresh("p1");
+    expect(await store.setCover("a", "u/1/gone.png")).toBe(false);
+    expect(store.getState().collections[0].cover).toBeNull();
+    expect(store.getState().status).toBe("That file is not in this collection.");
+  });
+});
+
 describe("collection order", () => {
-  const three = () => [collection("a", 0), collection("b", 1), collection("c", 2)];
+  const three =() => [collection("a", 0), collection("b", 1), collection("c", 2)];
 
   it("rolls back to the last saved order when a save fails", async () => {
     const client = fakeClient(three());

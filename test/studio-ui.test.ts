@@ -2193,6 +2193,7 @@ describe("grouped galleries screen", () => {
       onToggleFold: noop,
       onCreate: async () => null,
       onRename: async () => true,
+      onSetCover: async () => true,
       onDelete: async () => true,
       onStep: noop,
       onDropOn: noop,
@@ -2309,6 +2310,20 @@ describe("grouped galleries screen", () => {
       expect(head).toContain("2 galleries, 212 items");
       expect(head).toContain(">Delete collection<");
       expect(head).toContain('title="Deletes this collection. Its galleries and files stay."');
+    });
+
+    it("offers Reset cover in the head only once a cover is chosen", () => {
+      const head = (html: string) => html.slice(html.indexOf("collection-view-head"), html.indexOf('role="tablist"'));
+      // The automatic cover needs no reset.
+      expect(head(renderView())).not.toContain("Reset cover");
+      const base = view();
+      const chosen = {
+        ...base.collection,
+        cover: { key: "u/1/b.png", kind: "image" as const, thumbUrl: null, chosen: true },
+      };
+      const html = head(renderView({ collection: chosen }));
+      expect(html).toContain(">Reset cover<");
+      expect(html.indexOf(">Reset cover<")).toBeLessThan(html.indexOf(">Delete collection<"));
     });
 
     it("has two tabs styled like the media filter, Galleries chosen first", () => {
