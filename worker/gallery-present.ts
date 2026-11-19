@@ -27,6 +27,8 @@ export type GalleryCardJson = {
   handle: string;
   takeCount: number;
   updatedAt: number;
+  /** The collection this gallery is filed in, or null. The client groups cards by it. */
+  collectionId: string | null;
   count: number;
   previews: GalleryPreviewJson[];
   items: GalleryMentionItemJson[];
@@ -70,9 +72,9 @@ export async function thumbKeyByResult(
   return map;
 }
 
-async function previewFor(
+export async function previewFor(
   env: Env,
-  item: StoredGalleryItem,
+  item: Pick<StoredGalleryItem, "kind" | "name" | "key">,
   thumbs: Map<string, string>,
 ): Promise<GalleryPreviewJson> {
   const thumbKey = thumbs.get(item.key) ?? null;
@@ -149,6 +151,7 @@ export async function presentGalleryList(
         handle: gallery.handle,
         takeCount: gallery.takeCount,
         updatedAt: gallery.updatedAt,
+        collectionId: gallery.collectionId,
         count: items.length,
         previews,
         items: items.map((item, index) => ({

@@ -22,6 +22,7 @@ function profileDb() {
   const profiles: ProfileRow[] = [];
   const generations: MediaRow[] = [];
   const galleries: MediaRow[] = [];
+  const collections: MediaRow[] = [];
   let active: string | null = null;
   const db = {
     prepare(sql: string) {
@@ -71,6 +72,14 @@ function profileDb() {
                 for (const row of galleries) {
                   if (row.user_id === args[1] && row.profile_id == null) row.profile_id = String(args[0]);
                 }
+              } else if (sql.includes("UPDATE collections SET profile_id") && sql.includes("IS NULL")) {
+                for (const row of collections) {
+                  if (row.user_id === args[1] && row.profile_id == null) row.profile_id = String(args[0]);
+                }
+              } else if (sql.includes("UPDATE collections SET profile_id")) {
+                for (const row of collections) {
+                  if (row.user_id === args[1] && row.profile_id === args[2]) row.profile_id = String(args[0]);
+                }
               } else if (sql.includes("UPDATE generations SET profile_id")) {
                 for (const row of generations) {
                   if (row.user_id === args[1] && row.profile_id === args[2]) row.profile_id = String(args[0]);
@@ -93,7 +102,7 @@ function profileDb() {
       };
     },
   };
-  return { profiles, generations, galleries, db: db as unknown as D1Database, active: () => active };
+  return { profiles, generations, galleries, collections, db: db as unknown as D1Database, active: () => active };
 }
 
 describe("profiles", () => {
@@ -148,5 +157,55 @@ describe("profiles", () => {
     expect(await ensureDefaultProfile(store.db, "user-1")).toBe(personal);
     expect(store.profiles.map((row) => row.id)).toEqual([personal]);
     expect(store.galleries[0]?.profile_id).toBe(personal);
+  });
+
+  it("moves collections with their galleries so both stay on one profile", async () => {
+    const store = profileDb();
+    store.galleries.push({ id: "gal-1", user_id: "user-1", profile_id: null });
+    store.collections.push({ id: "col-1", user_id: "user-1", profile_id: null });
+    const personal = await ensureDefaultProfile(store.db, "user-1");
+    expect(store.collections[0]?.profile_id).toBe(personal);
+
+    const created = await createProfile(store.db, "user-1", "Work");
+    if ("error" in created) throw new Error(created.error);
+    store.galleries.push({ id: "gal-2", user_id: "user-1", profile_id: created.activeId });
+    store.collections.push({ id: "col-2", user_id: "user-1", profile_id: created.activeId });
+    store.collections.push({ id: "col-x", user_id: "user-2", profile_id: created.activeId });
+    await deleteProfile(store.db, "user-1", created.activeId);
+    expect(store.galleries.find((row) => row.id === "gal-2")?.profile_id).toBe(personal);
+    expect(store.collections.find((row) => row.id === "col-2")?.profile_id).toBe(personal);
+    expect(store.collections.find((row) => row.id === "col-x")?.profile_id).toBe(created.activeId);
+  });
+
+  it("folds a raced Personal's collections into the kept one", async () => {
+    const store = profileDb();
+    const personal = await ensureDefaultProfile(store.db, "user-1");
+    const createdAt = store.profiles[0]?.created_at ?? 0;
+    store.profiles.push({ id: "dup", user_id: "user-1", name: "Personal", created_at: createdAt, updated_at: createdAt });
+    store.collections.push({ id: "col-dup", user_id: "user-1", profile_id: "dup" });
+    expect(await ensureDefaultProfile(store.db, "user-1")).toBe(personal);
+    expect(store.collections[0]?.profile_id).toBe(personal);
+  });
+
+  it("works before the collections table exists", async () => {
+    const store = profileDb();
+    const base = store.db;
+    const db = {
+      prepare(sql: string) {
+        if (!sql.includes("collections")) return base.prepare(sql);
+        return {
+          bind: () => ({
+            async run() {
+              throw new Error("no such table: collections");
+            },
+          }),
+        };
+      },
+    } as unknown as D1Database;
+    const personal = await ensureDefaultProfile(db, "user-1");
+    expect(personal).toBeTruthy();
+    const created = await createProfile(db, "user-1", "Work");
+    if ("error" in created) throw new Error(created.error);
+    expect(await deleteProfile(db, "user-1", created.activeId)).toMatchObject({ activeId: personal });
   });
 });

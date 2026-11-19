@@ -37,6 +37,7 @@ type GalleryRow = {
   profile_id: string | null;
   handle: string | null;
   take_count: number;
+  collection_id?: string | null;
 };
 
 type ItemRow = {
@@ -51,7 +52,7 @@ type ItemRow = {
   label: string | null;
 };
 
-function galleriesDb(options?: { missingRole?: boolean }) {
+function galleriesDb(options?: { missingRole?: boolean; missingCollection?: boolean }) {
   const galleries: GalleryRow[] = [];
   const items: ItemRow[] = [];
   const db = {
@@ -62,6 +63,9 @@ function galleriesDb(options?: { missingRole?: boolean }) {
           return {
             async all() {
               if (missingRole && /\brole\b/.test(sql)) throw new Error("no such column: role");
+              if (options?.missingCollection && sql.includes("collection_id")) {
+                throw new Error("D1_ERROR: no such column: collection_id: SQLITE_ERROR");
+              }
               if (sql.includes("FROM slots")) return { results: [] };
               if (sql.includes("COLLATE NOCASE")) {
                 const userId = String(args[0]);
@@ -99,6 +103,7 @@ function galleriesDb(options?: { missingRole?: boolean }) {
                     ...(sql.includes("handle")
                       ? { handle: row.handle, take_count: row.take_count, profile_id: row.profile_id }
                       : {}),
+                    ...(sql.includes("collection_id") ? { collection_id: row.collection_id ?? null } : {}),
                   })),
                 };
               }
@@ -252,6 +257,22 @@ describe("galleries", () => {
     expect(await listGalleries(db, TEST_USER.id, "launch")).toHaveLength(1);
     expect(loaded?.items.map((item) => item.role)).toEqual(["character", "character"]);
     expect(renamed?.items[0]?.role).toBeNull();
+  });
+
+  it("lists the collection each gallery is filed in, and none before collections are installed", async () => {
+    const filed = galleriesDb();
+    const one = await saveGallery(filed.db, TEST_USER.id, { name: "Maya", items: [] });
+    const two = await saveGallery(filed.db, TEST_USER.id, { name: "Loft", items: [] });
+    const row = filed.galleries.find((gallery) => gallery.id === one!.id);
+    if (row) row.collection_id = "col-1";
+    const listed = await listGalleries(filed.db, TEST_USER.id);
+    expect(listed.find((gallery) => gallery.id === one!.id)?.collectionId).toBe("col-1");
+    expect(listed.find((gallery) => gallery.id === two!.id)?.collectionId).toBeNull();
+
+    const legacy = galleriesDb({ missingCollection: true });
+    const saved = await saveGallery(legacy.db, TEST_USER.id, { name: "Maya", handle: "Maya", items: [] });
+    const [summary] = await listGalleries(legacy.db, TEST_USER.id);
+    expect(summary).toMatchObject({ id: saved!.id, handle: "Maya", collectionId: null });
   });
 
   it("keeps image and video roles and clears audio", () => {
