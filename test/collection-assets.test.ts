@@ -9,12 +9,15 @@ import {
   assetDraftItems,
   assetGalleryCaption,
   assetGalleryItems,
+  assetOrder,
   assetPageCount,
   assetSlides,
   assetSlotItems,
   deleteFilesInBatches,
   emptyAssetsMessage,
-  pickedAssets,
+  pickedInOrder,
+  togglePickedAssets,
+  type PickedAsset,
 } from "../src/lib/collection-assets";
 import { deleteOutcome } from "../src/lib/media-delete";
 
@@ -116,8 +119,44 @@ describe("collection asset helpers", () => {
     asset("c", { kind: "audio", role: null, thumbUrl: null }),
   ];
 
+  function entries(pageNumber: number, pageSize: number, list: CollectionAsset[]): PickedAsset[] {
+    return list.map((item, index) => ({ asset: item, order: assetOrder(pageNumber, pageSize, index) }));
+  }
+
   it("acts on ticks in the order the grid shows them, not the order they were ticked", () => {
-    expect(pickedAssets(page, ["c", "a", "gone"]).map((item) => item.key)).toEqual(["a", "c"]);
+    const [a, , c] = entries(1, 3, page);
+    const picked = togglePickedAssets(togglePickedAssets([], [c]), [a]);
+    expect(pickedInOrder(picked).map((item) => item.key)).toEqual(["a", "c"]);
+    expect(pickedInOrder(togglePickedAssets(picked, [c])).map((item) => item.key)).toEqual(["a"]);
+  });
+
+  it("keeps ticks from earlier pages, so a selection over 96 files reaches the batched delete", async () => {
+    const size = 96;
+    const first = entries(1, size, keys(size).map((key) => asset(key)));
+    const second = entries(2, size, keys(size * 2).slice(size).map((key) => asset(key)));
+    // Tick page 2 first, then page 1: the delete still goes in grid order.
+    let picked = togglePickedAssets([], second, true);
+    picked = togglePickedAssets(picked, first, true);
+    const chosen = pickedInOrder(picked).map((item) => item.key);
+    expect(chosen).toEqual(keys(size * 2));
+    const sent: number[] = [];
+    const tally = await deleteFilesInBatches(chosen, "studio", async (batch) => {
+      sent.push(batch.length);
+      return {};
+    });
+    expect(sent).toEqual([96, 96]);
+    expect(tally.removed).toBe(192);
+  });
+
+  it("Select page ticks only that page, and Clear page leaves the other pages ticked", () => {
+    const one = entries(1, 2, [asset("a"), asset("b")]);
+    const two = entries(2, 2, [asset("c"), asset("d")]);
+    let picked = togglePickedAssets([], one, true);
+    picked = togglePickedAssets(picked, two.slice(0, 1));
+    picked = togglePickedAssets(picked, two, true);
+    expect(pickedInOrder(picked).map((item) => item.key)).toEqual(["a", "b", "c", "d"]);
+    picked = togglePickedAssets(picked, two, false);
+    expect(pickedInOrder(picked).map((item) => item.key)).toEqual(["a", "b"]);
   });
 
   it("attaches with roles and labels, and audio carries no role", () => {
@@ -204,7 +243,7 @@ describe("CollectionAssets markup", () => {
     expect(html.indexOf('data-asset-key="a"')).toBeLessThan(html.indexOf('data-asset-key="b"'));
     expect(html).toContain('aria-label="Select a.png"');
     expect(html).toContain('aria-label="Open gallery Maya"');
-    expect(html).toContain(">Maya +2<");
+    expect(html).toContain(">Maya +1<");
     expect(html).toContain('aria-label="Open a.png"');
     expect(html).toContain('aria-label="Play voice.mp3"');
   });
@@ -240,7 +279,7 @@ describe("CollectionAssetsBar markup", () => {
     return renderToStaticMarkup(
       createElement(CollectionAssetsBar, {
         count: 2,
-        onDownload: noop,
+        onDownload: withOptional ? noop : undefined,
         onAttach: withOptional ? noop : undefined,
         onClear: noop,
         galleryItems: items,
@@ -271,9 +310,11 @@ describe("CollectionAssetsBar markup", () => {
     expect(html).toMatch(/aria-haspopup="menu"[^>]*aria-label="Delete the selected files"/);
   });
 
-  it("leaves out Attach and Delete when no handler is given", () => {
+  it("leaves out Download, Attach, and Delete when no handler is given, and keeps Clear", () => {
     const html = renderBar(false);
+    expect(html).not.toContain(">Download<");
     expect(html).not.toContain(">Attach<");
+    expect(html).toContain(">Clear<");
     expect(html).not.toContain("Delete the selected files");
   });
 });

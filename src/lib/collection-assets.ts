@@ -34,10 +34,33 @@ export async function deleteFilesInBatches(
   return tallyDelete(scope, results);
 }
 
-/** The ticked assets, in the order the grid shows them. */
-export function pickedAssets(assets: readonly CollectionAsset[], picked: readonly string[]): CollectionAsset[] {
-  const chosen = new Set(picked);
-  return assets.filter((asset) => chosen.has(asset.key));
+/** A ticked file and its place in the filtered list, so ticks kept across pages stay in grid order. */
+export type PickedAsset = { asset: CollectionAsset; order: number };
+
+/** Where a tile sits in the whole filtered list, counting earlier pages. */
+export function assetOrder(page: number, pageSize: number, index: number): number {
+  return (Math.max(1, page) - 1) * Math.max(0, pageSize) + index;
+}
+
+/**
+ * Ticks or unticks files. Ticks on other pages stay. With `on` left out, the entries are ticked
+ * unless every one of them already is, in which case they are unticked.
+ */
+export function togglePickedAssets(
+  picked: readonly PickedAsset[],
+  entries: readonly PickedAsset[],
+  on?: boolean,
+): PickedAsset[] {
+  const had = new Set(picked.map((entry) => entry.asset.key));
+  const tick = on ?? !entries.every((entry) => had.has(entry.asset.key));
+  const touched = new Set(entries.map((entry) => entry.asset.key));
+  const rest = picked.filter((entry) => !touched.has(entry.asset.key));
+  return tick ? [...rest, ...entries] : rest;
+}
+
+/** The ticked files across every page, in the order the grid shows them, not the order they were ticked. */
+export function pickedInOrder(picked: readonly PickedAsset[]): CollectionAsset[] {
+  return [...picked].sort((a, b) => a.order - b.order).map((entry) => entry.asset);
 }
 
 function assetPreview(asset: CollectionAsset): string {

@@ -14,13 +14,15 @@ import {
   assetGalleryItems,
   assetPageCount,
   assetSlides,
+  assetOrder,
   assetSlotItems,
   deleteFilesInBatches,
   emptyAssetsMessage,
-  pickedAssets,
+  pickedInOrder,
+  togglePickedAssets,
   type DeleteFilesRequest,
+  type PickedAsset,
 } from "../lib/collection-assets";
-import { downloadMedia } from "../lib/download";
 import type { GalleryDraftItem } from "../lib/gallery-draft";
 import type { HistoryGalleryItem, HistoryGalleryNotice } from "../lib/gallery-history";
 import { deleteOutcome, type DeleteOutcome, type DeleteScope } from "../lib/media-delete";
@@ -42,6 +44,8 @@ export type CollectionAssetsProps = {
   /** Galleries for the Add to gallery menu. */
   summaries: GallerySummary[];
   onOpenGallery: (galleryId: string) => void;
+  /** Downloads the ticked files, in the order shown. Download is left out without it. */
+  onDownload?: (assets: CollectionAsset[]) => Promise<void> | void;
   /** Attaches the ticked files in the order shown. Skipping what the model cannot take is the caller's. */
   onAttach?: (items: GalleryDraftItem[]) => void;
   onAddToGallery: (galleryId: string, items: HistoryGalleryItem[]) => Promise<HistoryGalleryNotice>;
@@ -53,6 +57,8 @@ export type CollectionAssetsProps = {
   onDeleteFiles?: DeleteFilesRequest;
   /** After a delete, with every key that was asked for and the one notice shown. */
   onDeleted?: (keys: string[], outcome: DeleteOutcome) => void;
+  /** After Clear drops every tick, on every page. */
+  onClear?: () => void;
 };
 
 type Playing = { key: string; src: string; name: string };
@@ -66,7 +72,7 @@ export function CollectionAssets(props: CollectionAssetsProps) {
   const [loading, setLoading] = useState(!initialPage);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
-  const [picked, setPicked] = useState<string[]>([]);
+  const [picked, setPicked] = useState<PickedAsset[]>([]);
   const [note, setNote] = useState<DeleteOutcome | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -119,10 +125,15 @@ export function CollectionAssets(props: CollectionAssetsProps) {
   }, [collectionId, media, page, reloadToken]);
 
   const assets = useMemo(() => data?.assets ?? [], [data]);
-  const pageKeys = useMemo(() => assets.map((asset) => asset.key), [assets]);
-  const livePicked = useMemo(() => picked.filter((key) => pageKeys.includes(key)), [picked, pageKeys]);
-  const chosen = useMemo(() => pickedAssets(assets, livePicked), [assets, livePicked]);
-  const pageSelected = pageKeys.length > 0 && pageKeys.every((key) => livePicked.includes(key));
+  const pageEntries = useMemo<PickedAsset[]>(
+    () =>
+      data ? data.assets.map((asset, index) => ({ asset, order: assetOrder(data.page, data.pageSize, index) })) : [],
+    [data],
+  );
+  const pickedKeys = useMemo(() => new Set(picked.map((entry) => entry.asset.key)), [picked]);
+  // Ticks stay across pages, so a selection can be larger than one page.
+  const chosen = useMemo(() => pickedInOrder(picked), [picked]);
+  const pageSelected = pageEntries.length > 0 && pageEntries.every((entry) => pickedKeys.has(entry.asset.key));
   const pageCount = data ? assetPageCount(data.total, data.pageSize) : 1;
   const slides = useMemo(() => assetSlides(assets), [assets]);
   const fit = slides.find((slide) => slide.id === fitKey) ?? null;
@@ -139,32 +150,31 @@ export function CollectionAssets(props: CollectionAssetsProps) {
     const clamped = Math.min(pageCount, Math.max(1, next));
     if (clamped === page) return;
     setPage(clamped);
-    setPicked([]);
     setNote(null);
   }
 
-  function toggle(key: string) {
+  function toggle(entry: PickedAsset) {
     setNote(null);
-    setPicked((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]));
+    setPicked((current) => togglePickedAssets(current, [entry]));
   }
 
   function togglePage() {
     setNote(null);
-    setPicked(pageSelected ? [] : pageKeys);
+    setPicked((current) => togglePickedAssets(current, pageEntries, !pageSelected));
   }
 
   function clearPicked() {
     setNote(null);
     setPicked([]);
+    props.onClear?.();
   }
 
   async function downloadPicked() {
-    if (downloading || chosen.length === 0) return;
+    const download = props.onDownload;
+    if (!download || downloading || chosen.length === 0) return;
     setDownloading(true);
     try {
-      for (const asset of chosen) {
-        if (asset.url) await downloadMedia(asset.url, asset.name);
-      }
+      await download(chosen);
     } finally {
       setDownloading(false);
     }
@@ -216,9 +226,9 @@ export function CollectionAssets(props: CollectionAssetsProps) {
               {filter.label}
             </button>
           ))}
-          {pageKeys.length > 0 ? (
+          {pageEntries.length > 0 ? (
             <button type="button" className="ghost-btn" onClick={togglePage}>
-              {pageSelected ? "Clear" : "Select page"}
+              {pageSelected ? "Clear page" : "Select page"}
             </button>
           ) : null}
         </div>
@@ -229,7 +239,7 @@ export function CollectionAssets(props: CollectionAssetsProps) {
           count={chosen.length}
           downloading={downloading}
           deleting={deleting}
-          onDownload={() => void downloadPicked()}
+          onDownload={props.onDownload ? () => void downloadPicked() : undefined}
           onAttach={props.onAttach ? () => props.onAttach?.(assetDraftItems(chosen)) : undefined}
           onClear={clearPicked}
           galleryItems={assetGalleryItems(chosen)}
@@ -266,21 +276,21 @@ export function CollectionAssets(props: CollectionAssetsProps) {
         <div className="history-empty">{emptyAssetsMessage(media)}</div>
       ) : (
         <div className={`gallery-manage-grid collection-assets-grid${loading ? " is-loading" : ""}`}>
-          {assets.map((asset) => (
+          {pageEntries.map((entry) => (
             <AssetTile
-              key={asset.key}
-              asset={asset}
-              picked={livePicked.includes(asset.key)}
-              onToggle={() => toggle(asset.key)}
-              onOpen={() => openAsset(asset)}
-              onOpenGallery={() => props.onOpenGallery(asset.galleryId)}
+              key={entry.asset.key}
+              asset={entry.asset}
+              picked={pickedKeys.has(entry.asset.key)}
+              onToggle={() => toggle(entry)}
+              onOpen={() => openAsset(entry.asset)}
+              onOpenGallery={() => props.onOpenGallery(entry.asset.galleryId)}
             />
           ))}
         </div>
       )}
 
       {pageCount > 1 ? (
-        <AssetsPager page={page} pageCount={pageCount} onPage={changePage} />
+        <AssetsPager key={page} page={page} pageCount={pageCount} onPage={changePage} />
       ) : null}
 
       {fit ? (
@@ -369,7 +379,7 @@ export function CollectionAssetsBar(props: {
   count: number;
   downloading?: boolean;
   deleting?: boolean;
-  onDownload: () => void;
+  onDownload?: () => void;
   onAttach?: () => void;
   onClear: () => void;
   galleryItems: HistoryGalleryItem[];
@@ -385,9 +395,11 @@ export function CollectionAssetsBar(props: {
   return (
     <div className="gallery-bulk collection-assets-bar">
       <span className="gallery-bulk-count">{`${props.count} selected`}</span>
-      <button type="button" className="ghost-btn" disabled={props.downloading} onClick={props.onDownload}>
-        {props.downloading ? "Downloading…" : "Download"}
-      </button>
+      {props.onDownload ? (
+        <button type="button" className="ghost-btn" disabled={props.downloading} onClick={props.onDownload}>
+          {props.downloading ? "Downloading…" : "Download"}
+        </button>
+      ) : null}
       {props.onAttach ? (
         <button type="button" className="ghost-btn" onClick={props.onAttach}>
           Attach
@@ -433,12 +445,9 @@ function AssetsPager({
   pageCount: number;
   onPage: (page: number) => void;
 }) {
+  // The caller keys this on the page, so the field starts over when the page changes.
   const [draft, setDraft] = useState(String(page));
   const skipCommit = useRef(false);
-
-  useEffect(() => {
-    setDraft(String(page));
-  }, [page]);
 
   return (
     <nav className="history-pager collection-assets-pager" aria-label="Asset pages">
