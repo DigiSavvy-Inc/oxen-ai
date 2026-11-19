@@ -112,6 +112,10 @@ Notifications are optional. Generate a VAPID key pair, store the private key wit
 
 The committed `wrangler.jsonc` is safe for local development: no production OAuth client id and no `PUBLIC_BASE_URL`. The D1 id in that file is DigiSavvy’s production database. Replace it before you deploy your own.
 
+## API tokens
+
+Scripts and agents can use the Studio API with a personal token from Settings → API tokens. Each token has a daily dollar cap and a fixed scope. See [docs/api.md](docs/api.md).
+
 ## Mac app
 
 A native Mac shell lives in `macos/`. Download it from Releases or build it yourself;

@@ -310,7 +310,7 @@ export const DOC_ARTICLES: DocArticle[] = [
     blocks: [
       {
         type: "p",
-        text: "Settings is in the top bar and under your avatar. It slides in from the right. The panes are API key, Models, Library, Notifications, and Cleanup.",
+        text: "Settings is in the top bar and under your avatar. It slides in from the right. The panes are API key, API tokens, Models, Library, Notifications, and Cleanup.",
       },
       {
         type: "ul",
@@ -319,6 +319,10 @@ export const DOC_ARTICLES: DocArticle[] = [
           "Branding, for admins, sets the site name and logo. A blank name uses Oxen Studio and the bundled mark.",
           "Allowlist, for admins, adds GitHub accounts. A row binds to that account’s id the first time they sign in.",
         ],
+      },
+      {
+        type: "p",
+        text: "API tokens let a script or an agent use the Studio API as you. Give a token a name and a daily cap in dollars, from $0.50 to $500; the day resets at midnight UTC. The token is shown once, so copy it then. It can generate, read your library, and organise galleries, slots, and collections, but it cannot change settings or delete anything. Revoke stops it at once.",
       },
     ],
   },

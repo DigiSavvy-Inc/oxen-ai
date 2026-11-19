@@ -7,7 +7,7 @@ All paths below are on that origin. JSON errors are `{ "error": "..." }`.
 
 ## Auth today
 
-There is no agent token, API key, or `Authorization` header for Studio. `requireUser` reads only the `oxen_session` cookie.
+Scripts and agents should use a personal API token (`Authorization: Bearer dss_…`), described in [api.md](api.md). Without one, `requireUser` reads the `oxen_session` cookie.
 
 Production sign-in is a browser GitHub OAuth redirect:
 
@@ -19,7 +19,7 @@ Access is a DigiSavvy-Inc org member, the D1 allowlist, or a `GITHUB_ADMINS` log
 
 `GET /api/auth/me` with no cookie returns `200` `{ "user": null }`. Every generate, upload, model, and library route returns `401` `{ "error": "Unauthorized" }` without a live session.
 
-**An agent cannot create a generation without a logged-in browser session.** A headless client can call these routes only if it already holds that cookie and sends `Cookie: oxen_session=...`. The API does not issue the cookie as JSON, and page script cannot read it (`HttpOnly`).
+**Without a token, an agent cannot create a generation without a logged-in browser session.** A headless client can call these routes only if it already holds that cookie and sends `Cookie: oxen_session=...`. The API does not issue the cookie as JSON, and page script cannot read it (`HttpOnly`).
 
 `GET /api/health` is public: `{ "ok": true, "service": "oxen-studio" }`.
 
