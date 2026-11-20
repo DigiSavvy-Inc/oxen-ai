@@ -49,11 +49,14 @@ function MediaPreview({
   className,
   slides,
   onSlide,
+  autoPlay,
 }: {
   generation: Generation;
   className?: string;
   slides: FitSlide[];
   onSlide?: (id: string) => void;
+  /** Start a finished video by itself. Off in a tab that did not start the run. */
+  autoPlay?: boolean;
 }) {
   const [fitOpen, setFitOpen] = useState(false);
   if (generation.status === "succeeded" && generation.resultUrl) {
@@ -67,7 +70,7 @@ function MediaPreview({
             src={generation.resultUrl}
             poster={generation.thumbUrl || generation.lastFrameUrl}
             controls
-            autoPlay
+            autoPlay={Boolean(autoPlay)}
             loop
             playsInline
             scale
@@ -276,6 +279,7 @@ export function Canvas({
   onDelete,
   onRenderFinal,
   renderBusy,
+  autoPlay,
 }: {
   generation: Generation | null;
   variants: Generation[];
@@ -284,6 +288,8 @@ export function Canvas({
   onDelete?: (id: string, scope: DeleteScope) => void;
   onRenderFinal?: (generation: Generation) => void;
   renderBusy?: boolean;
+  /** True when this tab started the run being shown, so its video may play by itself. */
+  autoPlay?: boolean;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const generationId = generation?.id ?? null;
@@ -387,6 +393,7 @@ export function Canvas({
               className="result-preview"
               slides={slides}
               onSlide={onSelect}
+              autoPlay={autoPlay}
             />
             {canDownload && generation.resultUrl ? (
               <div className="media-actions">

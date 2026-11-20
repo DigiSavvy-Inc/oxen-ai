@@ -1266,6 +1266,8 @@ export default function App() {
   const activeKey = activeGenerationKey(generations);
   const generationsRef = useRef(generations);
   generationsRef.current = generations;
+  /** Runs this tab started. Only these play by themselves when they finish; another open tab stays quiet. */
+  const startedHere = useRef(new Set<string>());
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
 
@@ -3198,6 +3200,7 @@ export default function App() {
       setKeepCanvasClear(false);
       setPeekId(null);
       setGenerations((prev) => mergeGenerations(prev, created));
+      for (const item of created) startedHere.current.add(item.id);
       setSelectedId(created[0]?.id ?? null);
       setJobsNotice(
         missing.length > 0
@@ -3622,6 +3625,7 @@ export default function App() {
       setKeepCanvasClear(false);
       setPeekId(null);
       setGenerations((prev) => mergeGenerations(prev, created));
+      for (const item of created) startedHere.current.add(item.id);
       setSelectedId(created[0]?.id ?? null);
       if (projectRun) {
         setJobsNotice(null);
@@ -3663,6 +3667,7 @@ export default function App() {
       setKeepCanvasClear(false);
       setPeekId(null);
       setGenerations((prev) => mergeGenerations(prev, created));
+      for (const item of created) startedHere.current.add(item.id);
       setSelectedId(created[0]?.id ?? null);
       void refreshCredits();
     } catch (err) {
@@ -4126,6 +4131,7 @@ export default function App() {
                 onDelete={(id, scope) => void deleteMedia([id], scope)}
                 onRenderFinal={(item) => void onRenderFinal(item)}
                 renderBusy={busy}
+                autoPlay={Boolean(selected && startedHere.current.has(selected.id))}
               />
             )}
             {peek ? (

@@ -286,3 +286,54 @@ test("a run with a very long prompt stays on screen", async ({ page }) => {
   expect(box.x + box.width, "frame ends on screen").toBeLessThanOrEqual(width);
   await expect(page.getByRole("button", { name: /Sent to the model/ })).toBeInViewport();
 });
+
+test("a finished video plays by itself only in the tab that started the run", async ({ page, context }) => {
+  const clip = `data:video/mp4;base64,${readFileSync(join(FIXTURES, "clip.mp4")).toString("base64")}`;
+  const now = Math.floor(Date.now() / 1000);
+  let done = false;
+  const run = () => ({
+    id: "vid-1",
+    batchId: "batch-vid",
+    status: done ? "succeeded" : "processing",
+    mode: "reference-to-video",
+    model: MODEL.id,
+    mediaType: "video",
+    prompt: "clip",
+    writtenPrompt: "clip",
+    resultUrl: done ? clip : null,
+    thumbUrl: null,
+    tags: [],
+    createdAt: now - 30,
+    updatedAt: done ? now : now - 30,
+    errorMessage: null,
+  });
+
+  // A second tab that is only watching: it sees the same running job.
+  const other = await context.newPage();
+  for (const tab of [page, other]) {
+    await tab.route(/\/api\/generations\?scope=active/, (route) => route.fulfill({ json: { generations: [run()] } }));
+    await tab.route("**/api/generations/vid-1", (route) => route.fulfill({ json: { generation: run() } }));
+  }
+  await other.goto("/");
+  await expect(other.locator(".result-frame").getByText("processing")).toBeVisible();
+
+  // This tab starts the run.
+  await framesModel(page, true);
+  await page.unroute("**/api/generate");
+  await page.route("**/api/generate", (route) => route.fulfill({ json: { generations: [run()] } }));
+  await page.getByRole("combobox", { name: /Describe the shot/ }).fill("clip");
+  await page.getByRole("button", { name: /^Generate/ }).click();
+  await expect(page.locator(".result-frame").getByText("processing")).toBeVisible();
+
+  done = true;
+  const started = page.locator("video.result-preview");
+  const watching = other.locator("video.result-preview");
+  await expect(started).toBeVisible({ timeout: 10_000 });
+  await expect(watching).toBeVisible({ timeout: 10_000 });
+  expect(await started.evaluate((video: { autoplay: boolean }) => video.autoplay)).toBe(true);
+  // The other tab shows the result with its controls, and stays quiet.
+  expect(await watching.evaluate((video: { autoplay: boolean; paused: boolean }) => [video.autoplay, video.paused])).toEqual([
+    false,
+    true,
+  ]);
+});
