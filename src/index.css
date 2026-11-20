@@ -1588,6 +1588,53 @@ button.history-expand-preview {
   overflow: hidden;
 }
 
+.prompt-fold {
+  margin-top: 6px;
+}
+
+.prompt-fold-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.prompt-fold-toggle:hover {
+  color: var(--text);
+}
+
+.prompt-fold-chevron {
+  flex: 0 0 auto;
+  transition: transform 0.15s ease;
+}
+
+.prompt-fold.is-open .prompt-fold-chevron {
+  transform: rotate(90deg);
+}
+
+.prompt-fold-label {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.prompt-fold-peek {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .history-prompt-sent {
   margin: 8px 2px 0;
   font-size: 11px;

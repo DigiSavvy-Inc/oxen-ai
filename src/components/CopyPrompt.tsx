@@ -72,3 +72,28 @@ export function CopyPrompt({
     </div>
   );
 }
+
+/**
+ * A prompt that starts closed: one row with its label and the first words. Long prompts
+ * would otherwise push the result off the screen.
+ */
+export function FoldedPrompt({ label, prompt }: { label: string; prompt: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`prompt-fold${open ? " is-open" : ""}`}>
+      <button
+        type="button"
+        className="prompt-fold-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="prompt-fold-chevron" aria-hidden="true">
+          ›
+        </span>
+        <span className="prompt-fold-label">{label}</span>
+        {open ? null : <span className="prompt-fold-peek">{prompt}</span>}
+      </button>
+      {open ? <CopyPrompt prompt={prompt} /> : null}
+    </div>
+  );
+}

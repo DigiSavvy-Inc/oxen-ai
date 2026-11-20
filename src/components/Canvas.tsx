@@ -14,7 +14,7 @@ import type { DeleteScope } from "../lib/media-delete";
 import { runModes } from "../lib/mode-icons";
 import { estimateGenerationWait } from "../lib/progress";
 import { MAX_TAGS_PER_MEDIA, parseTagList } from "../lib/tags";
-import { CopyPrompt } from "./CopyPrompt";
+import { FoldedPrompt } from "./CopyPrompt";
 import { DeleteMenu } from "./DeleteMenu";
 import { DownloadButton } from "./DownloadButton";
 import { LastFrameStill } from "./LastFrameStill";
@@ -458,12 +458,13 @@ export function Canvas({
         </div>
         {generation.writtenPrompt && generation.writtenPrompt !== generation.prompt ? (
           <>
-            <CopyPrompt prompt={generation.writtenPrompt} />
-            <p className="history-prompt-sent">Sent</p>
-            {generation.prompt ? <CopyPrompt prompt={generation.prompt} /> : null}
+            <FoldedPrompt key={`${generation.id}-wrote`} label="Prompt" prompt={generation.writtenPrompt} />
+            {generation.prompt ? (
+              <FoldedPrompt key={`${generation.id}-sent`} label="Sent to the model" prompt={generation.prompt} />
+            ) : null}
           </>
         ) : generation.prompt ? (
-          <CopyPrompt prompt={generation.prompt} />
+          <FoldedPrompt key={`${generation.id}-wrote`} label="Prompt" prompt={generation.prompt} />
         ) : null}
         <TagEditor
           tags={generation.tags ?? []}

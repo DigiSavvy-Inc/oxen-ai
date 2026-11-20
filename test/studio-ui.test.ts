@@ -1301,7 +1301,15 @@ describe("copy prompt", () => {
     const composer = readFileSync(new URL("../src/components/Composer.tsx", import.meta.url), "utf8");
     const brief = readFileSync(new URL("../src/components/ProjectBrief.tsx", import.meta.url), "utf8");
     const jobs = readFileSync(new URL("../src/components/ProjectJobs.tsx", import.meta.url), "utf8");
-    expect(canvas).toContain("<CopyPrompt");
+    // On the canvas a prompt starts closed, so a long one cannot push the result off screen.
+    // Opening it shows the same text with the same copy control.
+    expect(canvas).toContain('<FoldedPrompt key={`${generation.id}-wrote`} label="Prompt"');
+    expect(canvas).toContain('label="Sent to the model"');
+    expect(canvas).not.toContain("<CopyPrompt");
+    const folded = copy.slice(copy.indexOf("export function FoldedPrompt"));
+    expect(folded).toContain("useState(false)");
+    expect(folded).toContain("aria-expanded={open}");
+    expect(folded).toContain("{open ? <CopyPrompt prompt={prompt} /> : null}");
     expect(peek).toContain("<CopyPrompt");
     expect(peek).toContain('className="library-peek-prompt"');
     expect(history).toContain("<CopyPrompt");
