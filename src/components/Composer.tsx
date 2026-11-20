@@ -1441,7 +1441,12 @@ export function Composer(props: Props) {
                               setDropAt(null);
                             }}
                           >
-                            <span className="attach-grip" aria-hidden>
+                            {/* A chip that came from a name in the prompt follows the prompt, so it has no handle. */}
+                            <span
+                              className="attach-grip"
+                              aria-hidden
+                              style={item.origin === "name" ? { visibility: "hidden" } : undefined}
+                            >
                               ⋮⋮
                             </span>
                             <div className="attach-thumb">

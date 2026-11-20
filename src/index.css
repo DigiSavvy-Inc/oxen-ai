@@ -5093,8 +5093,7 @@ button.history-expand-preview {
 .attach-section-grid > .attach-chip {
   min-width: 0;
   flex-wrap: wrap;
-  border-left: 3px solid var(--kind-tint);
-  background: color-mix(in srgb, var(--kind-tint) 6%, var(--neutral-1));
+  background: color-mix(in srgb, var(--kind-tint) 8%, var(--neutral-1));
 }
 
 /* Controls wrap under the name when a narrow cell cannot fit them on one line. */

@@ -1788,10 +1788,25 @@ export default function App() {
   }
 
   function onReorderAttachments(from: number, to: number) {
-    if (projectStaging) return;
     if (shown[from]?.origin === "name") return;
     const handCount = shown.filter((item) => item.origin === "hand").length;
     if (from < 0 || from >= handCount || to < 0 || to >= handCount) return;
+    if (projectStaging) {
+      // In a project the chips are its references, so a drag reorders those and is saved with
+      // the project. Numbers and the mentions in the prompt follow, as when one is removed.
+      const moved = castItemForStaged(staged[from]);
+      const target = castItemForStaged(staged[to]);
+      if (!moved || !target) return;
+      const fromEntry = castEntries.findIndex((entry) => entry.id === moved.entryId);
+      const toEntry = castEntries.findIndex((entry) => entry.id === target.entryId);
+      if (fromEntry < 0 || toEntry < 0) return;
+      if (fromEntry === toEntry) {
+        setError("Files from one gallery keep that gallery’s order. Reorder them in the gallery.");
+        return;
+      }
+      projectMoveEntry(fromEntry, toEntry);
+      return;
+    }
     const next = moveItem(staged, from, to);
     if (next === staged) return;
     setStaged(next);

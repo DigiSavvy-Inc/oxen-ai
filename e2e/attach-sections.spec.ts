@@ -143,3 +143,39 @@ test("on a phone each section is one column and nothing scrolls sideways", async
   expect(await page.locator(".attach-preview").evaluate(sideways)).toBeLessThanOrEqual(0);
   expect(await page.locator("html").evaluate(sideways)).toBeLessThanOrEqual(0);
 });
+
+test("in a project, dragging a chip reorders the project's references and saves it", async ({ page }) => {
+  const { project } = (await (await page.request.post("/api/projects", { data: { name: "Drag order" } })).json()) as {
+    project: { id: string };
+  };
+  // Reordering can ask whether the prompt's mentions should follow. Say yes.
+  page.on("dialog", (dialog) => void dialog.accept());
+  await sectionsModel(page);
+  await page.getByRole("navigation", { name: "Studio" }).getByRole("button", { name: "Projects" }).click();
+  await page.getByText("Drag order", { exact: true }).first().click();
+  await page.keyboard.press("Escape");
+
+  await page.locator('input[type="file"]').first().setInputFiles(
+    ["first.png", "second.png", "third.png"].map((name, index) => ({
+      name,
+      mimeType: "image/png",
+      buffer: readFileSync(join(FIXTURES, `tile-${index + 1}.png`)),
+    })),
+  );
+  const images = section(page, "Images").locator(".attach-chip");
+  await expect(images).toHaveCount(3);
+  await expect(images.nth(0)).toContainText("first.png");
+
+  const savedOrder = async () => {
+    const body = (await (await page.request.get(`/api/projects/${project.id}`)).json()) as {
+      project: { cast: { name: string }[] };
+    };
+    return body.project.cast.map((entry) => entry.name);
+  };
+  await expect.poll(savedOrder).toEqual(["first.png", "second.png", "third.png"]);
+
+  await images.nth(2).dragTo(images.nth(0), { targetPosition: { x: 4, y: 10 } });
+  await expect(images.nth(0)).toContainText("third.png");
+  await expect(images.nth(0)).toContainText("Image 1");
+  await expect.poll(savedOrder).toEqual(["third.png", "first.png", "second.png"]);
+});
