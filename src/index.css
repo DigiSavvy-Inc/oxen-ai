@@ -2663,8 +2663,14 @@ button.history-expand-preview {
   .attach-preview {
     max-height: min(30dvh, 220px);
     overflow-y: auto;
+    overflow-x: hidden;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+  }
+
+  /* Scoped so it outranks the desktop grid rule further down. */
+  .attach-preview .attach-section-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .composer {
@@ -5020,14 +5026,97 @@ button.history-expand-preview {
 
 .attach-preview {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
   padding: 8px 10px 10px;
-  flex-wrap: wrap;
-  align-items: center;
 }
 
-.attach-slot {
+/* Attached media in one section per kind. The kind colour is a quiet edge, not a fill. */
+.attach-section {
+  --kind-tint: var(--neutral-5);
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.attach-section.is-kind-image {
+  --kind-tint: var(--color-2);
+}
+
+.attach-section.is-kind-video {
+  --kind-tint: var(--color-3);
+}
+
+.attach-section.is-kind-audio {
+  --kind-tint: var(--color-4);
+}
+
+.attach-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.attach-section-head::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--kind-tint);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.attach-section-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.attach-section-count {
+  color: var(--text-muted);
+  font-family: var(--mono);
+}
+
+.attach-section-note {
+  color: var(--text-muted);
+}
+
+.attach-section-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.attach-section-grid > .attach-chip {
+  min-width: 0;
+  flex-wrap: wrap;
+  border-left: 3px solid var(--kind-tint);
+  background: color-mix(in srgb, var(--kind-tint) 6%, var(--neutral-1));
+}
+
+/* Controls wrap under the name when a narrow cell cannot fit them on one line. */
+.attach-section-grid .attach-chip-copy {
+  flex-basis: 64px;
+}
+
+/* Keeps the file name at AA contrast on the tinted chip. */
+.attach-section-grid .attach-chip-name {
+  color: var(--text-muted);
+}
+
+/* The model takes none of this kind: dim the media, keep Remove readable. */
+.attach-section.is-unused .attach-section-head::before,
+.attach-section.is-unused .attach-thumb,
+.attach-section.is-unused .attach-chip-copy {
+  opacity: 0.5;
+}
+
+.attach-actions {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
@@ -5036,7 +5125,7 @@ button.history-expand-preview {
   display: grid;
   place-items: center;
   min-width: 72px;
-  height: 48px;
+  min-height: 48px;
   border: 1.5px dashed var(--blue);
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-1) 12%, transparent);
@@ -5094,6 +5183,7 @@ button.history-expand-preview {
 
 .attach-chip-copy {
   position: relative;
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -5106,6 +5196,8 @@ button.history-expand-preview {
   font-weight: 650;
   line-height: 1.2;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .attach-chip-via {
@@ -5113,6 +5205,8 @@ button.history-expand-preview {
   font-size: 11px;
   line-height: 1.2;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .attach-role {
@@ -5144,6 +5238,10 @@ select.attach-role {
   border-color: var(--text);
 }
 
+.attach-section-grid > .attach-chip.is-frame {
+  border-left-color: var(--kind-tint);
+}
+
 .attach-chip.is-frame .attach-chip-token::before {
   content: "▶ ";
   font-size: 9px;
@@ -5165,7 +5263,7 @@ select.attach-role {
 }
 
 .attach-chip-name {
-  max-width: 148px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

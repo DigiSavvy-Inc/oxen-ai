@@ -472,7 +472,9 @@ describe("mentions and cost", () => {
     expect(tokenBefore(html, "room.png")).toBe("Image 1");
     expect(tokenBefore(html, "hero.png")).toBe("Image 2");
     expect(tokenBefore(html, "walk.mp4")).toBe("Video 1");
-    const audioName = html.indexOf('class="attach-chip-name">voice.mp3');
+    // The full name rides in title, so a truncated name can still be read.
+    const audioName = html.indexOf('class="attach-chip-name" title="voice.mp3">voice.mp3');
+    expect(audioName).toBeGreaterThan(-1);
     expect(html.slice(audioName - 80, audioName)).toContain("Audio 1");
     expect(html.slice(audioName, audioName + 180)).not.toContain("attach-role");
     expect(html.match(/class="attach-role"/g)?.length).toBe(2);
@@ -482,6 +484,20 @@ describe("mentions and cost", () => {
     expect(html).toContain("Style");
     expect(html).toContain("tight headshot");
     expect(html).toContain("Insert bindings");
+    // Chips sit in one section per kind, Images then Videos then Audio, each counted against the limit.
+    const imagesAt = html.indexOf('aria-label="Images"');
+    const videosAt = html.indexOf('aria-label="Videos"');
+    const audioAt = html.indexOf('aria-label="Audio"');
+    expect(imagesAt).toBeGreaterThan(-1);
+    expect(imagesAt).toBeLessThan(videosAt);
+    expect(videosAt).toBeLessThan(audioAt);
+    expect(html).toMatch(/attach-section-label">Images<\/span><span class="attach-section-count">2 of \d+</);
+    expect(html).toMatch(/attach-section-label">Audio<\/span><span class="attach-section-count">1 of 3</);
+    expect(html).not.toMatch(/Audio 1\/3/);
+    expect(html).not.toContain("Not used by this model");
+    // Insert bindings sits on the row under the sections.
+    expect(html.indexOf("Insert bindings")).toBeGreaterThan(html.lastIndexOf("attach-section-grid"));
+    expect(html.indexOf('class="attach-actions"')).toBeGreaterThan(audioAt);
 
     const plain = renderToStaticMarkup(
       createElement(Composer, {
@@ -521,6 +537,8 @@ describe("mentions and cost", () => {
         attachments: [
           { name: "room.png", preview: "data:image/gif;base64,room", kind: "image", role: "scene" },
           { name: "hero.png", preview: "data:image/gif;base64,hero", kind: "image", role: "character" },
+          // Left over from a model that took audio: this one takes none.
+          { name: "old-voice.mp3", preview: "", kind: "audio" },
         ],
         onAddFiles: () => undefined,
         onClearAttachment: () => undefined,
@@ -532,6 +550,14 @@ describe("mentions and cost", () => {
         canGenerate: true,
       }),
     );
+    // The leftover kind stays listed, dimmed, with its Remove button.
+    const unused = plain.slice(plain.indexOf('aria-label="Audio"'));
+    expect(plain.slice(0, plain.indexOf('aria-label="Audio"'))).toMatch(/attach-section is-kind-audio is-unused"\s*$/);
+    expect(unused).toContain("Not used by this model");
+    expect(unused).toContain("old-voice.mp3");
+    expect(unused).toContain("Remove");
+    expect(plain).toMatch(/attach-section-label">Images<\/span><span class="attach-section-count">2 of 4</);
+    expect(plain.slice(0, plain.indexOf('aria-label="Images"'))).not.toMatch(/is-unused"\s*$/);
     expect(plain).not.toContain("attach-role");
     expect(plain).not.toContain("Insert bindings");
     expect(plain.indexOf("room.png")).toBeLessThan(plain.indexOf("hero.png"));
@@ -1754,6 +1780,8 @@ describe("mobile result stays reachable", () => {
     );
     expect(phone).toMatch(/\.attach-preview\s*\{[^}]*max-height:\s*min\(30dvh,\s*220px\)/);
     expect(phone).toMatch(/\.attach-preview\s*\{[^}]*overflow-y:\s*auto/);
+    // Each attached-media section is one column on a phone, so nothing scrolls sideways.
+    expect(phone).toMatch(/\.attach-section-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
     const canvas = readFileSync(new URL("../src/components/Canvas.tsx", import.meta.url), "utf8");
     expect(canvas).toContain('matchMedia("(max-width: 860px)")');
     expect(canvas).toContain("scrollIntoView");

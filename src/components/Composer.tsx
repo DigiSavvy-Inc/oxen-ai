@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -29,7 +30,6 @@ import {
   attachmentForMention,
   deleteMentionToken,
   filterMentionItems,
-  indexAfterInsertBefore,
   insertMentionToken,
   mentionAtCaret,
   mentionKeyAction,
@@ -41,6 +41,7 @@ import {
   type PromptMention,
 } from "../lib/mentions";
 import { shortenFileName } from "../lib/files";
+import { attachSectionCount, attachSections, dropsBefore, sectionMoveTarget, type AttachSectionKind } from "../lib/attach-sections";
 import { copyPromptText, pastedImages } from "../lib/clipboard";
 import { prependMissingBindings, referenceBindingText, referenceRoleTitle } from "../lib/reference-roles";
 import { GALLERY_ITEM_DRAG_TYPE, dropCandidates, galleryItemsForDrop, isGalleryItemDrag } from "../lib/gallery-attach";
@@ -86,6 +87,17 @@ type AttachItem = {
 
 function frameLabel(frame: "first" | "last"): string {
   return frame === "first" ? "First frame" : "Last frame";
+}
+
+/** Kind name, count against the model's limit, and a note when the model takes none. */
+function AttachSectionHead({ label, count, unused }: { label: string; count: string; unused: boolean }) {
+  return (
+    <div className="attach-section-head">
+      <span className="attach-section-label">{label}</span>
+      <span className="attach-section-count">{count}</span>
+      {unused ? <span className="attach-section-note">Not used by this model</span> : null}
+    </div>
+  );
 }
 
 function faceFieldForKind(kind: AttachItem["kind"]): "input_face_images" | "input_face_videos" | null {
@@ -296,7 +308,7 @@ export function Composer(props: Props) {
   const hoverAnchorRef = useRef<HTMLElement | null>(null);
   const hoverTipRef = useRef<HTMLDivElement | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dropInsertBefore, setDropInsertBefore] = useState<number | null>(null);
+  const [dropAt, setDropAt] = useState<{ kind: AttachSectionKind; position: number } | null>(null);
   const [promptHeight, setPromptHeight] = useState(PROMPT_HEIGHT_BASE);
   const [promptMenu, setPromptMenu] = useState<"save" | "load" | null>(null);
   const [savingPrompt, setSavingPrompt] = useState(false);
@@ -319,9 +331,17 @@ export function Composer(props: Props) {
   const acceptedKinds = acceptedMediaKinds(props.controls, props.mode, selectedModel);
   const fileAccept = fileAcceptValue(acceptedKinds);
   const dropPhrase = mediaKindPhrase(acceptedKinds);
-  const audioCount = props.attachments.filter((item) => item.kind === "audio").length;
   const imageCount = props.attachments.filter((item) => item.kind === "image").length;
   const framesOnly = Boolean(props.controls?.frames && !props.controls.frames.references);
+  // A limit is known once the model's controls arrive; chat has fixed limits.
+  const capsKnown = props.controls != null || props.mode === "chat";
+  const sectionCaps = { image: imageMax, video: videoMax, audio: audioMax, document: documentMax };
+  const mediaSections = attachSections(props.attachments, sectionCaps);
+  const documentSection = attachSections(
+    (props.documents ?? []).map((doc) => ({ ...doc, kind: "document" as const })),
+    sectionCaps,
+  )[0];
+  const dragKind = dragIndex != null ? (props.attachments[dragIndex]?.kind ?? null) : null;
   const galleryAvailable = modeHasReferenceGallery(props.mode);
   const galleryOpen = galleryAvailable && props.galleryOpen === true;
   const showDropzone =
@@ -1319,226 +1339,273 @@ export function Composer(props: Props) {
           ) : null}
         </div>
 
-        {(props.documents ?? []).length > 0 ? (
+        {props.attachments.length > 0 || (props.documents ?? []).length > 0 ? (
           <div className="attach-preview">
-            {(props.documents ?? []).map((doc, index) => (
-              <div key={`${doc.name}-${index}`} className="attach-chip">
-                <span className="attach-chip-copy">
-                  <span className="attach-chip-token">PDF</span>
-                  <span className="attach-chip-name">{shortenFileName(doc.name)}</span>
-                </span>
-                <button type="button" className="ghost-btn" onClick={() => props.onClearDocument?.(index)}>
-                  Remove
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {props.attachments.length > 0 ? (
-          <div
-            className="attach-preview"
-            onDragOver={(event) => {
-              if (isFileDrag(event) || isGalleryItemDrag(event.dataTransfer.types) || dragIndex == null) return;
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-            }}
-            onDrop={(event) => {
-              if (isFileDrag(event) || isGalleryItemDrag(event.dataTransfer.types)) return;
-              event.preventDefault();
-              const from = Number(event.dataTransfer.getData("text/plain"));
-              const insertBefore = dropInsertBefore ?? props.attachments.length;
-              setDragIndex(null);
-              setDropInsertBefore(null);
-              if (!Number.isInteger(from)) return;
-              props.onReorderAttachments(from, indexAfterInsertBefore(from, insertBefore));
-            }}
-          >
-            {props.attachments.map((item, index) => {
-              const ofKind = props.attachments.filter((entry) => entry.kind === item.kind);
-              const kindIndex = ofKind.indexOf(item);
-              const token = tokenForItem(mentionSource, item, index);
-              const roleField = faceFieldForKind(item.kind);
-              const showRole = Boolean(
-                roleField &&
-                  props.controls?.slots.some((slot) => slot.field === roleField) &&
-                  props.controls?.slots.some(
-                    (slot) => slot.kind === item.kind && !slot.field.includes("face"),
-                  ),
-              );
-              const frames = props.controls?.frames ?? null;
-              const frameHasFace = item.frame
-                ? item.frame === "first"
-                  ? frames?.firstFace
-                  : frames?.lastFace
-                : false;
-              const referenceRole = normalizeMediaRole(item.role);
-              const showSlot =
-                dragIndex != null &&
-                dropInsertBefore === index &&
-                dropInsertBefore !== dragIndex &&
-                dropInsertBefore !== dragIndex + 1;
+            {mediaSections.map((section) => {
+              const indices = section.entries.map((entry) => entry.index);
+              const dragPosition =
+                dragIndex != null && dragKind === section.kind ? indices.indexOf(dragIndex) : -1;
+              const showDropAt = (position: number) =>
+                dragPosition >= 0 &&
+                dropAt?.kind === section.kind &&
+                dropAt.position === position &&
+                position !== dragPosition &&
+                position !== dragPosition + 1;
               return (
-                <div key={`${item.kind}-${item.name}-${index}`} className="attach-slot">
-                  {showSlot ? (
-                    <div className="attach-drop-slot" aria-hidden>
-                      Drop
-                    </div>
-                  ) : null}
+                <section
+                  key={section.kind}
+                  className={`attach-section is-kind-${section.kind}${capsKnown && section.unused ? " is-unused" : ""}`}
+                  aria-label={section.label}
+                >
+                  <AttachSectionHead
+                    label={section.label}
+                    count={attachSectionCount(section.entries.length, capsKnown ? section.cap : null)}
+                    unused={capsKnown && section.unused}
+                  />
                   <div
-                    className={`attach-chip${dragIndex === index ? " is-dragging" : ""}${item.frame ? ` is-frame is-frame-${item.frame}` : ""}`}
-                    draggable={item.origin !== "name"}
-                    onDragStart={(event) => {
-                      if ((event.target as HTMLElement).closest("button, select")) {
-                        event.preventDefault();
-                        return;
-                      }
-                      event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData("text/plain", String(index));
-                      setDragIndex(index);
-                    }}
+                    className="attach-section-grid"
                     onDragOver={(event) => {
                       if (isFileDrag(event) || isGalleryItemDrag(event.dataTransfer.types)) return;
+                      if (dragKind !== section.kind) return;
                       event.preventDefault();
-                      event.stopPropagation();
                       event.dataTransfer.dropEffect = "move";
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      const insertBefore = event.clientX < rect.left + rect.width / 2 ? index : index + 1;
-                      if (dropInsertBefore !== insertBefore) setDropInsertBefore(insertBefore);
                     }}
-                    onDragEnd={() => {
+                    onDrop={(event) => {
+                      if (isFileDrag(event) || isGalleryItemDrag(event.dataTransfer.types)) return;
+                      event.preventDefault();
+                      const from = Number(event.dataTransfer.getData("text/plain"));
+                      const position = dropAt?.kind === section.kind ? dropAt.position : indices.length;
                       setDragIndex(null);
-                      setDropInsertBefore(null);
+                      setDropAt(null);
+                      if (!Number.isInteger(from) || !indices.includes(from)) return;
+                      props.onReorderAttachments(from, sectionMoveTarget(indices, from, position));
                     }}
                   >
-                    <span className="attach-grip" aria-hidden>
-                      ⋮⋮
-                    </span>
-                    <div className="attach-thumb">
-                      {item.kind === "image" ? (
-                        <img src={item.preview} alt="" draggable={false} />
-                      ) : item.kind === "video" ? (
-                        <video src={item.preview} muted draggable={false} />
-                      ) : (
-                        <AudioAttachControl src={item.preview} name={item.name} token={token} />
-                      )}
-                      {item.kind !== "audio" && item.preview ? (
-                        <ExpandMediaButton
-                          label={`Preview ${token}`}
-                          preview={item.preview}
-                          kind={item.kind === "video" ? "video" : "image"}
-                        />
-                      ) : null}
-                    </div>
-                    <span className="attach-chip-copy">
-                      <span className="attach-chip-token">
-                        {item.frame ? frameLabel(item.frame) : mentionChipLabel(token)}
-                      </span>
-                      {item.via ? <span className="attach-chip-via">{item.via}</span> : null}
-                      <span className="attach-chip-name">{shortenFileName(item.name)}</span>
-                      <span className="attach-name-tip" role="tooltip">
-                        {item.name}
-                      </span>
-                    </span>
-                    {frames?.references && item.kind === "image" && item.origin !== "name" ? (
-                      <select
-                        className="attach-role is-plain"
-                        aria-label={`Use ${token} as`}
-                        title="A first or last frame is followed exactly. A reference only guides the look."
-                        value={item.frame ?? "ref"}
-                        onChange={(event) =>
-                          props.onAttachmentFrameChange?.(
-                            index,
-                            event.target.value === "first" || event.target.value === "last"
-                              ? event.target.value
-                              : "ref",
-                          )
-                        }
-                      >
-                        <option value="ref">Reference</option>
-                        <option value="first">First frame</option>
-                        <option value="last">Last frame</option>
-                      </select>
+                    {section.entries.map(({ item, index }, position) => {
+                      const ofKind = props.attachments.filter((entry) => entry.kind === item.kind);
+                      const kindIndex = ofKind.indexOf(item);
+                      const token = tokenForItem(mentionSource, item, index);
+                      const roleField = faceFieldForKind(item.kind);
+                      const showRole = Boolean(
+                        roleField &&
+                          props.controls?.slots.some((slot) => slot.field === roleField) &&
+                          props.controls?.slots.some(
+                            (slot) => slot.kind === item.kind && !slot.field.includes("face"),
+                          ),
+                      );
+                      const frames = props.controls?.frames ?? null;
+                      const frameHasFace = item.frame
+                        ? item.frame === "first"
+                          ? frames?.firstFace
+                          : frames?.lastFace
+                        : false;
+                      const referenceRole = normalizeMediaRole(item.role);
+                      return (
+                        <Fragment key={`${item.kind}-${item.name}-${index}`}>
+                          {showDropAt(position) ? (
+                            <div className="attach-drop-slot" aria-hidden>
+                              Drop
+                            </div>
+                          ) : null}
+                          <div
+                            className={`attach-chip${dragIndex === index ? " is-dragging" : ""}${item.frame ? ` is-frame is-frame-${item.frame}` : ""}`}
+                            draggable={item.origin !== "name"}
+                            onDragStart={(event) => {
+                              if ((event.target as HTMLElement).closest("button, select")) {
+                                event.preventDefault();
+                                return;
+                              }
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("text/plain", String(index));
+                              setDragIndex(index);
+                            }}
+                            onDragOver={(event) => {
+                              if (isFileDrag(event) || isGalleryItemDrag(event.dataTransfer.types)) return;
+                              // Another kind's chip is not a drop target, so a chip stays in its own section.
+                              if (dragKind !== item.kind) return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              event.dataTransfer.dropEffect = "move";
+                              const before = dropsBefore(
+                                event.currentTarget.getBoundingClientRect(),
+                                { x: event.clientX, y: event.clientY },
+                                event.currentTarget.parentElement?.clientWidth ?? 0,
+                              );
+                              const next = before ? position : position + 1;
+                              if (dropAt?.kind !== section.kind || dropAt.position !== next) {
+                                setDropAt({ kind: section.kind, position: next });
+                              }
+                            }}
+                            onDragEnd={() => {
+                              setDragIndex(null);
+                              setDropAt(null);
+                            }}
+                          >
+                            <span className="attach-grip" aria-hidden>
+                              ⋮⋮
+                            </span>
+                            <div className="attach-thumb">
+                              {item.kind === "image" ? (
+                                <img src={item.preview} alt="" draggable={false} />
+                              ) : item.kind === "video" ? (
+                                <video src={item.preview} muted draggable={false} />
+                              ) : (
+                                <AudioAttachControl src={item.preview} name={item.name} token={token} />
+                              )}
+                              {item.kind !== "audio" && item.preview ? (
+                                <ExpandMediaButton
+                                  label={`Preview ${token}`}
+                                  preview={item.preview}
+                                  kind={item.kind === "video" ? "video" : "image"}
+                                />
+                              ) : null}
+                            </div>
+                            <span className="attach-chip-copy">
+                              <span className="attach-chip-token">
+                                {item.frame ? frameLabel(item.frame) : mentionChipLabel(token)}
+                              </span>
+                              {item.via ? (
+                                <span className="attach-chip-via" title={item.via}>
+                                  {item.via}
+                                </span>
+                              ) : null}
+                              <span className="attach-chip-name" title={item.name}>
+                                {shortenFileName(item.name)}
+                              </span>
+                              <span className="attach-name-tip" role="tooltip">
+                                {item.name}
+                              </span>
+                            </span>
+                            {frames?.references && item.kind === "image" && item.origin !== "name" ? (
+                              <select
+                                className="attach-role is-plain"
+                                aria-label={`Use ${token} as`}
+                                title="A first or last frame is followed exactly. A reference only guides the look."
+                                value={item.frame ?? "ref"}
+                                onChange={(event) =>
+                                  props.onAttachmentFrameChange?.(
+                                    index,
+                                    event.target.value === "first" || event.target.value === "last"
+                                      ? event.target.value
+                                      : "ref",
+                                  )
+                                }
+                              >
+                                <option value="ref">Reference</option>
+                                <option value="first">First frame</option>
+                                <option value="last">Last frame</option>
+                              </select>
+                            ) : null}
+                            {item.frame && frameHasFace ? (
+                              <label
+                                className="attach-face"
+                                title="Turn on when this frame shows a real person’s face. The model may block it otherwise."
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(props.frameFace?.[item.frame])}
+                                  onChange={(event) => props.onFrameFaceChange?.(item.frame!, event.target.checked)}
+                                />
+                                Real face
+                              </label>
+                            ) : null}
+                            {showRole && !item.frame ? (
+                              <select
+                                className={`attach-role${referenceRoleUsesFace(referenceRole) ? "" : " is-plain"}`}
+                                aria-label={`Reference role for ${token}`}
+                                title={referenceRoleTitle(referenceRole)}
+                                value={referenceRole}
+                                onChange={(event) =>
+                                  props.onAttachmentRoleChange(index, normalizeMediaRole(event.target.value))
+                                }
+                              >
+                                {REFERENCE_ROLES.map((value) => (
+                                  <option key={value} value={value} title={referenceRoleTitle(value)}>
+                                    {referenceRoleLabel(value)}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : null}
+                            <button
+                              className="ghost-btn"
+                              type="button"
+                              onClick={() => props.onClearAttachment(item.kind, kindIndex)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </Fragment>
+                      );
+                    })}
+                    {showDropAt(indices.length) ? (
+                      <div className="attach-drop-slot" aria-hidden>
+                        Drop
+                      </div>
                     ) : null}
-                    {item.frame && frameHasFace ? (
-                      <label
-                        className="attach-face"
-                        title="Turn on when this frame shows a real person’s face. The model may block it otherwise."
-                      >
-                        <input
-                          type="checkbox"
-                          checked={Boolean(props.frameFace?.[item.frame])}
-                          onChange={(event) => props.onFrameFaceChange?.(item.frame!, event.target.checked)}
-                        />
-                        Real face
-                      </label>
-                    ) : null}
-                    {showRole && !item.frame ? (
-                      <select
-                        className={`attach-role${referenceRoleUsesFace(referenceRole) ? "" : " is-plain"}`}
-                        aria-label={`Reference role for ${token}`}
-                        title={referenceRoleTitle(referenceRole)}
-                        value={referenceRole}
-                        onChange={(event) =>
-                          props.onAttachmentRoleChange(index, normalizeMediaRole(event.target.value))
-                        }
-                      >
-                        {REFERENCE_ROLES.map((value) => (
-                          <option key={value} value={value} title={referenceRoleTitle(value)}>
-                            {referenceRoleLabel(value)}
-                          </option>
-                        ))}
-                      </select>
-                    ) : null}
-                    <button
-                      className="ghost-btn"
-                      type="button"
-                      onClick={() => props.onClearAttachment(item.kind, kindIndex)}
-                    >
-                      Remove
-                    </button>
                   </div>
-                </div>
+                </section>
               );
             })}
-            {dragIndex != null &&
-            dropInsertBefore === props.attachments.length &&
-            dragIndex !== props.attachments.length - 1 ? (
-              <div className="attach-drop-slot" aria-hidden>
-                Drop
+            {documentSection ? (
+              <section
+                className={`attach-section is-kind-document${capsKnown && documentSection.unused ? " is-unused" : ""}`}
+                aria-label={documentSection.label}
+              >
+                <AttachSectionHead
+                  label={documentSection.label}
+                  count={attachSectionCount(
+                    documentSection.entries.length,
+                    capsKnown ? documentSection.cap : null,
+                  )}
+                  unused={capsKnown && documentSection.unused}
+                />
+                <div className="attach-section-grid">
+                  {documentSection.entries.map(({ item: doc, index }) => (
+                    <div key={`${doc.name}-${index}`} className="attach-chip">
+                      <span className="attach-chip-copy">
+                        <span className="attach-chip-token">PDF</span>
+                        <span className="attach-chip-name" title={doc.name}>
+                          {shortenFileName(doc.name)}
+                        </span>
+                      </span>
+                      <button type="button" className="ghost-btn" onClick={() => props.onClearDocument?.(index)}>
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+            {bindingText || (framesOnly && imageCount > 0) || props.attachSummary ? (
+              <div className="attach-actions">
+                {bindingText ? (
+                  <button
+                    className="ghost-btn"
+                    type="button"
+                    title="Add a line for each reference. A line already in the prompt is left as it is. Name the people yourself."
+                    onClick={insertBindings}
+                  >
+                    Insert bindings
+                  </button>
+                ) : null}
+                {framesOnly && imageCount > 0 ? (
+                  <span className="attach-count">
+                    {imageCount < 2
+                      ? "Add a second image for the last frame."
+                      : "Drag to swap first and last."}
+                  </span>
+                ) : null}
+                {props.attachSummary ? (
+                  <button
+                    type="button"
+                    className={`ghost-btn attach-summary${props.attachSummary.partial ? " is-partial" : ""}`}
+                    title="Open the references to choose which are active"
+                    onClick={props.attachSummary.onOpen}
+                  >
+                    {props.attachSummary.label}
+                  </button>
+                ) : null}
               </div>
-            ) : null}
-            {bindingText ? (
-              <button
-                className="ghost-btn"
-                type="button"
-                title="Add a line for each reference. A line already in the prompt is left as it is. Name the people yourself."
-                onClick={insertBindings}
-              >
-                Insert bindings
-              </button>
-            ) : null}
-            {props.controls?.frames && !props.controls.frames.references ? (
-              <span className="attach-count">
-                {imageCount < 2
-                  ? "Add a second image for the last frame."
-                  : "Drag to swap first and last."}
-              </span>
-            ) : null}
-            {audioMax > 1 ? (
-              <span className="attach-count">
-                Audio {audioCount}/{audioMax}
-              </span>
-            ) : null}
-            {props.attachSummary ? (
-              <button
-                type="button"
-                className={`ghost-btn attach-summary${props.attachSummary.partial ? " is-partial" : ""}`}
-                title="Open the references to choose which are active"
-                onClick={props.attachSummary.onOpen}
-              >
-                {props.attachSummary.label}
-              </button>
             ) : null}
           </div>
         ) : props.attachSummary ? (
