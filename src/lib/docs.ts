@@ -103,7 +103,7 @@ export const DOC_ARTICLES: DocArticle[] = [
     blocks: [
       {
         type: "p",
-        text: "Drop images, video, or audio anywhere on the composer card. You can also use Add media, or attach from Library and from a saved gallery. To attach a screenshot or a copied image, click in the prompt and paste (⌘V). It attaches like a dropped file when the model takes images and the image is PNG, JPEG, GIF, WebP, AVIF, or BMP. Pasted text still pastes as text.",
+        text: "Drop images, video, or audio anywhere on the composer card. You can also use Add media, or attach from Library and from a saved gallery. To attach a screenshot or a copied image, click in the prompt and paste (⌘V). It attaches like a dropped file when the model takes images and the image is PNG, JPEG, GIF, WebP, AVIF, or BMP. Pasted text still pastes as text. Attached files sit under the prompt in sections (Images, Videos, Audio, and Documents in chat), each with a count against the model’s limit, and a kind the current model does not take stays listed, dimmed, with Not used by this model so you can remove it.",
       },
       {
         type: "p",

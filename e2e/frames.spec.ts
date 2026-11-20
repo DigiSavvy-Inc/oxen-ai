@@ -84,6 +84,10 @@ test("two images on a frames model are the first and last frame, and dragging sw
   await attach(page, ["start.png", "end.png"]);
 
   await expect(chips(page)).toHaveCount(2);
+  // Frames sit in the Images section, counted against the two the model takes.
+  const images = page.locator('.attach-section[aria-label="Images"]');
+  await expect(images.locator(".attach-chip")).toHaveCount(2);
+  await expect(images.locator(".attach-section-head")).toHaveText(/Images\s*2 of 2/);
   await expect(chips(page).nth(0)).toContainText("First frame");
   await expect(chips(page).nth(0)).toContainText("start.png");
   await expect(chips(page).nth(1)).toContainText("Last frame");
