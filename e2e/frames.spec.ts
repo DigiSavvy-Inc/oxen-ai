@@ -169,9 +169,37 @@ test("a screenshot pasted into the prompt attaches like a dropped file, and past
   // A format Studio cannot store is refused in plain words and attaches nothing.
   expect(await paste({ name: "image.tiff", type: "image/tiff", base64: png }, "")).toBe(true);
   await expect(chips(page)).toHaveCount(1);
-  await expect(page.getByText("A pasted image has to be PNG, JPEG, GIF, WebP, AVIF, or BMP.")).toBeVisible();
+  await expect(page.locator(".error-banner")).toHaveText("A pasted image has to be PNG, JPEG, GIF, WebP, AVIF, or BMP.");
 
   // Words on the clipboard are a text paste: the browser handles it and nothing attaches.
   expect(await paste({ name: "image.png", type: "image/png", base64: png }, "golden hour")).toBe(false);
   await expect(chips(page)).toHaveCount(1);
+});
+
+test("a run that fails to start says why beside the result, even under a tall prompt", async ({ page }) => {
+  await framesModel(page, true);
+  await page.unroute("**/api/generate");
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/generate", async (route) => {
+    await held;
+    await route.fulfill({ status: 400, json: { error: "API error: 400 - the reference was blocked" } });
+  });
+  // A long prompt, as in a real shot list, pushes the composer's own banner below the screen.
+  await page.getByRole("combobox", { name: /Describe the shot/ }).fill("line of the shot\n".repeat(60));
+  await page.getByRole("button", { name: /^Generate/ }).click();
+
+  const status = page.locator(".run-status");
+  await expect(status.getByText("Sending your run…")).toBeVisible();
+  release();
+  const message = status.getByRole("alert");
+  await expect(message).toContainText("API error: 400 - the reference was blocked");
+  await expect(message).toBeInViewport();
+  await expect(status.getByText("Sending your run…")).toBeHidden();
+
+  // It stays until it is dismissed.
+  await message.getByRole("button", { name: "Dismiss this message" }).click();
+  await expect(status).toHaveCount(0);
 });

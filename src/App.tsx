@@ -161,7 +161,7 @@ import { appliedLooks, joinLooks, toggleLookId } from "../worker/looks";
 import { DEFAULT_HISTORY_PAGE_SIZE } from "../worker/history-page-size";
 import { DEFAULT_VIDEO_THUMB_SECONDS } from "../worker/video-thumb";
 import { deliveryForRun } from "./lib/model-prompt";
-import { PASTE_IMAGE_FORMATS } from "./lib/clipboard";
+import { copyText, PASTE_IMAGE_FORMATS } from "./lib/clipboard";
 import { defaultGalleryHandle } from "../worker/gallery-handle";
 import {
   expandNameText,
@@ -4062,6 +4062,34 @@ export default function App() {
             </p>
           ) : null}
           <div className={`workspace${peek ? " has-peek" : ""}`}>
+            {mode !== "chat" && (busy || error) ? (
+              // The composer's own banner sits under the prompt, and a tall prompt pushes it off
+              // screen. This copy stays beside the result, where a run is watched.
+              <div className="run-status" aria-live="polite">
+                {busy ? (
+                  <div className="run-status-row">
+                    <Loader size="sm" label="Sending your run" />
+                    <span>Sending your run…</span>
+                  </div>
+                ) : null}
+                {error ? (
+                  <div className="run-status-row is-error" role="alert">
+                    <span className="run-status-text">{error}</span>
+                    <button type="button" className="ghost-btn" onClick={() => void copyText(error)}>
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      aria-label="Dismiss this message"
+                      onClick={() => setError(null)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {mode === "chat" ? (
               <ChatThread turns={chatTurns} busy={busy} />
             ) : (
