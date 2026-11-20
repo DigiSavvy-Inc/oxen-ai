@@ -433,10 +433,13 @@ export default function App() {
     return generations.filter((item) => !item.profileId || item.profileId === activeProfileId);
   }, [generations, activeProfileId]);
 
-  const selected = useMemo(
-    () => scopedGenerations.find((g) => g.id === selectedId) ?? null,
-    [scopedGenerations, selectedId],
-  );
+  const selected = useMemo(() => {
+    const picked = scopedGenerations.find((g) => g.id === selectedId) ?? null;
+    if (picked || keepCanvasClear) return picked;
+    // Nothing is picked, but a run is in flight: show it. Whatever dropped the selection, a job
+    // that is being made is never left running out of sight. The list is newest first.
+    return scopedGenerations.find((g) => isActiveGeneration(g)) ?? null;
+  }, [scopedGenerations, selectedId, keepCanvasClear]);
 
   const selectedVariants = useMemo(() => {
     if (!selected) return [];
