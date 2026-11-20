@@ -1263,6 +1263,8 @@ export default function App() {
   const activeKey = activeGenerationKey(generations);
   const generationsRef = useRef(generations);
   generationsRef.current = generations;
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
 
   useEffect(() => {
     if (!activeKey) return;
@@ -1294,6 +1296,13 @@ export default function App() {
         const before = previous.get(generation.id);
         if (!before || !isActiveGeneration(before)) continue;
         if (generation.status !== "succeeded" && generation.status !== "failed") continue;
+        // A run that finishes while the canvas is empty (after New job, say) shows itself,
+        // so its result or its error is never left out of sight.
+        if (selectedIdRef.current == null) {
+          selectedIdRef.current = generation.id;
+          setKeepCanvasClear(false);
+          setSelectedId(generation.id);
+        }
         void refreshCredits();
         void notifyGenerationLocal({
           id: generation.id,
@@ -2719,14 +2728,28 @@ export default function App() {
     }
   }
 
+  /**
+   * A fresh composer normally means an empty canvas. While a run is still going, the canvas
+   * stays on it instead, so starting the next job does not hide the one being made.
+   */
+  function clearCanvasUnlessRunning() {
+    const running = generationsRef.current.find((item) => isActiveGeneration(item));
+    if (running) {
+      setKeepCanvasClear(false);
+      setSelectedId(running.id);
+      return;
+    }
+    setSelectedId(null);
+    setKeepCanvasClear(true);
+  }
+
   function applyProjectComposerState(state: ProjectComposerState) {
     setLookIds(state.lookIds);
     setPrompt(state.prompt);
     if (state.defaults) applyComposerDefaults(state.defaults);
     setNumGenerations(1);
     setComposerOrigin(state.origin);
-    setSelectedId(null);
-    setKeepCanvasClear(true);
+    clearCanvasUnlessRunning();
   }
 
   /** Opening a project brings its draft back under the project model, or starts a new job from the brief. */
@@ -3197,8 +3220,7 @@ export default function App() {
     setLookIds(state.lookIds.filter((id) => looks.some((look) => look.id === id)));
     applyComposerDefaults({ mode: state.mode, model: state.model, settings: state.settings });
     setNumGenerations(1);
-    setSelectedId(null);
-    setKeepCanvasClear(true);
+    clearCanvasUnlessRunning();
     const matched = castMatchingJob(castEntries, castItems, job.refs);
     if (matched) {
       void commitCast(matched);

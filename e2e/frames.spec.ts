@@ -203,3 +203,51 @@ test("a run that fails to start says why beside the result, even under a tall pr
   await message.getByRole("button", { name: "Dismiss this message" }).click();
   await expect(status).toHaveCount(0);
 });
+
+test("in a project, starting a new job keeps the running one in view, and its result shows when it finishes", async ({ page }) => {
+  const { project } = (await (await page.request.post("/api/projects", { data: { name: "Vignette" } })).json()) as {
+    project: { id: string };
+  };
+  await framesModel(page, true);
+  await page.getByRole("navigation", { name: "Studio" }).getByRole("button", { name: "Projects" }).click();
+  await page.getByText("Vignette", { exact: true }).first().click();
+  await page.keyboard.press("Escape");
+
+  const image = `data:image/png;base64,${readFileSync(join(FIXTURES, "tile-1.png")).toString("base64")}`;
+  let done = false;
+  const run = () => ({
+    id: "run-1",
+    batchId: "batch-1",
+    status: done ? "succeeded" : "processing",
+    mode: "reference-to-video",
+    model: MODEL.id,
+    mediaType: "image",
+    prompt: "clip one",
+    writtenPrompt: "clip one",
+    resultUrl: done ? image : null,
+    thumbUrl: null,
+    tags: [],
+    projectId: project.id,
+    createdAt: 1795000000,
+    updatedAt: done ? 1795000100 : 1795000000,
+    errorMessage: null,
+  });
+  await page.unroute("**/api/generate");
+  await page.route("**/api/generate", (route) => route.fulfill({ json: { generations: [run()] } }));
+  await page.route("**/api/generations/run-1", (route) => route.fulfill({ json: { generation: run() } }));
+
+  await page.getByRole("combobox", { name: /Describe the shot/ }).fill("clip one");
+  await page.getByRole("button", { name: /^Generate/ }).click();
+  const canvas = page.locator(".workspace");
+  await expect(canvas.getByText("processing")).toBeVisible();
+
+  // Lining up the next clip must not hide the one still rendering.
+  // The progress view above keeps the header moving, so the click is sent straight to the button.
+  await page.locator("button.project-new-job:visible").first().dispatchEvent("click");
+  await expect(page.getByRole("combobox", { name: /Describe the shot/ })).toHaveValue("");
+  await expect(canvas.getByText("processing")).toBeVisible();
+
+  done = true;
+  await expect(canvas.getByText("succeeded")).toBeVisible({ timeout: 10_000 });
+  await expect(canvas.locator("img").first()).toBeVisible();
+});
