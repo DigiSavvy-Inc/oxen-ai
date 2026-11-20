@@ -1626,8 +1626,21 @@ button.history-expand-preview {
   overflow: hidden;
 }
 
+/* The one-line preview never wraps, so every box around it must be allowed to shrink.
+   Without this a long prompt makes the canvas thousands of pixels wide and the result
+   frame is centered off the right edge of the screen. */
+.canvas {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.result-frame {
+  min-width: 0;
+}
+
 .prompt-fold {
   margin-top: 6px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .prompt-fold-toggle {
@@ -1644,6 +1657,7 @@ button.history-expand-preview {
   font-size: 13px;
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
 }
 
 .prompt-fold-toggle:hover {

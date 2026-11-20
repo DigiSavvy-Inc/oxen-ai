@@ -251,3 +251,38 @@ test("in a project, starting a new job keeps the running one in view, and its re
   await expect(canvas.getByText("succeeded")).toBeVisible({ timeout: 10_000 });
   await expect(canvas.locator("img").first()).toBeVisible();
 });
+
+test("a run with a very long prompt stays on screen", async ({ page }) => {
+  // The closed prompt row shows one unwrapped line. A real shot list is thousands of
+  // characters, and that line once stretched the canvas and pushed the result off screen.
+  const long = "ANISSA walks in slowly from the entry and looks him up and down. ".repeat(90);
+  const now = Math.floor(Date.now() / 1000);
+  const run = {
+    id: "long-1",
+    batchId: "batch-long",
+    status: "processing",
+    mode: "reference-to-video",
+    model: MODEL.id,
+    mediaType: "video",
+    prompt: `@Image1 ${long}`,
+    writtenPrompt: `@Maya ${long}`,
+    resultUrl: null,
+    thumbUrl: null,
+    tags: [],
+    createdAt: now - 60,
+    updatedAt: now - 5,
+    errorMessage: null,
+  };
+  await page.route(/\/api\/generations\?scope=active/, (route) => route.fulfill({ json: { generations: [run] } }));
+  await page.route("**/api/generations/long-1", (route) => route.fulfill({ json: { generation: run } }));
+  await page.goto("/");
+
+  const frame = page.locator(".result-frame");
+  await expect(frame.getByText("processing")).toBeInViewport();
+  await expect(frame.getByRole("status")).toBeInViewport();
+  const box = (await frame.boundingBox())!;
+  const width = page.viewportSize()!.width;
+  expect(box.x, "frame starts on screen").toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width, "frame ends on screen").toBeLessThanOrEqual(width);
+  await expect(page.getByRole("button", { name: /Sent to the model/ })).toBeInViewport();
+});
