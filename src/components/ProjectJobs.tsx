@@ -1,22 +1,39 @@
-import { useMemo, useState } from "react";
-import { mentionChipLabel, mentionToken, type Generation, type ProjectJob, type ProjectJobOutput } from "../lib/api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  mentionChipLabel,
+  mentionToken,
+  type Generation,
+  type ProjectJob,
+  type ProjectJobOutput,
+  type ProjectJobRef,
+} from "../lib/api";
 import {
   castFilesForJob,
   filterJobs,
   jobCostLabel,
+  jobDurationLabel,
+  jobErrorText,
+  jobExactTime,
   jobModeLabel,
   jobModelLabel,
+  jobOutputFile,
   jobPromptExcerpt,
+  jobPromptRows,
+  jobRanLabel,
+  jobRefGroups,
   jobSettingRows,
+  jobShotDuration,
   jobStatusLabel,
-  jobTimeLabel,
   mergeJobOutputs,
+  type JobAttachFile,
   type JobFilter,
 } from "../lib/project-jobs";
 import { runModes } from "../lib/mode-icons";
 import { jobStatus } from "../../worker/job-record";
 import { referenceRoleLabel } from "../../worker/schema";
-import { copyPromptText } from "../lib/clipboard";
+import { FoldedPrompt } from "./CopyPrompt";
+import { FullSizeMedia, type FitSlide } from "./FullSizeMedia";
+import { GalleryAudioPop } from "./GalleryBrowser";
 import { GalleryThumb } from "./GalleryThumb";
 import { Loader } from "./Loader";
 import { ModeIcons, ModelName } from "./ModeIcon";
@@ -36,13 +53,14 @@ type Props = {
   onAddOutputs: (job: ProjectJob, outputs: ProjectJobOutput[]) => void;
   onOpenOutput: (output: ProjectJobOutput) => void;
   onDownload: (job: ProjectJob, output: ProjectJobOutput) => void;
+  /** Add these files to the current prompt, the way the library attaches in an open project. */
+  onAttach: (files: JobAttachFile[]) => void;
   onRefresh: () => void;
   /** Start a job from the brief with the project model. */
   onNewJob: () => void;
 };
 
 function outputPreview(output: ProjectJobOutput): string {
-  if (output.mediaType === "image") return output.thumbUrl || output.resultUrl || "";
   return output.thumbUrl || output.resultUrl || "";
 }
 
@@ -50,25 +68,151 @@ function outputKind(output: ProjectJobOutput): "image" | "video" | "audio" {
   return output.mediaType === "video" || output.mediaType === "audio" ? output.mediaType : "image";
 }
 
+function refId(ref: ProjectJobRef): string {
+  return `${ref.kind}-${ref.number}-${ref.key}`;
+}
+
+function refFile(ref: ProjectJobRef): JobAttachFile {
+  return { kind: ref.kind, name: ref.name, key: ref.key, url: ref.url, role: ref.role };
+}
+
+function refLabel(ref: ProjectJobRef): string {
+  return mentionChipLabel(mentionToken(ref.kind, ref.number - 1));
+}
+
 export function ProjectJobs(props: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [filter, setFilter] = useState<JobFilter>({ model: "", status: "" });
+  const [fitId, setFitId] = useState<string | null>(null);
+  const [playing, setPlaying] = useState<{ src: string; name: string } | null>(null);
+  const openRow = useRef<HTMLLIElement>(null);
   const models = useMemo(() => [...new Set(props.jobs.map((job) => job.model))].sort(), [props.jobs]);
   const shown = filterJobs(props.jobs, filter);
   const modelLabel = (model: string) => props.modelNames.get(model) ?? jobModelLabel(model);
+  const openJob = props.jobs.find((job) => job.batchId === openId) ?? null;
 
-  function renderOutputs(job: ProjectJob, outputs: ProjectJobOutput[], expanded: boolean) {
+  useEffect(() => {
+    setFitId(null);
+    setPlaying(null);
+    if (openId) openRow.current?.scrollIntoView({ block: "nearest" });
+  }, [openId]);
+
+  // The open job's images and videos, in the order its references are listed.
+  const slides: (FitSlide & { name: string })[] = useMemo(
+    () =>
+      openJob
+        ? jobRefGroups(openJob.refs).flatMap((group) =>
+            group.refs.flatMap((ref) =>
+              ref.url && ref.kind !== "audio"
+                ? [
+                    {
+                      id: refId(ref),
+                      src: ref.url,
+                      alt: `${refLabel(ref)}: ${ref.name}`,
+                      name: ref.name,
+                      mediaType: ref.kind,
+                      poster: ref.thumbUrl,
+                    },
+                  ]
+                : [],
+            ),
+          )
+        : [],
+    [openJob],
+  );
+  const fit = slides.find((slide) => slide.id === fitId) ?? null;
+
+  function openRef(ref: ProjectJobRef) {
+    if (!ref.url) return;
+    if (ref.kind === "audio") {
+      setPlaying({ src: ref.url, name: ref.name });
+      return;
+    }
+    setFitId(refId(ref));
+  }
+
+  function renderRefs(job: ProjectJob) {
+    return jobRefGroups(job.refs).map((group) => {
+      const usable = group.refs.filter((ref) => ref.url);
+      return (
+        <section key={group.kind} className="job-ref-group" aria-label={`References: ${group.label}`}>
+          <div className="job-ref-group-head">
+            <span>{group.label}</span>
+            <span className="job-ref-group-count">{group.refs.length}</span>
+            {group.refs.length > 1 ? (
+              <button
+                type="button"
+                className="ghost-btn job-small-btn"
+                disabled={props.busy || usable.length === 0}
+                title={`Attach every ${group.label.toLowerCase()} file of this job that is still in Studio`}
+                onClick={() => props.onAttach(usable.map(refFile))}
+              >
+                Attach all
+              </button>
+            ) : null}
+          </div>
+          <ul className="job-refs">
+            {group.refs.map((ref) => {
+              const label = refLabel(ref);
+              const role = ref.kind === "audio" ? "Audio" : referenceRoleLabel(ref.role);
+              return (
+                <li key={refId(ref)} className={`job-ref${ref.url ? "" : " is-gone"}`}>
+                  <button
+                    type="button"
+                    className="job-ref-media"
+                    disabled={!ref.url}
+                    aria-label={ref.url ? `Open ${label}, ${ref.name}` : `${label} is gone`}
+                    title={ref.url ? (ref.kind === "audio" ? "Play" : "Open full size") : "This file is gone from Studio"}
+                    onClick={() => openRef(ref)}
+                  >
+                    {ref.url ? (
+                      <GalleryThumb kind={ref.kind} name={ref.name} preview={ref.thumbUrl || ref.url} slot="tile" />
+                    ) : (
+                      <span className="job-output-state">Gone</span>
+                    )}
+                  </button>
+                  <span className="job-ref-number">{label}</span>
+                  <span className="job-ref-role">{role}</span>
+                  <span className="job-ref-name" title={ref.name}>
+                    {ref.name}
+                  </span>
+                  {ref.url ? (
+                    <button
+                      type="button"
+                      className="ghost-btn job-small-btn"
+                      disabled={props.busy}
+                      aria-label={`Attach ${label}`}
+                      title="Add this file to the current prompt"
+                      onClick={() => props.onAttach([refFile(ref)])}
+                    >
+                      Attach
+                    </button>
+                  ) : (
+                    <span className="job-ref-gone">Gone</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      );
+    });
+  }
+
+  function renderOutputs(job: ProjectJob, outputs: ProjectJobOutput[]) {
     return (
-      <div className={`job-outputs${expanded ? " is-large" : ""}`}>
-        {outputs.map((output) => {
+      <div className="job-outputs">
+        {outputs.map((output, index) => {
           const preview = outputPreview(output);
           const finished = output.status === "succeeded" && Boolean(output.resultUrl);
           const failed = output.status === "failed" || output.status === "cancelled";
+          const file = jobOutputFile(job, output);
           return (
             <div key={output.id} className={`job-output${failed ? " is-failed" : ""}`}>
               <button
                 type="button"
                 className="job-output-media"
+                aria-label={finished ? `Open output ${index + 1} in the canvas` : `Output ${index + 1}`}
                 title={
                   finished
                     ? "Open in the canvas"
@@ -87,16 +231,28 @@ export function ProjectJobs(props: Props) {
                   <Loader size="sm" label="Generating" />
                 )}
               </button>
-              {expanded && finished ? (
-                <button
-                  type="button"
-                  className="ghost-btn job-output-download"
-                  onClick={() => props.onDownload(job, output)}
-                >
-                  Download
-                </button>
+              {finished ? (
+                <span className="job-output-actions">
+                  <button
+                    type="button"
+                    className="ghost-btn job-small-btn"
+                    disabled={props.busy || !file}
+                    aria-label={`Attach output ${index + 1}`}
+                    title="Use this result as a reference for the next job"
+                    onClick={() => (file ? props.onAttach([file]) : undefined)}
+                  >
+                    Attach
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-btn job-small-btn"
+                    onClick={() => props.onDownload(job, output)}
+                  >
+                    Download
+                  </button>
+                </span>
               ) : null}
-              {expanded && failed && output.errorMessage ? (
+              {failed && output.errorMessage ? (
                 <span className="job-output-error">{output.errorMessage}</span>
               ) : null}
             </div>
@@ -171,8 +327,16 @@ export function ProjectJobs(props: Props) {
           const expanded = openId === job.batchId;
           const castFiles = castFilesForJob(job, outputs);
           const settingRows = jobSettingRows(job.settings);
+          const ran = jobRanLabel(job.createdAt);
+          const exact = jobExactTime(job.createdAt);
+          const error = jobErrorText(outputs);
+          const duration = jobDurationLabel(outputs);
           return (
-            <li key={job.batchId} className={`job-row${expanded ? " is-open" : ""}`}>
+            <li
+              key={job.batchId}
+              ref={expanded ? openRow : undefined}
+              className={`job-row${expanded ? " is-open" : ""}`}
+            >
               <button
                 type="button"
                 className="job-summary"
@@ -202,9 +366,17 @@ export function ProjectJobs(props: Props) {
                   <span className="job-excerpt">{jobPromptExcerpt(job)}</span>
                   <span className="job-meta">
                     <ModeIcons modes={runModes(job.mode)} className="job-meta-kind" />
-                    {modelLabel(job.model)} · {jobModeLabel(job.mode)}
-                    {job.cost != null ? ` · ${jobCostLabel(job.cost)}` : ""} · {jobTimeLabel(job.createdAt)}
+                    <time className="job-ran" dateTime={new Date(job.createdAt * 1000).toISOString()} title={exact}>
+                      {ran}
+                    </time>
+                    {` · ${modelLabel(job.model)} · ${jobModeLabel(job.mode)}`}
+                    {job.cost != null ? ` · ${jobCostLabel(job.cost)}` : ""}
                   </span>
+                  {error && (status === "failed" || status === "partial" || status === "cancelled") ? (
+                    <span className="job-row-error" title={error}>
+                      {error}
+                    </span>
+                  ) : null}
                 </span>
                 <span className={`job-status is-${status}`}>{jobStatusLabel(status)}</span>
               </button>
@@ -243,8 +415,43 @@ export function ProjectJobs(props: Props) {
                       Add outputs to references
                     </button>
                   </div>
-                  <h4 className="job-heading">Sent</h4>
-                  <pre className="job-prompt" onCopy={copyPromptText}>{job.prompt}</pre>
+                  <dl className="job-facts" aria-label="About this job">
+                    <div>
+                      <dt>Ran</dt>
+                      <dd title={exact}>{ran}</dd>
+                    </div>
+                    <div>
+                      <dt>Took</dt>
+                      <dd>{duration ?? "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Status</dt>
+                      <dd>{jobStatusLabel(status)}</dd>
+                    </div>
+                    <div>
+                      <dt>Model</dt>
+                      <dd>
+                        <ModelName name={modelLabel(job.model)} modes={runModes(job.mode)} />
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Mode</dt>
+                      <dd>{jobModeLabel(job.mode)}</dd>
+                    </div>
+                    <div>
+                      <dt>Cost</dt>
+                      <dd>{job.cost != null ? jobCostLabel(job.cost) : "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>Outputs</dt>
+                      <dd>{outputs.length}</dd>
+                    </div>
+                  </dl>
+                  <div className="job-prompts">
+                    {jobPromptRows(job).map((row) => (
+                      <FoldedPrompt key={row.label} label={row.label} prompt={row.text} />
+                    ))}
+                  </div>
                   {job.looks.length > 0 ? (
                     <ul className="look-chips job-looks" aria-label="Looks applied">
                       {job.looks.map((look, index) => (
@@ -257,65 +464,46 @@ export function ProjectJobs(props: Props) {
                       ))}
                     </ul>
                   ) : null}
-                  {job.refs.length > 0 ? (
+                  {job.multiPrompt && job.multiPrompt.length > 0 ? (
                     <>
-                      <h4 className="job-heading">References</h4>
-                      <ul className="job-refs" aria-label="References as sent">
-                        {job.refs.map((ref) => {
-                          const token = mentionToken(ref.kind, ref.number - 1);
+                      <h4 className="job-heading">Shots</h4>
+                      <ol className="job-shots">
+                        {job.multiPrompt.map((shot, index) => {
+                          const length = jobShotDuration(shot.duration);
                           return (
-                            <li key={`${ref.kind}-${ref.number}-${ref.key}`} className="job-ref" title={ref.name}>
-                              <span className="job-ref-media">
-                                {ref.url ? (
-                                  <GalleryThumb kind={ref.kind} name={ref.name} preview={ref.thumbUrl || ref.url} slot="strip" />
-                                ) : (
-                                  <span className="job-output-state">Gone</span>
-                                )}
+                            <li key={index}>
+                              <span className="job-shot-head">
+                                Shot {index + 1}
+                                {length ? ` · ${length}` : ""}
                               </span>
-                              <span className="job-ref-number">{mentionChipLabel(token)}</span>
-                              <span className="job-ref-role">
-                                {ref.kind === "audio" ? "Audio" : referenceRoleLabel(ref.role)}
-                              </span>
+                              <span className="job-shot-prompt">{shot.prompt}</span>
                             </li>
                           );
                         })}
-                      </ul>
+                      </ol>
                     </>
                   ) : null}
-                  <h4 className="job-heading">Settings</h4>
-                  <dl className="job-settings">
-                    <div>
-                      <dt>Model</dt>
-                      <dd>
-                        <ModelName name={modelLabel(job.model)} modes={runModes(job.mode)} />
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Mode</dt>
-                      <dd>{jobModeLabel(job.mode)}</dd>
-                    </div>
-                    {settingRows.map((row) => (
-                      <div key={row.label}>
-                        <dt>{row.label}</dt>
-                        <dd>{row.value}</dd>
-                      </div>
-                    ))}
-                    <div>
-                      <dt>Cost</dt>
-                      <dd>{job.cost != null ? jobCostLabel(job.cost) : "—"}</dd>
-                    </div>
-                    <div>
-                      <dt>Run</dt>
-                      <dd>
-                        {new Date(job.createdAt * 1000).toLocaleString(undefined, {
-                          dateStyle: "medium",
-                          timeStyle: "short",
-                        })}
-                      </dd>
-                    </div>
-                  </dl>
+                  {job.refs.length > 0 ? (
+                    <>
+                      <h4 className="job-heading">References</h4>
+                      {renderRefs(job)}
+                    </>
+                  ) : null}
+                  {settingRows.length > 0 ? (
+                    <>
+                      <h4 className="job-heading">Settings</h4>
+                      <dl className="job-settings">
+                        {settingRows.map((row) => (
+                          <div key={row.label}>
+                            <dt>{row.label}</dt>
+                            <dd>{row.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </>
+                  ) : null}
                   <h4 className="job-heading">Outputs</h4>
-                  {renderOutputs(job, outputs, true)}
+                  {renderOutputs(job, outputs)}
                   {outputs.some((output) => output.tags.length > 0) ? (
                     <p className="job-tags">
                       Tags: {[...new Set(outputs.flatMap((output) => output.tags))].join(", ")}
@@ -327,6 +515,19 @@ export function ProjectJobs(props: Props) {
           );
         })}
       </ul>
+      {fit ? (
+        <FullSizeMedia
+          src={fit.src}
+          alt={fit.alt}
+          slides={slides}
+          mediaType={fit.mediaType}
+          autoPlay={fit.mediaType === "video"}
+          activeId={fit.id}
+          onSlide={setFitId}
+          onClose={() => setFitId(null)}
+        />
+      ) : null}
+      {playing ? <GalleryAudioPop src={playing.src} name={playing.name} onClose={() => setPlaying(null)} /> : null}
     </section>
   );
 }

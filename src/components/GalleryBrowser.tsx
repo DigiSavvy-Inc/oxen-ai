@@ -718,7 +718,8 @@ type Playing = {
   name: string;
 };
 
-function GalleryAudioPop({ src, name, onClose }: { src: string; name: string; onClose: () => void }) {
+/** The small audio player an open gallery shows. */
+export function GalleryAudioPop({ src, name, onClose }: { src: string; name: string; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

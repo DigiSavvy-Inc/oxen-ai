@@ -243,6 +243,10 @@ export const DOC_ARTICLES: DocArticle[] = [
         type: "p",
         text: "New job, in the project header, the Projects panel, the Jobs tab, and the Brief, starts a fresh run from the brief: its prompt, its looks, the active references, the project model and its saved settings, with the count back to 1×. Edits in the composer are kept as the project’s draft and come back the next time the project opens. The header badge says whether the composer is showing that draft or a new job.",
       },
+      {
+        type: "p",
+        text: "Jobs lists each run from the project, newest first, with when it ran, its status, model, and cost; a failed run shows its error on the row. Click a job to open it, one at a time. The top row has Re-run, Load into composer, and Add outputs to references, then when it ran, how long it took, and how many outputs it made. Prompt is what you wrote and Sent to the model is what went out with the looks; both start closed, open on click, and have Copy. A multi-shot run lists each shot and its length. References are grouped Images, Videos, and Audio with their number, role, and file name: click one to see it full size or play it, and Attach (or Attach all) adds it to the project’s references for the next run. A file that is gone from Studio says Gone, and a kind the current model takes none of is skipped with a note. Each finished output can be opened in the canvas, downloaded, or attached the same way.",
+      },
     ],
   },
   {

@@ -8,9 +8,9 @@ import {
   type ProjectJobRef,
   type ProjectJobStatus,
 } from "./api";
+import { attachSections, type AttachSectionKind } from "./attach-sections";
 import type { CastEntry, CastItem, CastKind } from "./cast";
 import { downloadFilename } from "./download";
-import { timeAgo } from "./time-ago";
 import { formatUsd } from "../../worker/pricing";
 import type { JobSettingValue } from "../../worker/job-record";
 
@@ -85,13 +85,6 @@ export function jobModelLabel(model: string): string {
     out.push(ACRONYMS.has(word.toLowerCase()) ? word.toUpperCase() : word.charAt(0).toUpperCase() + word.slice(1));
   }
   return out.join(" ") || model;
-}
-
-export function jobTimeLabel(createdAt: number, now = Math.floor(Date.now() / 1000)): string {
-  if (now - createdAt >= 7 * 86400) {
-    return new Date(createdAt * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  }
-  return timeAgo(createdAt, now);
 }
 
 export function jobCostLabel(cost: number | null): string {
@@ -329,6 +322,170 @@ export function castFilesForJob(
     });
   }
   return files;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function clockLabel(date: Date): string {
+  const hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours % 12 || 12}:${minutes} ${hours < 12 ? "am" : "pm"}`;
+}
+
+function sameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+/** When a job ran, in plain words: "Today 11:20 am", "Yesterday 7:11 pm", "Nov 19, 7:11 pm". */
+export function jobRanLabel(createdAt: number, now = Math.floor(Date.now() / 1000)): string {
+  const ran = new Date(createdAt * 1000);
+  const today = new Date(now * 1000);
+  const clock = clockLabel(ran);
+  if (sameDay(ran, today)) return `Today ${clock}`;
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (sameDay(ran, yesterday)) return `Yesterday ${clock}`;
+  const day = `${MONTHS[ran.getMonth()]} ${ran.getDate()}`;
+  return ran.getFullYear() === today.getFullYear()
+    ? `${day}, ${clock}`
+    : `${day}, ${ran.getFullYear()}, ${clock}`;
+}
+
+/** The exact date and time, for a title. */
+export function jobExactTime(createdAt: number): string {
+  return new Date(createdAt * 1000).toLocaleString(undefined, { dateStyle: "full", timeStyle: "medium" });
+}
+
+const FINISHED = new Set(["succeeded", "failed", "cancelled"]);
+
+/**
+ * How long a finished job took: first output created to last output updated.
+ * Null while any output is still running.
+ */
+export function jobDurationLabel(outputs: readonly Pick<ProjectJobOutput, "status" | "createdAt" | "updatedAt">[]): string | null {
+  if (outputs.length === 0 || outputs.some((output) => !FINISHED.has(output.status))) return null;
+  const start = Math.min(...outputs.map((output) => output.createdAt));
+  const end = Math.max(...outputs.map((output) => output.updatedAt));
+  const seconds = Math.max(0, Math.round(end - start));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`;
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`;
+}
+
+/** The first error a failed output left, for the row. */
+export function jobErrorText(outputs: readonly Pick<ProjectJobOutput, "status" | "errorMessage">[]): string | null {
+  for (const output of outputs) {
+    if (output.status !== "failed" && output.status !== "cancelled") continue;
+    const text = output.errorMessage?.trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+/** "Prompt" as written and "Sent to the model", or one row when the two are the same. */
+export function jobPromptRows(job: Pick<ProjectJob, "prompt" | "basePrompt">): { label: string; text: string }[] {
+  const written = job.basePrompt ?? job.prompt;
+  if (written === job.prompt) return [{ label: "Prompt", text: job.prompt }];
+  return [
+    { label: "Prompt", text: written },
+    { label: "Sent to the model", text: job.prompt },
+  ];
+}
+
+/** A shot's duration as the composer shows it, or null when it had none. */
+export function jobShotDuration(duration: number | string | undefined): string | null {
+  if (duration == null || duration === "") return null;
+  const text = String(duration).trim();
+  return /^\d+(\.\d+)?$/.test(text) ? `${text}s` : text;
+}
+
+/** A job's references grouped Images, Videos, Audio, the way the composer groups its chips. */
+export function jobRefGroups<T extends Pick<ProjectJobRef, "kind">>(
+  refs: readonly T[],
+): { kind: AttachSectionKind; label: string; refs: T[] }[] {
+  return attachSections(refs, {}).map((section) => ({
+    kind: section.kind,
+    label: section.label,
+    refs: section.entries.map((entry) => entry.item),
+  }));
+}
+
+/** One file a job can hand to the references: a reference it sent, or an output it made. */
+export type JobAttachFile = {
+  kind: CastKind;
+  name: string;
+  /** The Studio copy. Null when there is none. */
+  key: string | null;
+  /** Null when the file is gone from Studio. */
+  url: string | null;
+  role?: ProjectJobRef["role"];
+};
+
+export type JobAttachPlan = {
+  add: (JobAttachFile & { key: string })[];
+  /** Kinds the current model takes none of, so they stay out. */
+  skipped: JobAttachFile[];
+  gone: JobAttachFile[];
+  noCopy: JobAttachFile[];
+};
+
+/**
+ * Which files join the references. As the gallery's Attach does, a kind the current model
+ * takes none of is skipped. A count past the model's limit still joins; the references
+ * switch extra files off. `caps` is null when no model is picked, so nothing is skipped.
+ */
+export function planJobAttach(
+  files: readonly JobAttachFile[],
+  caps: Record<CastKind, number> | null,
+): JobAttachPlan {
+  const plan: JobAttachPlan = { add: [], skipped: [], gone: [], noCopy: [] };
+  for (const file of files) {
+    if (!file.url) plan.gone.push(file);
+    else if (caps && caps[file.kind] <= 0) plan.skipped.push(file);
+    else if (!file.key) plan.noCopy.push(file);
+    else plan.add.push({ ...file, key: file.key });
+  }
+  return plan;
+}
+
+function count(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+const KIND_WORDS: Record<CastKind, string> = { image: "images", video: "videos", audio: "audio" };
+
+/** What happened, in plain words. `added` is how many were new to the references. */
+export function jobAttachNotice(plan: JobAttachPlan, added: number): string {
+  const parts: string[] = [];
+  if (added > 0) parts.push(`Added ${count(added, "file", "files")} to the references.`);
+  const already = plan.add.length - added;
+  if (already > 0) parts.push(`${count(already, "file is", "files are")} already in the references.`);
+  if (plan.skipped.length > 0) {
+    const kinds = [...new Set(plan.skipped.map((file) => KIND_WORDS[file.kind]))].join(" or ");
+    parts.push(`Skipped ${plan.skipped.length}: the current model takes no ${kinds}.`);
+  }
+  if (plan.noCopy.length > 0) {
+    const one = plan.noCopy.length === 1;
+    parts.push(`${count(plan.noCopy.length, "file has", "files have")} no Studio copy, so ${one ? "it" : "they"} can’t join the references.`);
+  }
+  if (plan.gone.length > 0) parts.push(`${count(plan.gone.length, "file is", "files are")} gone from Studio.`);
+  return parts.join(" ") || "Nothing to attach.";
+}
+
+/** One finished output as a file for the references. */
+export function jobOutputFile(
+  job: Pick<ProjectJob, "prompt" | "basePrompt">,
+  output: ProjectJobOutput,
+): JobAttachFile | null {
+  if (output.status !== "succeeded" || !output.resultUrl) return null;
+  const kind = output.mediaType;
+  if (kind !== "image" && kind !== "video" && kind !== "audio") return null;
+  return {
+    kind,
+    key: output.resultKey,
+    url: output.resultUrl,
+    name: downloadFilename({ id: output.id, mediaType: kind, prompt: job.basePrompt ?? job.prompt, resultUrl: output.resultUrl }),
+  };
 }
 
 export type JobFilter = { model: string; status: "" | "done" | "failed" | "running" };

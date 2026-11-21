@@ -33,7 +33,10 @@ import {
   castFilesForJob,
   castMatchingJob,
   composerStateForJob,
+  jobAttachNotice,
+  planJobAttach,
   rerunBodyForJob,
+  type JobAttachFile,
 } from "./lib/project-jobs";
 import {
   castNumberMap,
@@ -3272,6 +3275,16 @@ export default function App() {
     );
   }
 
+  /** A job's references or outputs join the project's references, as a library file does. */
+  function attachFromJob(files: JobAttachFile[]) {
+    if (!activeProject) return;
+    const plan = planJobAttach(files, model ? castCaps : null);
+    const known = new Set(castItems.map((item) => item.key));
+    const added = new Set(plan.add.map((file) => file.key).filter((key) => !known.has(key))).size;
+    if (plan.add.length > 0) projectAddRefs(plan.add);
+    setJobsNotice(jobAttachNotice(plan, added));
+  }
+
   async function openJobOutput(output: ProjectJobOutput) {
     if (!generations.some((item) => item.id === output.id)) {
       try {
@@ -3788,6 +3801,7 @@ export default function App() {
             onLoad={loadJobIntoComposer}
             onAddOutputs={addJobOutputsToCast}
             onOpenOutput={(output) => void openJobOutput(output)}
+            onAttach={attachFromJob}
             onDownload={(job, output) => {
               if (!output.resultUrl) return;
               void downloadMedia(
