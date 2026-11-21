@@ -3278,7 +3278,7 @@ export default function App() {
   /** A job's references or outputs join the project's references, as a library file does. */
   function attachFromJob(files: JobAttachFile[]) {
     if (!activeProject) return;
-    const plan = planJobAttach(files, model ? castCaps : null);
+    const plan = planJobAttach(files, model ? castCaps : null, castItems);
     const known = new Set(castItems.map((item) => item.key));
     const added = new Set(plan.add.map((file) => file.key).filter((key) => !known.has(key))).size;
     if (plan.add.length > 0) projectAddRefs(plan.add);

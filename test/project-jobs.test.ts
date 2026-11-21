@@ -629,6 +629,22 @@ describe("opened job details", () => {
     expect(planJobAttach(files, null).skipped).toEqual([]);
   });
 
+  it("skips a new file once the references hold as many of its kind as the model takes", () => {
+    const file = (name: string, key: string) => ({ kind: "image" as const, name, key, url: `https://studio.test/${key}` });
+    const existing = [{ kind: "image" as const, key: "k-old" }];
+    // The model takes two images and the project already holds one: one more joins, the next is skipped.
+    const plan = planJobAttach([file("a.png", "k-a"), file("b.png", "k-b")], { image: 2, video: 0, audio: 0 }, existing);
+    expect(plan.add.map((item) => item.name)).toEqual(["a.png"]);
+    expect(plan.full.map((item) => item.name)).toEqual(["b.png"]);
+    expect(jobAttachNotice(plan, 1)).toBe(
+      "Added 1 file to the references. Skipped 1: the references already hold as many images as the current model takes.",
+    );
+    // A file already in the references takes no room and is not skipped, even when the kind is full.
+    const again = planJobAttach([file("old.png", "k-old")], { image: 1, video: 0, audio: 0 }, existing);
+    expect(again.add.map((item) => item.key)).toEqual(["k-old"]);
+    expect(again.full).toEqual([]);
+  });
+
   it("turns a finished output into a file, and nothing else", () => {
     expect(jobOutputFile(job(), job().outputs[0]!)).toMatchObject({
       kind: "image",

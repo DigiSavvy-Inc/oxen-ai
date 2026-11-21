@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { uploadTiles, type Uploaded } from "./helpers";
+import { uploadTiles, type Uploaded } from "./helpers.ts";
 
 const FIXTURES = join(import.meta.dirname, "fixtures");
 const MODEL = {

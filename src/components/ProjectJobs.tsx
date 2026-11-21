@@ -92,10 +92,14 @@ export function ProjectJobs(props: Props) {
   const openJob = props.jobs.find((job) => job.batchId === openId) ?? null;
 
   useEffect(() => {
-    setFitId(null);
-    setPlaying(null);
     if (openId) openRow.current?.scrollIntoView({ block: "nearest" });
   }, [openId]);
+
+  function toggleJob(id: string | null) {
+    setFitId(null);
+    setPlaying(null);
+    setOpenId(id);
+  }
 
   // The open job's images and videos, in the order its references are listed.
   const slides: (FitSlide & { name: string })[] = useMemo(
@@ -139,17 +143,15 @@ export function ProjectJobs(props: Props) {
           <div className="job-ref-group-head">
             <span>{group.label}</span>
             <span className="job-ref-group-count">{group.refs.length}</span>
-            {group.refs.length > 1 ? (
-              <button
-                type="button"
-                className="ghost-btn job-small-btn"
-                disabled={props.busy || usable.length === 0}
-                title={`Attach every ${group.label.toLowerCase()} file of this job that is still in Studio`}
-                onClick={() => props.onAttach(usable.map(refFile))}
-              >
-                Attach all
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className="ghost-btn job-small-btn"
+              disabled={props.busy || usable.length === 0}
+              title={`Attach every ${group.label.toLowerCase()} file of this job that is still in Studio`}
+              onClick={() => props.onAttach(usable.map(refFile))}
+            >
+              Attach all
+            </button>
           </div>
           <ul className="job-refs">
             {group.refs.map((ref) => {
@@ -341,7 +343,7 @@ export function ProjectJobs(props: Props) {
                 type="button"
                 className="job-summary"
                 aria-expanded={expanded}
-                onClick={() => setOpenId(expanded ? null : job.batchId)}
+                onClick={() => toggleJob(expanded ? null : job.batchId)}
               >
                 <span className="job-thumbs">
                   {outputs.slice(0, 4).map((output) => {

@@ -1343,7 +1343,8 @@ describe("copy prompt", () => {
     expect(copy).toContain("onCopy={copyPromptText}");
     expect(composer).toContain("onCopy={copyPromptText}");
     expect(brief).toContain("onCopy={copyPromptText}");
-    expect(jobs).toContain("onCopy={copyPromptText}");
+    // The Jobs tab folds its prompts, and FoldedPrompt copies through CopyPrompt.
+    expect(jobs).toContain("<FoldedPrompt ");
     const delivery = composer.slice(composer.indexOf('className="model-delivery"'));
     expect(delivery.includes("model-delivery")).toBe(true);
     expect(delivery).not.toContain("copyPromptText");

@@ -422,28 +422,42 @@ export type JobAttachFile = {
 };
 
 export type JobAttachPlan = {
+  /** New files, and files already in the references (those take no room). */
   add: (JobAttachFile & { key: string })[];
   /** Kinds the current model takes none of, so they stay out. */
   skipped: JobAttachFile[];
+  /** The references already hold as many of that kind as the current model takes. */
+  full: JobAttachFile[];
   gone: JobAttachFile[];
   noCopy: JobAttachFile[];
 };
 
 /**
- * Which files join the references. As the gallery's Attach does, a kind the current model
- * takes none of is skipped. A count past the model's limit still joins; the references
- * switch extra files off. `caps` is null when no model is picked, so nothing is skipped.
+ * Which files join the references, by the rule the gallery's Attach uses: a file already in
+ * the references stays, and a new file is skipped when the model takes none of its kind or the
+ * references already hold as many as it takes. `existing` is the project's references.
+ * `caps` is null when no model is picked, so nothing is skipped.
  */
 export function planJobAttach(
   files: readonly JobAttachFile[],
   caps: Record<CastKind, number> | null,
+  existing: readonly { kind: CastKind; key: string }[] = [],
 ): JobAttachPlan {
-  const plan: JobAttachPlan = { add: [], skipped: [], gone: [], noCopy: [] };
+  const plan: JobAttachPlan = { add: [], skipped: [], full: [], gone: [], noCopy: [] };
+  const known = new Set(existing.map((item) => item.key));
+  const counts: Record<CastKind, number> = { image: 0, video: 0, audio: 0 };
+  for (const item of existing) counts[item.kind] += 1;
   for (const file of files) {
     if (!file.url) plan.gone.push(file);
+    else if (file.key && known.has(file.key)) plan.add.push({ ...file, key: file.key });
     else if (caps && caps[file.kind] <= 0) plan.skipped.push(file);
+    else if (caps && counts[file.kind] >= caps[file.kind]) plan.full.push(file);
     else if (!file.key) plan.noCopy.push(file);
-    else plan.add.push({ ...file, key: file.key });
+    else {
+      plan.add.push({ ...file, key: file.key });
+      known.add(file.key);
+      counts[file.kind] += 1;
+    }
   }
   return plan;
 }
@@ -463,6 +477,10 @@ export function jobAttachNotice(plan: JobAttachPlan, added: number): string {
   if (plan.skipped.length > 0) {
     const kinds = [...new Set(plan.skipped.map((file) => KIND_WORDS[file.kind]))].join(" or ");
     parts.push(`Skipped ${plan.skipped.length}: the current model takes no ${kinds}.`);
+  }
+  if (plan.full.length > 0) {
+    const kinds = [...new Set(plan.full.map((file) => KIND_WORDS[file.kind]))].join(" or ");
+    parts.push(`Skipped ${plan.full.length}: the references already hold as many ${kinds} as the current model takes.`);
   }
   if (plan.noCopy.length > 0) {
     const one = plan.noCopy.length === 1;
