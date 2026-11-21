@@ -7681,6 +7681,7 @@ select.attach-role {
 }
 
 .job-row {
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--neutral-1);
@@ -7696,6 +7697,7 @@ select.attach-role {
   align-items: center;
   gap: 10px;
   width: 100%;
+  min-width: 0;
   padding: 8px;
   border: 0;
   background: transparent;
@@ -7798,6 +7800,7 @@ select.attach-role {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
   padding: 0 10px 10px;
   border-top: 1px solid var(--border);
 }
@@ -7818,30 +7821,137 @@ select.attach-role {
   color: var(--text-dim);
 }
 
-.job-prompt {
+.job-looks {
+  margin-top: 0;
+}
+
+.job-row-error {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--danger);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 6px 10px;
   margin: 0;
-  padding: 8px;
-  border-radius: 8px;
-  background: var(--bg-hover);
-  font: inherit;
+  min-width: 0;
+}
+
+.job-facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.job-facts dt {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.job-facts dd {
+  margin: 0;
+  min-width: 0;
   font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-prompts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.job-prompts .prompt-fold {
+  margin-top: 0;
+}
+
+.job-prompts .prompt-quote {
+  min-width: 0;
   max-height: 240px;
   overflow: auto;
 }
 
-.job-looks {
-  margin-top: 0;
+.job-prompts .prompt-quote-text {
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.job-shots {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  list-style: none;
+}
+
+.job-shots li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.job-shot-head {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.job-shot-prompt {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.job-ref-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.job-ref-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.job-ref-group-count {
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.job-ref-group-head .job-small-btn {
+  margin-left: auto;
+}
+
+.job-small-btn {
+  font-size: 11px;
+  padding: 2px 8px;
 }
 
 .job-refs {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
   margin: 0;
   padding: 0;
+  min-width: 0;
   list-style: none;
 }
 
@@ -7850,17 +7960,40 @@ select.attach-role {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  width: 64px;
+  width: 88px;
+  min-width: 0;
 }
 
 .job-ref-media {
   display: grid;
   place-items: center;
-  width: 64px;
-  height: 64px;
+  width: 88px;
+  height: 88px;
+  padding: 0;
   overflow: hidden;
+  border: 0;
   border-radius: 8px;
   background: var(--bg-hover);
+  color: inherit;
+  cursor: pointer;
+}
+
+.job-ref-media:disabled {
+  cursor: default;
+}
+
+.job-ref-name {
+  max-width: 100%;
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-ref-gone {
+  font-size: 11px;
+  color: var(--text-dim);
 }
 
 .job-ref-media img,
@@ -7964,9 +8097,11 @@ select.attach-role {
   overflow-wrap: anywhere;
 }
 
-.job-output-download {
-  font-size: 11px;
-  padding: 2px 8px;
+.job-output-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
 }
 
 .job-tags {
@@ -7976,8 +8111,18 @@ select.attach-role {
 }
 
 @media (max-width: 860px) {
-  .job-settings {
+  .job-settings,
+  .job-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .job-ref,
+  .job-ref-media {
+    width: 76px;
+  }
+
+  .job-ref-media {
+    height: 76px;
   }
 }
 

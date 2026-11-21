@@ -25,9 +25,18 @@ import {
   composerSettingsFromJob,
   composerStateForJob,
   filterJobs,
+  jobAttachNotice,
+  jobDurationLabel,
+  jobErrorText,
   jobModelLabel,
+  jobOutputFile,
   jobPromptExcerpt,
+  jobPromptRows,
+  jobRanLabel,
+  jobRefGroups,
+  jobShotDuration,
   mergeJobOutputs,
+  planJobAttach,
   rerunBodyForJob,
 } from "../src/lib/project-jobs";
 import { flattenCast, type CastEntry } from "../src/lib/cast";
@@ -534,5 +543,114 @@ describe("job list helpers", () => {
     expect(jobPromptExcerpt({ prompt: "  \n  ", basePrompt: null })).toBe("(no prompt)");
     expect(jobModelLabel("bytedance/seedance-2-5-reference-to-video")).toBe("Seedance 2.5 Reference To Video");
     expect(jobModelLabel("fal-ai/flux-2")).toBe("Flux 2");
+  });
+});
+
+describe("opened job details", () => {
+  // Local wall-clock times, so the labels read the same in any time zone.
+  const at = (year: number, month: number, day: number, hour: number, minute: number) =>
+    Math.floor(new Date(year, month - 1, day, hour, minute).getTime() / 1000);
+  const now = at(2026, 11, 21, 15, 0);
+
+  it("says when a job ran in plain words", () => {
+    expect(jobRanLabel(at(2026, 11, 21, 11, 20), now)).toBe("Today 11:20 am");
+    expect(jobRanLabel(at(2026, 11, 21, 0, 5), now)).toBe("Today 12:05 am");
+    expect(jobRanLabel(at(2026, 11, 20, 12, 0), now)).toBe("Yesterday 12:00 pm");
+    expect(jobRanLabel(at(2026, 11, 19, 19, 11), now)).toBe("Nov 19, 7:11 pm");
+    // A run from another year names the year, so an old run never reads as this one.
+    expect(jobRanLabel(at(2025, 11, 19, 19, 11), now)).toBe("Nov 19, 2025, 7:11 pm");
+    // Across a month boundary "yesterday" is still the day before.
+    expect(jobRanLabel(at(2026, 11, 30, 23, 59), at(2026, 12, 1, 8, 0))).toBe("Yesterday 11:59 pm");
+  });
+
+  it("times a job from its first output to its last update, only once it has finished", () => {
+    const out = (status: string, createdAt: number, updatedAt: number) => ({ status, createdAt, updatedAt });
+    expect(jobDurationLabel([out("succeeded", 100, 142)])).toBe("42s");
+    expect(jobDurationLabel([out("succeeded", 100, 160), out("failed", 101, 285)])).toBe("3m 05s");
+    expect(jobDurationLabel([out("succeeded", 0, 3720)])).toBe("1h 02m");
+    // Still running: no time yet, rather than a number that keeps growing.
+    expect(jobDurationLabel([out("succeeded", 100, 142), out("processing", 100, 150)])).toBeNull();
+    expect(jobDurationLabel([])).toBeNull();
+  });
+
+  it("shows the first error a failed output left", () => {
+    expect(jobErrorText(job().outputs)).toBe("boom");
+    expect(jobErrorText([{ status: "succeeded", errorMessage: "ignored" }])).toBeNull();
+    expect(jobErrorText([{ status: "failed", errorMessage: "  " }, { status: "cancelled", errorMessage: "stopped" }])).toBe("stopped");
+  });
+
+  it("shows the prompt as written and as sent, or one row when they match", () => {
+    expect(jobPromptRows(job())).toEqual([
+      { label: "Prompt", text: "A quiet room with @Image1" },
+      { label: "Sent to the model", text: "Look 1\n\nA quiet room with @Image1" },
+    ]);
+    expect(jobPromptRows(job({ basePrompt: null }))).toEqual([{ label: "Prompt", text: job().prompt }]);
+  });
+
+  it("labels shot durations", () => {
+    expect(jobShotDuration(5)).toBe("5s");
+    expect(jobShotDuration("2.5")).toBe("2.5s");
+    expect(jobShotDuration(undefined)).toBeNull();
+    expect(jobShotDuration("")).toBeNull();
+  });
+
+  it("groups references Images, Videos, Audio, keeping their order", () => {
+    const groups = jobRefGroups([
+      { kind: "audio" as const, name: "a" },
+      { kind: "image" as const, name: "i1" },
+      { kind: "video" as const, name: "v" },
+      { kind: "image" as const, name: "i2" },
+    ]);
+    expect(groups.map((group) => [group.label, group.refs.map((ref) => ref.name)])).toEqual([
+      ["Images", ["i1", "i2"]],
+      ["Videos", ["v"]],
+      ["Audio", ["a"]],
+    ]);
+  });
+
+  it("attaches what the current model can take and says why the rest stayed out", () => {
+    const files = [
+      ...job().refs.map((ref) => ({ kind: ref.kind, name: ref.name, key: ref.key, url: ref.url, role: ref.role })),
+      jobOutputFile(job(), job().outputs[2]!)!,
+    ];
+    // An image model: the audio reference is skipped, the gone background is reported,
+    // and the hub-only video output has no Studio copy.
+    const plan = planJobAttach(files, { image: 4, video: 2, audio: 0 });
+    expect(plan.add.map((file) => file.name)).toEqual(["lead.png"]);
+    expect(plan.skipped.map((file) => file.name)).toEqual(["voice.mp3"]);
+    expect(plan.gone.map((file) => file.name)).toEqual(["room.png"]);
+    expect(plan.noCopy.map((file) => file.kind)).toEqual(["video"]);
+    expect(jobAttachNotice(plan, 1)).toBe(
+      "Added 1 file to the references. Skipped 1: the current model takes no audio. 1 file has no Studio copy, so it can’t join the references. 1 file is gone from Studio.",
+    );
+    // A file that is already a reference is not counted as new.
+    expect(jobAttachNotice(plan, 0)).toMatch(/^1 file is already in the references\./);
+    // With no model picked nothing is skipped; the references decide what is attached.
+    expect(planJobAttach(files, null).skipped).toEqual([]);
+  });
+
+  it("skips a new file once the references hold as many of its kind as the model takes", () => {
+    const file = (name: string, key: string) => ({ kind: "image" as const, name, key, url: `https://studio.test/${key}` });
+    const existing = [{ kind: "image" as const, key: "k-old" }];
+    // The model takes two images and the project already holds one: one more joins, the next is skipped.
+    const plan = planJobAttach([file("a.png", "k-a"), file("b.png", "k-b")], { image: 2, video: 0, audio: 0 }, existing);
+    expect(plan.add.map((item) => item.name)).toEqual(["a.png"]);
+    expect(plan.full.map((item) => item.name)).toEqual(["b.png"]);
+    expect(jobAttachNotice(plan, 1)).toBe(
+      "Added 1 file to the references. Skipped 1: the references already hold as many images as the current model takes.",
+    );
+    // A file already in the references takes no room and is not skipped, even when the kind is full.
+    const again = planJobAttach([file("old.png", "k-old")], { image: 1, video: 0, audio: 0 }, existing);
+    expect(again.add.map((item) => item.key)).toEqual(["k-old"]);
+    expect(again.full).toEqual([]);
+  });
+
+  it("turns a finished output into a file, and nothing else", () => {
+    expect(jobOutputFile(job(), job().outputs[0]!)).toMatchObject({
+      kind: "image",
+      key: `u/${USER}/results/g1.png`,
+      url: "https://studio.test/g1",
+    });
+    expect(jobOutputFile(job(), job().outputs[1]!)).toBeNull();
   });
 });
