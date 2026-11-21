@@ -215,7 +215,10 @@ test("in a project, starting a new job keeps the running one in view, and its re
   await framesModel(page, true);
   await page.getByRole("navigation", { name: "Studio" }).getByRole("button", { name: "Projects" }).click();
   await page.getByText("Vignette", { exact: true }).first().click();
+  // Opening a project loads it in the background. Acting before its header shows races that load.
+  await expect(page.locator("button.project-new-job:visible").first()).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(page.locator(".model-menu-trigger").first()).toContainText(MODEL.display_name);
 
   const image = `data:image/png;base64,${readFileSync(join(FIXTURES, "tile-1.png")).toString("base64")}`;
   let done = false;

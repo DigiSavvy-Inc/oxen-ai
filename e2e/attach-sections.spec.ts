@@ -153,7 +153,10 @@ test("in a project, dragging a chip reorders the project's references and saves 
   await sectionsModel(page);
   await page.getByRole("navigation", { name: "Studio" }).getByRole("button", { name: "Projects" }).click();
   await page.getByText("Drag order", { exact: true }).first().click();
+  // Opening a project loads it in the background. Acting before its header shows races that load.
+  await expect(page.locator("button.project-new-job:visible").first()).toBeVisible();
   await page.keyboard.press("Escape");
+  await expect(page.locator(".model-menu-trigger").first()).toContainText(MODEL.display_name);
 
   await page.locator('input[type="file"]').first().setInputFiles(
     ["first.png", "second.png", "third.png"].map((name, index) => ({
