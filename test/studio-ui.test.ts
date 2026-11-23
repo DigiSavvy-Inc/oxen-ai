@@ -1517,6 +1517,20 @@ describe("app column", () => {
   });
 });
 
+describe("phone projects panel", () => {
+  it("keeps the header on one line and gives the phone controls a 44px target", () => {
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    const phone = css.slice(css.indexOf("@media (max-width: 860px)"));
+    expect(phone).toMatch(/\.project-rail-head > strong \{[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap/);
+    expect(phone).toMatch(/\.project-rail-head \.gallery-close \{[^}]*width:\s*44px;\s*height:\s*44px/);
+    expect(phone).toMatch(/\.project-tab \{[^}]*min-height:\s*44px/);
+    expect(phone).toMatch(/\.project-slide \.primary-btn \{[^}]*width:\s*auto/);
+    const flexFilters = css.indexOf(".jobs-filters {\n  display: flex;");
+    const phoneFilters = css.indexOf(".jobs-filters {\n    display: grid;", flexFilters);
+    expect(phoneFilters).toBeGreaterThan(flexFilters);
+  });
+});
+
 describe("account profile switch", () => {
   it("keeps profile switching in the account menu and opens the phone library over the nav", () => {
     const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
