@@ -278,12 +278,16 @@ export function Sidebar({
   attachSupported,
   createGalleryOpen,
   galleryName,
+  galleryCaption,
   galleryHandle,
   galleryTake,
   onGalleryNameChange,
+  onGalleryCaptionChange,
   onGalleryHandleChange,
   onGalleryTakeChange,
   onGalleryLabelChange,
+  onGalleryNoteChange,
+  onGallerySetNote,
   galleryItems,
   gallerySaving,
   galleryAdding,
@@ -354,12 +358,16 @@ export function Sidebar({
   attachSupported?: (item: Generation) => boolean;
   createGalleryOpen: boolean;
   galleryName: string;
+  galleryCaption: string;
   galleryHandle: string;
   galleryTake: number;
   onGalleryNameChange: (value: string) => void;
+  onGalleryCaptionChange: (value: string) => void;
   onGalleryHandleChange: (value: string) => void;
   onGalleryTakeChange: (value: number) => void;
   onGalleryLabelChange: (index: number, label: string) => void;
+  onGalleryNoteChange: (index: number, note: string) => void;
+  onGallerySetNote: (ids: string[], note: string) => void;
   galleryItems: GalleryDraftItem[];
   gallerySaving: boolean;
   galleryAdding: boolean;
@@ -798,11 +806,15 @@ export function Sidebar({
           detail={galleryDetail}
           galleryId={galleryId}
           name={galleryName}
+          caption={galleryCaption}
           handle={galleryHandle}
           take={galleryTake}
           onHandleChange={onGalleryHandleChange}
           onTakeChange={onGalleryTakeChange}
+          onCaptionChange={onGalleryCaptionChange}
           onLabelChange={onGalleryLabelChange}
+          onNoteChange={onGalleryNoteChange}
+          onSetNote={onGallerySetNote}
           items={galleryItems}
           saving={gallerySaving}
           status={galleryStatus}

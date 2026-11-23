@@ -138,6 +138,7 @@ import {
 import { slotChoices as usableSlotChoices, slotFilesFromItems, type SlotAddItem, type SlotAddNotice } from "./lib/slot-add";
 import { insertAttachMentions, insertPlainMention, moveItem } from "./lib/mentions";
 import { keepDraftIds, type GalleryDraftItem } from "./lib/gallery-draft";
+import { galleryTextError } from "./lib/gallery-search";
 import { escapeTaken } from "./lib/escape-layer";
 import { galleryChordTaken } from "./lib/shortcut-layer";
 import { useCollectionView } from "./lib/use-collection-view";
@@ -251,6 +252,7 @@ function draftFromGalleryItem(item: GalleryItem): GalleryDraftItem {
     url: item.url,
     role: item.kind === "audio" ? undefined : item.role ? normalizeMediaRole(item.role) : undefined,
     label: item.label ?? undefined,
+    note: item.note ?? undefined,
   };
 }
 
@@ -335,6 +337,7 @@ export default function App() {
   const [galleriesLoading, setGalleriesLoading] = useState(false);
   const [galleryId, setGalleryId] = useState<string | null>(null);
   const [galleryName, setGalleryName] = useState("");
+  const [galleryCaption, setGalleryCaption] = useState("");
   const [galleryHandle, setGalleryHandle] = useState("");
   const [galleryTake, setGalleryTake] = useState(1);
   const [galleryItems, setGalleryItems] = useState<GalleryDraftItem[]>([]);
@@ -619,6 +622,7 @@ export default function App() {
     setSelectedId(keepCanvasClear ? null : (merged[0]?.id ?? null));
     setGalleryId(null);
     setGalleryName("");
+    setGalleryCaption("");
     setGalleryItems([]);
     setGalleryStatus(null);
   }
@@ -1597,6 +1601,7 @@ export default function App() {
       const handle = (fresh?.handle || summary.handle || "").trim();
       if (!handle) continue;
       const source = fresh?.items ?? summary.items ?? [];
+      // Item notes and the gallery caption stay off this catalog. They are not sent to the model.
       const items: NameCatalogItem[] = source.map((item) => ({
         key: item.key,
         kind: item.kind,
@@ -1906,6 +1911,7 @@ export default function App() {
   function onGalleryNew() {
     setGalleryId(null);
     setGalleryName("");
+    setGalleryCaption("");
     setGalleryHandle("");
     setGalleryTake(1);
     setGalleryItems([]);
@@ -1973,6 +1979,12 @@ export default function App() {
     const name = galleryName.trim();
     const items = nextItems ?? galleryItems;
     if (!name || gallerySaving) return false;
+    const captionError = galleryTextError("caption", galleryCaption);
+    const noteError = items.map((item) => galleryTextError("note", item.note ?? "")).find((error) => error);
+    if (captionError || noteError) {
+      setGalleryStatus(captionError || noteError || null);
+      return false;
+    }
     const edit = galleryEdit.current;
     setGallerySaving(true);
     setGalleryStatus(null);
@@ -1984,11 +1996,13 @@ export default function App() {
         name,
         handle: galleryHandle,
         takeCount: galleryTake,
+        caption: galleryCaption,
         items: galleryPayload(items),
         ...(fileInto ? { collectionId: fileInto } : {}),
       });
       setGalleryId(saved.gallery.id);
       setGalleryName(saved.gallery.name);
+      setGalleryCaption(saved.gallery.caption ?? "");
       setGalleryHandle(saved.gallery.handle);
       setGalleryTake(saved.gallery.takeCount);
       setGalleryDetails((prev) => new Map(prev).set(saved.gallery.id, saved.gallery));
@@ -2095,6 +2109,7 @@ export default function App() {
       galleryAutosave.current = false;
       setGalleryId(gallery.id);
       setGalleryName(gallery.name);
+      setGalleryCaption(gallery.caption ?? "");
       setGalleryHandle(gallery.handle);
       setGalleryTake(gallery.takeCount || 1);
       setGalleryItems(gallery.items.map(draftFromGalleryItem));
@@ -2139,6 +2154,7 @@ export default function App() {
       const saved = await api.saveGallery({
         id,
         name: trimmed,
+        caption: gallery.caption,
         items: galleryPayload(gallery.items),
       });
       if (galleryId === id) setGalleryName(saved.gallery.name);
@@ -2158,6 +2174,7 @@ export default function App() {
       if (target === galleryId) {
         setGalleryId(null);
         setGalleryName("");
+        setGalleryCaption("");
         setGalleryHandle("");
         setGalleryTake(1);
         setGalleryItems([]);
@@ -2259,6 +2276,7 @@ export default function App() {
             name: gallery.name,
             handle: gallery.handle,
             takeCount: gallery.takeCount,
+            caption: gallery.caption,
             items: [...galleryPayload(gallery.items), ...labeled],
           });
         } else if (input.mode === "copy") {
@@ -2286,10 +2304,12 @@ export default function App() {
           name: galleryName.trim() || "Gallery",
           handle: galleryHandle,
           takeCount: galleryTake,
+          caption: galleryCaption,
           items: galleryPayload(next),
         });
         setGalleryId(saved.gallery.id);
         setGalleryName(saved.gallery.name);
+        setGalleryCaption(saved.gallery.caption ?? "");
         setGalleryHandle(saved.gallery.handle);
         setGalleryTake(saved.gallery.takeCount);
         setGalleryItems(saved.gallery.items.map(draftFromGalleryItem));
@@ -2307,7 +2327,14 @@ export default function App() {
   }
 
   function galleryPayload(
-    items: { kind: GalleryItem["kind"]; name: string; key: string; role?: string | null; label?: string | null }[],
+    items: {
+      kind: GalleryItem["kind"];
+      name: string;
+      key: string;
+      role?: string | null;
+      label?: string | null;
+      note?: string | null;
+    }[],
   ) {
     return items.map((item) => ({
       kind: item.kind,
@@ -2315,7 +2342,25 @@ export default function App() {
       key: item.key,
       role: item.kind === "audio" ? null : normalizeMediaRole(item.role),
       label: item.label?.trim() ? item.label.trim() : null,
+      // Always send it, so a cleared note is stored as empty and an append keeps the ones it copied.
+      note: item.note ?? null,
     }));
+  }
+
+  function onGalleryNoteChange(index: number, note: string) {
+    setGalleryItems((prev) =>
+      prev.map((item, itemIndex) => (itemIndex === index ? { ...item, note } : item)),
+    );
+  }
+
+  function onGallerySetNote(ids: string[], note: string) {
+    const error = galleryTextError("note", note);
+    if (error) {
+      setGalleryStatus(error);
+      return;
+    }
+    const chosen = new Set(ids);
+    editGalleryItems(galleryItems.map((item) => (chosen.has(item.id) ? { ...item, note } : item)));
   }
 
   function onGalleryLabelChange(index: number, label: string) {
@@ -2351,10 +2396,12 @@ export default function App() {
       const saved = await api.saveGallery({
         id: gallery.id,
         name: gallery.name,
+        caption: gallery.caption,
         items: [...galleryPayload(gallery.items), ...galleryPayload(accepted)],
       });
       if (galleryId === saved.gallery.id) {
         setGalleryName(saved.gallery.name);
+        setGalleryCaption(saved.gallery.caption ?? "");
         setGalleryItems(saved.gallery.items.map(draftFromGalleryItem));
       }
       const listed = await api.galleries();
@@ -3950,12 +3997,16 @@ export default function App() {
         }}
         createGalleryOpen={createGalleryOpen}
         galleryName={galleryName}
+        galleryCaption={galleryCaption}
         galleryHandle={galleryHandle}
         galleryTake={galleryTake}
         onGalleryNameChange={onGalleryNameChange}
+        onGalleryCaptionChange={setGalleryCaption}
         onGalleryHandleChange={setGalleryHandle}
         onGalleryTakeChange={setGalleryTake}
         onGalleryLabelChange={onGalleryLabelChange}
+        onGalleryNoteChange={onGalleryNoteChange}
+        onGallerySetNote={onGallerySetNote}
         galleryItems={galleryItems}
         gallerySaving={gallerySaving}
         galleryAdding={galleryAdding}

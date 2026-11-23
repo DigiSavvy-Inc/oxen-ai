@@ -1708,6 +1708,7 @@ app.post("/api/galleries", async (c) => {
     items?: unknown;
     handle?: unknown;
     takeCount?: unknown;
+    caption?: unknown;
     collectionId?: unknown;
   }>();
   const id = typeof body.id === "string" ? body.id : null;
@@ -1733,6 +1734,7 @@ app.post("/api/galleries", async (c) => {
     profileId,
     handle: body.handle,
     takeCount: body.takeCount,
+    caption: body.caption,
   }).catch((err: unknown) => {
     if (err instanceof GalleryRejected) throw new HTTPException(400, { message: err.message });
     throw err;

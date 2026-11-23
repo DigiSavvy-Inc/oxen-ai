@@ -18,6 +18,8 @@ export type GalleryMentionItemJson = {
   name: string;
   role: string | null;
   label: string | null;
+  /** For people. The prompt planner does not read this. */
+  note: string | null;
   thumbUrl: string | null;
 };
 
@@ -26,6 +28,7 @@ export type GalleryCardJson = {
   name: string;
   handle: string;
   takeCount: number;
+  caption: string | null;
   updatedAt: number;
   /** The collection this gallery is filed in, or null. The client groups cards by it. */
   collectionId: string | null;
@@ -94,6 +97,7 @@ export async function presentGallery(
   name: string;
   handle: string;
   takeCount: number;
+  caption: string | null;
   updatedAt: number;
   items: Array<StoredGalleryItem & { url: string; thumbUrl: string | null }>;
 }> {
@@ -117,6 +121,7 @@ export async function presentGallery(
     name: gallery.name,
     handle: gallery.handle,
     takeCount: gallery.takeCount,
+    caption: gallery.caption,
     updatedAt: gallery.updatedAt,
     items,
   };
@@ -154,6 +159,7 @@ export async function presentGalleryList(
         name: gallery.name,
         handle: gallery.handle,
         takeCount: gallery.takeCount,
+        caption: gallery.caption,
         updatedAt: gallery.updatedAt,
         collectionId: gallery.collectionId,
         count: items.length,
@@ -164,6 +170,7 @@ export async function presentGalleryList(
           name: item.name,
           role: item.role,
           label: item.label,
+          note: item.note ?? null,
           thumbUrl: previews[index]?.thumbUrl ?? null,
         })),
       };
