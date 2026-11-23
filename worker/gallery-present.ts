@@ -1,5 +1,5 @@
 import type { GalleryKind, StoredGallery, StoredGalleryItem } from "./galleries";
-import { getGallery, listGalleries } from "./galleries";
+import { itemsForGalleries, listGalleries } from "./galleries";
 import { DEFAULT_HISTORY_PAGE_SIZE } from "./history-page-size";
 import { displayStoredMediaUrl } from "./media";
 import { ensureDefaultProfile } from "./profiles";
@@ -131,12 +131,14 @@ export async function presentGalleryList(
 ): Promise<GalleryCardJson[]> {
   const profileId = profile === undefined ? await ensureDefaultProfile(env.DB, userId) : profile;
   const galleries = await listGalleries(env.DB, userId, query, profileId);
-  const loaded = await Promise.all(
-    galleries.map(async (gallery) => {
-      const full = await getGallery(env.DB, userId, gallery.id);
-      return { gallery, items: full?.items ?? [] };
-    }),
+  // One read for the whole profile. Opening a query per gallery, all at once, is what
+  // made the list fail once someone had more galleries than D1 will run together.
+  const itemsById = await itemsForGalleries(
+    env.DB,
+    userId,
+    galleries.map((gallery) => gallery.id),
   );
+  const loaded = galleries.map((gallery) => ({ gallery, items: itemsById.get(gallery.id) ?? [] }));
   const thumbs = await thumbKeyByResult(
     env.DB,
     userId,

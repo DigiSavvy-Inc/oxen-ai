@@ -246,6 +246,20 @@ async function itemRows(
   throw last;
 }
 
+function storedItem(row: ItemRow): StoredGalleryItem | null {
+  const kind = acceptMediaKind(row.kind);
+  if (!kind) return null;
+  return {
+    id: row.id,
+    kind,
+    name: row.name,
+    key: row.media_key,
+    position: row.position,
+    role: storedRole(kind, row.role),
+    label: acceptGalleryLabel(row.label),
+  };
+}
+
 async function itemsForGallery(
   db: D1Database,
   userId: string,
@@ -254,19 +268,65 @@ async function itemsForGallery(
   const rows = await itemRows(db, userId, galleryId);
   const items: StoredGalleryItem[] = [];
   for (const row of rows) {
-    const kind = acceptMediaKind(row.kind);
-    if (!kind) continue;
-    items.push({
-      id: row.id,
-      kind,
-      name: row.name,
-      key: row.media_key,
-      position: row.position,
-      role: storedRole(kind, row.role),
-      label: acceptGalleryLabel(row.label),
-    });
+    const item = storedItem(row);
+    if (item) items.push(item);
   }
   return items;
+}
+
+/**
+ * D1 allows 100 bound parameters on a statement, and one Worker invocation can keep only
+ * six D1 calls in flight. The list used to open two queries per gallery at the same time,
+ * so a profile with more than a handful of galleries was refused and the list never arrived.
+ * One user id plus these ids stays under the parameter cap.
+ */
+const GALLERY_ID_CHUNK = 90;
+
+const ITEM_LIST_COLUMNS = [
+  "id, gallery_id, kind, name, media_key, position, role, label",
+  "id, gallery_id, kind, name, media_key, position, role",
+  "id, gallery_id, kind, name, media_key, position",
+];
+
+/** Every item of these galleries, in saved order, read a chunk at a time. */
+export async function itemsForGalleries(
+  db: D1Database,
+  userId: string,
+  galleryIds: readonly string[],
+): Promise<Map<string, StoredGalleryItem[]>> {
+  const map = new Map<string, StoredGalleryItem[]>();
+  const unique = [...new Set(galleryIds.filter(Boolean))];
+  if (unique.length === 0) return map;
+  let shape = 0;
+  for (let offset = 0; offset < unique.length; ) {
+    const chunk = unique.slice(offset, offset + GALLERY_ID_CHUNK);
+    const marks = chunk.map(() => "?").join(", ");
+    const columns = ITEM_LIST_COLUMNS[shape] ?? ITEM_LIST_COLUMNS[ITEM_LIST_COLUMNS.length - 1];
+    try {
+      const { results } = await db
+        .prepare(
+          `SELECT ${columns} FROM gallery_items
+           WHERE user_id = ? AND gallery_id IN (${marks})
+           ORDER BY position ASC`,
+        )
+        .bind(userId, ...chunk)
+        .all<ItemRow & { gallery_id: string }>();
+      for (const row of results ?? []) {
+        const item = storedItem(row);
+        if (!item || !row.gallery_id) continue;
+        const list = map.get(row.gallery_id);
+        if (list) list.push(item);
+        else map.set(row.gallery_id, [item]);
+      }
+      offset += chunk.length;
+    } catch (err) {
+      if (!missingColumn(err) || shape >= ITEM_LIST_COLUMNS.length - 1) throw err;
+      shape += 1;
+      map.clear();
+      offset = 0;
+    }
+  }
+  return map;
 }
 
 export async function getGallery(

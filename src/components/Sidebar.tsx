@@ -298,6 +298,7 @@ export function Sidebar({
   galleryAccept,
   galleryDropLabel,
   gallerySummaries,
+  galleriesLoading = false,
   galleryId,
   onGalleryOpen,
   onManageGallerySave,
@@ -373,6 +374,7 @@ export function Sidebar({
   galleryAccept: string;
   galleryDropLabel: string;
   gallerySummaries: GallerySummary[];
+  galleriesLoading?: boolean;
   galleryId: string | null;
   onGalleryOpen: (id: string) => void;
   onManageGallerySave: () => void;
@@ -792,6 +794,7 @@ export function Sidebar({
             onManagingGallery(false);
           }}
           summaries={gallerySummaries}
+          loading={galleriesLoading}
           detail={galleryDetail}
           galleryId={galleryId}
           name={galleryName}

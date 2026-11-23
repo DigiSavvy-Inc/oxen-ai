@@ -13,6 +13,7 @@ import type { MediaRole } from "../../worker/schema";
 import { CollectionSections, MoveToCollection, type MoveOrder } from "./CollectionSections";
 import { DeleteMenu } from "./DeleteMenu";
 import { FullSizeMedia } from "./FullSizeMedia";
+import { Loader } from "./Loader";
 import { GalleryMentionFields } from "./GalleryMentionFields";
 import { GalleryRoleSelect } from "./GalleryRoleSelect";
 import { GallerySections } from "./GallerySections";
@@ -28,6 +29,8 @@ export type GalleryPlace = {
 
 type Props = {
   summaries: GallerySummary[];
+  /** True while the gallery list request is still out. An empty list then is not "no galleries". */
+  loading?: boolean;
   detail: boolean;
   galleryId: string | null;
   name: string;
@@ -114,17 +117,27 @@ export function GalleryBrowser(props: Props) {
     return (
       <div className="gallery-browser" aria-label="Galleries">
         {props.status ? <p className="gallery-status">{props.status}</p> : null}
-        {collections ? (
-          <CollectionSections
-            controls={collections}
-            summaries={props.summaries}
-            renderCard={card}
-            onOpen={props.onOpenCollection}
-          />
-        ) : props.summaries.length === 0 ? (
-          <div className="history-empty">No galleries yet. Create one, then pick library tiles.</div>
+        {props.loading && props.summaries.length === 0 ? (
+          <div className="history-empty">
+            <Loader size="md" label="Loading galleries" />
+          </div>
         ) : (
-          <div className="gallery-card-list">{props.summaries.map(card)}</div>
+          <>
+            {collections ? (
+              <CollectionSections
+                controls={collections}
+                summaries={props.summaries}
+                renderCard={card}
+                onOpen={props.onOpenCollection}
+              />
+            ) : props.summaries.length === 0 ? (
+              props.status ? null : (
+                <div className="history-empty">No galleries yet. Create one, then pick library tiles.</div>
+              )
+            ) : (
+              <div className="gallery-card-list">{props.summaries.map(card)}</div>
+            )}
+          </>
         )}
       </div>
     );

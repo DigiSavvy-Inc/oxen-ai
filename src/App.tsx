@@ -332,6 +332,7 @@ export default function App() {
   const [gallerySkipped, setGallerySkipped] = useState<string[]>([]);
   const [galleryTileDrag, setGalleryTileDrag] = useState(false);
   const [gallerySummaries, setGallerySummaries] = useState<GallerySummary[]>([]);
+  const [galleriesLoading, setGalleriesLoading] = useState(false);
   const [galleryId, setGalleryId] = useState<string | null>(null);
   const [galleryName, setGalleryName] = useState("");
   const [galleryHandle, setGalleryHandle] = useState("");
@@ -791,16 +792,23 @@ export default function App() {
   useEffect(() => {
     if (!user) {
       setGallerySummaries([]);
+      setGalleriesLoading(false);
       return;
     }
     let cancelled = false;
+    setGalleriesLoading(true);
     void api
       .galleries()
       .then((data) => {
         if (!cancelled) setGallerySummaries(data.galleries);
       })
-      .catch(() => {
-        if (!cancelled) setGallerySummaries([]);
+      .catch((err) => {
+        if (cancelled) return;
+        setGallerySummaries([]);
+        setGalleryStatus(err instanceof Error ? err.message : "Couldn’t load galleries");
+      })
+      .finally(() => {
+        if (!cancelled) setGalleriesLoading(false);
       });
     return () => {
       cancelled = true;
@@ -3962,6 +3970,7 @@ export default function App() {
         galleryAccept={galleryAccept}
         galleryDropLabel={galleryDropPhrase ? `Drop ${galleryDropPhrase}` : "Drop media"}
         gallerySummaries={gallerySummaries}
+        galleriesLoading={galleriesLoading}
         galleryId={galleryId}
         onGalleryOpen={(id) => void onGalleryLoad(id)}
         onManageGallerySave={() => void onGallerySave()}
