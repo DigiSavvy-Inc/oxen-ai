@@ -194,6 +194,11 @@ function galleriesDb(options?: { missingRole?: boolean; missingCollection?: bool
         },
       };
     },
+    async batch(statements: { run(): Promise<unknown> }[]) {
+      const results = [];
+      for (const statement of statements) results.push(await statement.run());
+      return results;
+    },
   };
   return { galleries, items, db: db as unknown as D1Database };
 }

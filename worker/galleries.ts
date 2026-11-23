@@ -321,51 +321,76 @@ async function trimGalleries(db: D1Database, userId: string): Promise<void> {
   }
 }
 
+type ItemWriteShape = "label" | "role" | "plain";
+
+function insertItem(
+  db: D1Database,
+  shape: ItemWriteShape,
+  row: StoredGalleryItem,
+  galleryId: string,
+  userId: string,
+): D1PreparedStatement {
+  switch (shape) {
+    case "label":
+      return db
+        .prepare(
+          `INSERT INTO gallery_items (id, gallery_id, user_id, kind, name, media_key, position, role, label)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(row.id, galleryId, userId, row.kind, row.name, row.key, row.position, row.role, row.label);
+    case "role":
+      return db
+        .prepare(
+          `INSERT INTO gallery_items (id, gallery_id, user_id, kind, name, media_key, position, role)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(row.id, galleryId, userId, row.kind, row.name, row.key, row.position, row.role);
+    case "plain":
+      return db
+        .prepare(
+          `INSERT INTO gallery_items (id, gallery_id, user_id, kind, name, media_key, position)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(row.id, galleryId, userId, row.kind, row.name, row.key, row.position);
+    default: {
+      const _never: never = shape;
+      return _never;
+    }
+  }
+}
+
+/**
+ * Replaces every item row. One `batch()` is one D1 round trip: a gallery save rewrites the
+ * whole set (up to 96), and awaiting each insert on its own made that wait on ~100 requests.
+ * A database from before role or label was added retries the same batch with fewer columns.
+ * The batch is one transaction, so a failed shape leaves the previous rows in place.
+ */
 async function replaceItems(
   db: D1Database,
   userId: string,
   galleryId: string,
   items: GalleryItemInput[],
 ): Promise<StoredGalleryItem[]> {
-  await db
-    .prepare(`DELETE FROM gallery_items WHERE gallery_id = ? AND user_id = ?`)
-    .bind(galleryId, userId)
-    .run();
-  const stored: StoredGalleryItem[] = [];
-  for (let position = 0; position < items.length; position += 1) {
-    const item = items[position];
-    if (!item) continue;
-    const id = crypto.randomUUID();
+  const stored: StoredGalleryItem[] = items.map((item, position) => ({
+    ...item,
+    id: crypto.randomUUID(),
+    position,
+  }));
+  const rewrite = (shape: ItemWriteShape) =>
+    db.batch([
+      db.prepare(`DELETE FROM gallery_items WHERE gallery_id = ? AND user_id = ?`).bind(galleryId, userId),
+      ...stored.map((row) => insertItem(db, shape, row, galleryId, userId)),
+    ]);
+  try {
+    await rewrite("label");
+  } catch (err) {
+    if (!missingColumn(err)) throw err;
     try {
-      await db
-        .prepare(
-          `INSERT INTO gallery_items (id, gallery_id, user_id, kind, name, media_key, position, role, label)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .bind(id, galleryId, userId, item.kind, item.name, item.key, position, item.role, item.label)
-        .run();
-    } catch (err) {
-      if (!missingColumn(err)) throw err;
-      try {
-        await db
-          .prepare(
-            `INSERT INTO gallery_items (id, gallery_id, user_id, kind, name, media_key, position, role)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .bind(id, galleryId, userId, item.kind, item.name, item.key, position, item.role)
-          .run();
-      } catch (inner) {
-        if (!missingColumn(inner)) throw inner;
-        await db
-          .prepare(
-            `INSERT INTO gallery_items (id, gallery_id, user_id, kind, name, media_key, position)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .bind(id, galleryId, userId, item.kind, item.name, item.key, position)
-          .run();
-      }
+      await rewrite("role");
+    } catch (inner) {
+      if (!missingColumn(inner)) throw inner;
+      await rewrite("plain");
     }
-    stored.push({ ...item, id, position });
   }
   return stored;
 }
