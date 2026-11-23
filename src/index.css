@@ -5317,6 +5317,16 @@ select.attach-role {
   position: relative;
   width: 36px;
   height: 36px;
+  overflow: hidden;
+}
+
+/* The play button drives this element. An unsized audio bar would cover Remove. */
+.attach-audio audio {
+  position: absolute;
+  width: 36px;
+  height: 36px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .attach-audio-play {

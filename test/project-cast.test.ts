@@ -13,12 +13,14 @@ import {
   droppedMentionNotice,
   flattenCast,
   missingMention,
+  promptAfterDetach,
   rewriteMentions,
   selectCastAttachments,
   type CastEntry,
   type CastGalleryItem,
 } from "../src/lib/cast";
 import { attachmentForMention, filterMentionItems, tokenForItem } from "../src/lib/mentions";
+import { voiceBindingLine } from "../src/lib/reference-roles";
 import { acceptProjectBudget, acceptProjectCast } from "../worker/project-cast";
 
 function galleryItem(
@@ -287,5 +289,35 @@ describe("0025 migration", () => {
       active: 1,
     });
     expect(raw.prepare(`SELECT budget FROM projects WHERE id = 'pr1'`).get()).toEqual({ budget: 20 });
+  });
+});
+
+describe("promptAfterDetach", () => {
+  it("drops the removed audio mention and renumbers the ones after it", () => {
+    expect(promptAfterDetach("say @Audio1 then @Audio2", "audio", 1)).toBe("say then @Audio1");
+  });
+
+  it("leaves the other kinds in place", () => {
+    expect(promptAfterDetach("@Image1 with @Audio1", "audio", 1)).toBe("@Image1 with");
+    expect(promptAfterDetach("@Image1 with @Audio1", "image", 1)).toBe("with @Audio1");
+    expect(promptAfterDetach("@Video2 beside @Audio1", "video", 1)).toBe("@Video1 beside @Audio1");
+    expect(promptAfterDetach("@Video2 beside @Audio1", "video", 3)).toBe("@Video2 beside @Audio1");
+  });
+
+  it("does not treat @Audio10 as @Audio1", () => {
+    expect(promptAfterDetach("@Audio1 and @Audio10", "audio", 1)).toBe("and @Audio9");
+  });
+
+  it("drops a voice line that names the removed clip, then renumbers the prompt", () => {
+    const line = voiceBindingLine(["@Audio1", "@Audio2"]);
+    expect(line).toBeTruthy();
+    expect(promptAfterDetach(`${line}\nhear @Audio2`, "audio", 1)).toBe("hear @Audio1");
+  });
+
+  it("renumbers a voice line that only names later clips", () => {
+    const before = voiceBindingLine(["@Audio2", "@Audio3"]);
+    const after = voiceBindingLine(["@Audio1", "@Audio2"]);
+    expect(before && after).toBeTruthy();
+    expect(promptAfterDetach(before!, "audio", 1)).toBe(after);
   });
 });

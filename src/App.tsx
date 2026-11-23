@@ -53,6 +53,7 @@ import {
   droppedMentionNotice,
   flattenCast,
   missingMention,
+  promptAfterDetach,
   rewriteMentions,
   selectCastAttachments,
   type CastEntry,
@@ -1735,6 +1736,13 @@ export default function App() {
       const castTarget = castItemForStaged(staged.filter((item) => item.kind === kind)[handIndex]);
       if (castTarget) projectRemoveItem(castTarget);
       return;
+    }
+    const removedNumber = target?.number ?? index + 1;
+    const nextPrompt = promptAfterDetach(promptRef.current, kind, removedNumber);
+    if (nextPrompt !== promptRef.current) {
+      promptRef.current = nextPrompt;
+      attachDraft.current = null;
+      setPrompt(nextPrompt);
     }
     setStaged((prev) => {
       const kindItems = prev.filter((item) => item.kind === kind);

@@ -1,5 +1,6 @@
 import { mentionToken, type MediaSlot } from "./api";
-import { parsePromptMentions } from "./mentions";
+import { parsePromptMentions, promptContainsToken } from "./mentions";
+import { isReferenceBindingLine } from "./reference-roles";
 import { normalizeMediaRole, type MediaRole } from "../../worker/schema";
 
 export type CastKind = MediaSlot["kind"];
@@ -207,6 +208,37 @@ export function rewriteMentions(text: string, map: CastNumberMap): MentionRewrit
   }
   next += text.slice(cursor);
   return { next: changed ? next : text, changed, dropped };
+}
+
+/**
+ * Drop a binding line that names the removed file, then drop that mention and
+ * move later numbers of the same kind down. Other kinds stay as written.
+ * A voice line names every clip, so cutting one token would leave a broken sentence.
+ */
+export function promptAfterDetach(text: string, kind: CastKind, removedNumber: number): string {
+  if (!Number.isInteger(removedNumber) || removedNumber < 1) return text;
+  const token = mentionToken(kind, removedNumber - 1);
+  const withoutBinding = dropBindingLinesCiting(text, token);
+  const map: CastNumberMap = { image: new Map(), video: new Map(), audio: new Map() };
+  map[kind].set(removedNumber, null);
+  for (const mention of parsePromptMentions(withoutBinding)) {
+    if (mention.kind !== kind) continue;
+    const number = mention.index + 1;
+    if (number > removedNumber) map[kind].set(number, number - 1);
+  }
+  return rewriteMentions(withoutBinding, map).next;
+}
+
+function dropBindingLinesCiting(text: string, token: string): string {
+  const lines = text.split("\n");
+  let dropped = false;
+  const kept = lines.filter((line) => {
+    if (!isReferenceBindingLine(line) || !promptContainsToken(line, token)) return true;
+    dropped = true;
+    return false;
+  });
+  if (!dropped) return text;
+  return kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
 }
 
 /** Human line for a drop notice: "Removed @Image7 from the prompt." */
