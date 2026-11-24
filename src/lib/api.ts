@@ -203,6 +203,8 @@ export type GalleryMentionItem = {
   name: string;
   role: string | null;
   label: string | null;
+  /** For people. Not sent to the model. */
+  note?: string | null;
   thumbUrl: string | null;
 };
 
@@ -214,6 +216,8 @@ export type GallerySummary = {
   previews?: GalleryPreview[];
   handle?: string;
   takeCount?: number;
+  /** For people. Not sent to the model. */
+  caption?: string | null;
   items?: GalleryMentionItem[];
   /** The collection this gallery is filed in. Null or missing means ungrouped. */
   collectionId?: string | null;
@@ -271,6 +275,8 @@ export type GalleryItem = {
   thumbUrl?: string | null;
   role?: string | null;
   label?: string | null;
+  /** For people. Not sent to the model. */
+  note?: string | null;
 };
 
 export type Gallery = {
@@ -278,6 +284,7 @@ export type Gallery = {
   name: string;
   handle: string;
   takeCount: number;
+  caption: string | null;
   updatedAt: number;
   items: GalleryItem[];
 };
@@ -776,7 +783,15 @@ export const api = {
     name: string;
     handle?: string;
     takeCount?: number;
-    items: { kind: GalleryItem["kind"]; name: string; key: string; role?: string | null; label?: string | null }[];
+    caption?: string | null;
+    items: {
+      kind: GalleryItem["kind"];
+      name: string;
+      key: string;
+      role?: string | null;
+      label?: string | null;
+      note?: string | null;
+    }[];
     /** Create only: file the new gallery into this collection. */
     collectionId?: string | null;
   }) =>

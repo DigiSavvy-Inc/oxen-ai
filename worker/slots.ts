@@ -905,7 +905,7 @@ export async function deleteSlotsForProject(db: D1Database, userId: string, proj
   }
 }
 
-async function resolvedFiles(env: Env, userId: string, row: SlotRow): Promise<SlotFileInput[]> {
+async function resolvedFiles(env: Env, userId: string, row: SlotRow): Promise<GalleryItemInput[]> {
   if (row.gallery_id) {
     const gallery = await getGallery(env.DB, userId, row.gallery_id);
     if (!gallery) return [];
@@ -915,6 +915,7 @@ async function resolvedFiles(env: Env, userId: string, row: SlotRow): Promise<Sl
       key: item.key,
       label: item.label,
       role: item.role,
+      note: item.note ?? null,
     }));
   }
   const rows = await fileRows(env.DB, userId, [row.id]);
@@ -1022,6 +1023,7 @@ export async function saveProjectSlotsAsGallery(
       key: row.media_key,
       label,
       role: storedRole(kind, row.role),
+      note: null,
     });
   }
   if (items.length === 0) throw new SlotRejected("file", "These slots have no files of their own.");

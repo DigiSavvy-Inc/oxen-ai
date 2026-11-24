@@ -10,6 +10,7 @@ import {
   SLOT_PICK_MAX,
   togglePick,
 } from "../lib/slot-pick";
+import { galleryListMatch } from "../lib/gallery-search";
 import { GalleryThumb } from "./GalleryThumb";
 import { Loader } from "./Loader";
 
@@ -57,6 +58,7 @@ export function SlotGalleryPicker(props: Props) {
   const [items, setItems] = useState<GalleryItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  const [find, setFind] = useState("");
   const closeRef = useRef(props.onClose);
   closeRef.current = props.onClose;
   const backRef = useRef<() => void>(() => {});
@@ -120,8 +122,17 @@ export function SlotGalleryPicker(props: Props) {
         props.galleries.length === 0 ? (
           <p className="slot-empty">No galleries yet.</p>
         ) : (
+          <>
+          <input
+            type="search"
+            className="field gallery-find"
+            value={find}
+            placeholder="Find a gallery"
+            aria-label="Find a gallery"
+            onChange={(event) => setFind(event.target.value)}
+          />
           <ul className="slot-pick-galleries">
-            {props.galleries.map((gallery) => {
+            {props.galleries.filter((gallery) => galleryListMatch(gallery, find)).map((gallery) => {
               const preview = gallery.previews?.[0];
               const n = gallery.count ?? gallery.items?.length ?? 0;
               return (
@@ -139,6 +150,7 @@ export function SlotGalleryPicker(props: Props) {
                     </span>
                     <span className="slot-pick-gallery-text">
                       <span>{gallery.name}</span>
+                      {gallery.caption ? <span className="gallery-card-caption">{gallery.caption}</span> : null}
                       <small>
                         {n} {n === 1 ? "item" : "items"}
                         {slot.galleryId === gallery.id ? " · linked to this slot" : ""}
@@ -149,6 +161,7 @@ export function SlotGalleryPicker(props: Props) {
               );
             })}
           </ul>
+          </>
         )
       ) : error ? (
         <p className="slot-notice">{error}</p>
@@ -187,6 +200,7 @@ export function SlotGalleryPicker(props: Props) {
                   title={blocked ?? item.name}
                 >
                   <LazyThumb kind={item.kind} name={item.name} preview={item.thumbUrl || item.url || ""} />
+                  {item.note ? <span className="gallery-note-mark" title={item.note} aria-label="Has a note" /> : null}
                   <input
                     type="checkbox"
                     checked={ticked || added}

@@ -10,11 +10,19 @@ type Item = {
 type Props<T extends Item> = {
   items: readonly T[];
   gridClassName: string;
+  /** Hide items that do not match. Indexes stay the indexes of `items`. */
+  matches?: (item: T) => boolean;
   renderItem: (item: T, index: number) => ReactNode;
 };
 
 export function GallerySections<T extends Item>(props: Props<T>) {
-  const sections = gallerySections(props.items);
+  const include = props.matches;
+  const sections = gallerySections(props.items)
+    .map((section) => ({
+      ...section,
+      items: include ? section.items.filter(({ item }) => include(item)) : section.items,
+    }))
+    .filter((section) => section.items.length > 0);
   if (sections.length === 0) return null;
   return (
     <div className="gallery-sections">

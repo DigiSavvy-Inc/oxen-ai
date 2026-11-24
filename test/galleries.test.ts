@@ -38,6 +38,7 @@ type GalleryRow = {
   handle: string | null;
   take_count: number;
   collection_id?: string | null;
+  caption?: string | null;
 };
 
 type ItemRow = {
@@ -153,16 +154,26 @@ function galleriesDb(options?: { missingRole?: boolean; missingCollection?: bool
                   take_count: withHandle ? Number(args[7] ?? 1) : 1,
                 });
               } else if (sql.includes("UPDATE galleries")) {
+                const withCaption = sql.includes("caption");
                 const withHandle = sql.includes("handle");
-                const row = withHandle
-                  ? galleries.find((item) => item.id === args[4] && item.user_id === args[5])
-                  : galleries.find((item) => item.id === args[2] && item.user_id === args[3]);
+                const row = withCaption
+                  ? galleries.find((item) => item.id === args[5] && item.user_id === args[6])
+                  : withHandle
+                    ? galleries.find((item) => item.id === args[4] && item.user_id === args[5])
+                    : galleries.find((item) => item.id === args[2] && item.user_id === args[3]);
                 if (row) {
                   row.name = String(args[0]);
-                  row.updated_at = withHandle ? Number(args[3]) : Number(args[1]);
-                  if (withHandle) {
-                    row.handle = args[1] == null ? null : String(args[1]);
-                    row.take_count = Number(args[2] ?? 1);
+                  if (withCaption) {
+                    row.caption = args[1] == null ? null : String(args[1]);
+                    row.handle = args[2] == null ? null : String(args[2]);
+                    row.take_count = Number(args[3] ?? 1);
+                    row.updated_at = Number(args[4]);
+                  } else {
+                    row.updated_at = withHandle ? Number(args[3]) : Number(args[1]);
+                    if (withHandle) {
+                      row.handle = args[1] == null ? null : String(args[1]);
+                      row.take_count = Number(args[2] ?? 1);
+                    }
                   }
                 }
               } else if (sql.includes("INSERT INTO gallery_items")) {

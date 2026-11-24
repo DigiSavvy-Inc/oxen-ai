@@ -9,6 +9,8 @@ export type GalleryDraftItem = {
   url: string;
   role?: MediaRole;
   label?: string;
+  /** For people. Not sent to the model. */
+  note?: string;
 };
 
 /**

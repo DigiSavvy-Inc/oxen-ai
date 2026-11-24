@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { createPortal, flushSync } from "react-dom";
 import type { GallerySummary } from "../lib/api";
 import { GALLERY_CARD_DRAG_TYPE } from "../lib/collections";
 import type { GalleryDraftItem } from "../lib/gallery-draft";
+import { galleryImageMatch, galleryListMatch } from "../lib/gallery-search";
 import { gallerySwipeSlides } from "../lib/gallery-slides";
 import { fileDragOffered, historyDragOffered, readHistoryDrag } from "../lib/history-drag";
 import type { DeleteScope } from "../lib/media-delete";
@@ -34,11 +35,17 @@ type Props = {
   detail: boolean;
   galleryId: string | null;
   name: string;
+  /** For people. Not sent to the model. */
+  caption?: string;
   handle: string;
   take: number;
   onHandleChange: (value: string) => void;
   onTakeChange: (value: number) => void;
+  onCaptionChange?: (value: string) => void;
   onLabelChange: (index: number, label: string) => void;
+  onNoteChange?: (index: number, note: string) => void;
+  /** One note on every selected image. Empty clears them. */
+  onSetNote?: (ids: string[], note: string) => void;
   items: GalleryDraftItem[];
   saving: boolean;
   adding: boolean;
@@ -88,6 +95,10 @@ export function GalleryBrowser(props: Props) {
   const [fitId, setFitId] = useState<string | null>(null);
   const [playing, setPlaying] = useState<Playing | null>(null);
   const [dropHot, setDropHot] = useState(false);
+  const [find, setFind] = useState("");
+  const [imageFind, setImageFind] = useState("");
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
   const dropDepth = useRef(0);
   const reorder = useTileReorder({
     items: props.items,
@@ -100,7 +111,15 @@ export function GalleryBrowser(props: Props) {
     setConfirmSelected(false);
     setFitId(null);
     setPlaying(null);
+    setImageFind("");
+    setNoteOpen(false);
+    setNoteDraft("");
   }, [props.galleryId]);
+
+  const listed = useMemo(
+    () => props.summaries.filter((gallery) => galleryListMatch(gallery, find)),
+    [find, props.summaries],
+  );
 
   if (!props.detail) {
     const collections = props.collections ?? null;
@@ -114,6 +133,7 @@ export function GalleryBrowser(props: Props) {
         onDelete={props.onDeleteGallery}
       />
     );
+    const filtering = find.trim().length > 0;
     return (
       <div className="gallery-browser" aria-label="Galleries">
         {props.status ? <p className="gallery-status">{props.status}</p> : null}
@@ -123,19 +143,35 @@ export function GalleryBrowser(props: Props) {
           </div>
         ) : (
           <>
-            {collections ? (
-              <CollectionSections
-                controls={collections}
-                summaries={props.summaries}
-                renderCard={card}
-                onOpen={props.onOpenCollection}
+            {props.summaries.length > 0 ? (
+              <input
+                type="search"
+                className="field gallery-find"
+                value={find}
+                placeholder="Find a gallery"
+                aria-label="Find a gallery"
+                onChange={(event) => setFind(event.target.value)}
               />
-            ) : props.summaries.length === 0 ? (
-              props.status ? null : (
-                <div className="history-empty">No galleries yet. Create one, then pick library tiles.</div>
-              )
+            ) : null}
+            {filtering && listed.length === 0 ? (
+              <div className="history-empty">No galleries match that.</div>
             ) : (
-              <div className="gallery-card-list">{props.summaries.map(card)}</div>
+              <>
+                {collections ? (
+                  <CollectionSections
+                    controls={collections}
+                    summaries={listed}
+                    renderCard={card}
+                    onOpen={props.onOpenCollection}
+                  />
+                ) : listed.length === 0 ? (
+                  props.status ? null : (
+                    <div className="history-empty">No galleries yet. Create one, then pick library tiles.</div>
+                  )
+                ) : (
+                  <div className="gallery-card-list">{listed.map(card)}</div>
+                )}
+              </>
             )}
           </>
         )}
@@ -276,6 +312,16 @@ export function GalleryBrowser(props: Props) {
           onChange={(event) => props.onNameChange(event.target.value)}
         />
       </div>
+      <label className="gallery-caption-row">
+        <input
+          className="field gallery-caption"
+          value={props.caption ?? ""}
+          placeholder="Caption"
+          aria-label="Gallery caption"
+          onChange={(event) => props.onCaptionChange?.(event.target.value)}
+        />
+        <span className="gallery-field-hint">Up to 500 characters. For people, not the model.</span>
+      </label>
       <GalleryMentionFields
         handle={props.handle}
         take={props.take}
@@ -415,6 +461,36 @@ export function GalleryBrowser(props: Props) {
           <button type="button" className="ghost-btn" disabled={!canPlace} onClick={() => void place("move")}>
             Move
           </button>
+          {noteOpen ? (
+            <form
+              className="gallery-bulk-note"
+              onSubmit={(event: FormEvent) => {
+                event.preventDefault();
+                props.onSetNote?.(
+                  selectedItems.map((item) => item.id),
+                  noteDraft,
+                );
+                setNoteOpen(false);
+                setNoteDraft("");
+              }}
+            >
+              <input
+                className="field"
+                value={noteDraft}
+                placeholder="Note"
+                aria-label="Note for the selection"
+                autoFocus
+                onChange={(event) => setNoteDraft(event.target.value)}
+              />
+              <button type="submit" className="ghost-btn">
+                Apply
+              </button>
+            </form>
+          ) : (
+            <button type="button" className="ghost-btn" onClick={() => setNoteOpen(true)}>
+              Set note
+            </button>
+          )}
         </div>
       ) : null}
       {props.skipped.length > 0 ? <p className="gallery-skipped">Skipped {props.skipped.join(", ")}</p> : null}
@@ -436,9 +512,21 @@ export function GalleryBrowser(props: Props) {
         <div className="history-empty">This gallery is empty.</div>
       ) : (
         <div className="gallery-manage-set" {...reorder.set}>
+        <label className="gallery-image-find-row">
+          <input
+            type="search"
+            className="field gallery-image-find"
+            value={imageFind}
+            placeholder="Filter images"
+            aria-label="Filter images"
+            onChange={(event) => setImageFind(event.target.value)}
+          />
+          <span className="gallery-field-hint">A note is up to 280 characters, separate from the label. It is not sent to the model.</span>
+        </label>
         <GallerySections
           items={props.items}
           gridClassName="gallery-manage-grid"
+          matches={(item) => galleryImageMatch(item, props.caption, imageFind)}
           renderItem={(item, index) => {
             const attached = itemAttached(item, props.attachedKeys);
             const drag = reorder.tile(index, item);
@@ -462,6 +550,9 @@ export function GalleryBrowser(props: Props) {
               ) : (
                 <GalleryThumb kind={item.kind} name={item.name} preview={item.preview} slot="tile" />
               )}
+              {item.note ? (
+                <span className="gallery-note-mark" title={item.note} aria-label="Has a note" />
+              ) : null}
               <label className="gallery-select">
                 <input
                   type="checkbox"
@@ -543,10 +634,20 @@ export function GalleryBrowser(props: Props) {
                   props.onLabelChange(index, event.target.value.replace(/[^A-Za-z0-9]/g, "").slice(0, 24))
                 }
               />
+              <input
+                className="field gallery-item-note"
+                value={item.note ?? ""}
+                placeholder="Note"
+                aria-label={`Note for ${item.name}`}
+                onChange={(event) => props.onNoteChange?.(index, event.target.value)}
+              />
             </div>
             );
           }}
         />
+        {imageFind.trim() && !props.items.some((item) => galleryImageMatch(item, props.caption, imageFind)) ? (
+          <div className="history-empty">No images match that.</div>
+        ) : null}
         </div>
       )}
       {fit ? (
@@ -677,9 +778,12 @@ export function GalleryCard({
           </form>
         ) : (
           <>
-            <button type="button" className="gallery-card-name" onClick={() => onOpen(gallery.id)}>
-              {gallery.name}
-            </button>
+            <span className="gallery-card-title">
+              <button type="button" className="gallery-card-name" onClick={() => onOpen(gallery.id)}>
+                {gallery.name}
+              </button>
+              {gallery.caption ? <span className="gallery-card-caption">{gallery.caption}</span> : null}
+            </span>
             <span className="gallery-card-count">
               {count} {count === 1 ? "item" : "items"}
             </span>
