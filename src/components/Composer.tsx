@@ -41,6 +41,13 @@ import {
   type PromptMention,
 } from "../lib/mentions";
 import { shortenFileName } from "../lib/files";
+import {
+  PHONE_LAYOUT_QUERY,
+  anchorHoldDelta,
+  applyAnchorDelta,
+  holdPromptAnchor,
+  shouldHoldPage,
+} from "../lib/scroll-hold";
 import { attachSectionCount, attachSections, dropsBefore, sectionMoveTarget, type AttachSectionKind } from "../lib/attach-sections";
 import { copyPromptText, pastedImages } from "../lib/clipboard";
 import { prependMissingBindings, referenceBindingText, referenceRoleTitle } from "../lib/reference-roles";
@@ -322,6 +329,12 @@ export function Composer(props: Props) {
   const mentionMenuRef = useRef<HTMLDivElement>(null);
   const pendingCaret = useRef<{ caret: number; prompt: string } | null>(null);
   const promptCaretReady = useRef(false);
+  const attachPreviewRef = useRef<HTMLDivElement>(null);
+  const releaseHold = useRef<(() => void) | null>(null);
+  const anchorTop = useRef<number | null>(null);
+  const lastAttach = useRef<number | null>(null);
+  const lastMentions = useRef<boolean | null>(null);
+  const holding = useRef(false);
 
   const selectedModel = props.models.find((item) => item.id === props.model);
   const imageMax = attachKindCap(props.controls, props.mode, "image", selectedModel);
@@ -655,14 +668,82 @@ export function Composer(props: Props) {
       place: placeCaret,
       caret: promptCaret,
     });
-    const pending = pendingCaret.current;
     const el = promptRef.current;
-    if (!pending || !el || el.value !== pending.prompt) return;
-    pendingCaret.current = null;
-    const next = Math.max(0, Math.min(pending.caret, el.value.length));
-    el.focus();
-    el.setSelectionRange(next, next);
+    const main = el?.closest(".main");
+    const phone = window.matchMedia(PHONE_LAYOUT_QUERY).matches;
+    // Attachment chips lengthen the composer. On a phone that growth is added
+    // below the prompt, so the prompt does not jump up over the picture.
+    if (main instanceof HTMLElement) {
+      const extra = phone ? (attachPreviewRef.current?.offsetHeight ?? 0) : 0;
+      if (extra > 0) main.style.setProperty("--attach-grow", `${extra}px`);
+      else if (main.style.getPropertyValue("--attach-grow")) main.style.removeProperty("--attach-grow");
+    }
+    const attachCount = props.attachments.length + (props.documents?.length ?? 0);
+    const pending = pendingCaret.current;
+    const placing = Boolean(pending && el && el.value === pending.prompt);
+    const hold = shouldHoldPage(phone, {
+      placing,
+      attachChanged: lastAttach.current !== null && lastAttach.current !== attachCount,
+      mentionsChanged: lastMentions.current !== null && lastMentions.current !== showMentions,
+    });
+    if (hold && el) {
+      const delta = anchorHoldDelta(anchorTop.current, el.getBoundingClientRect().top);
+      if (delta !== 0) applyAnchorDelta(el, delta);
+    }
+    if (placing && pending && el) {
+      pendingCaret.current = null;
+      const next = Math.max(0, Math.min(pending.caret, el.value.length));
+      // Android pans the visual viewport to the caret. preventScroll stops the
+      // immediate jump; the hold below catches the pan that arrives a frame later.
+      if (phone) el.focus({ preventScroll: true });
+      else el.focus();
+      el.setSelectionRange(next, next);
+      if (hold) {
+        const delta = anchorHoldDelta(anchorTop.current, el.getBoundingClientRect().top);
+        if (delta !== 0) applyAnchorDelta(el, delta);
+      }
+    }
+    if (hold && el) {
+      releaseHold.current?.();
+      holding.current = true;
+      const target = anchorTop.current ?? el.getBoundingClientRect().top;
+      releaseHold.current = holdPromptAnchor(el, target, (top) => {
+        holding.current = false;
+        anchorTop.current = top;
+        releaseHold.current = null;
+      });
+    } else if (phone && el && !holding.current) {
+      anchorTop.current = el.getBoundingClientRect().top;
+    }
+    lastAttach.current = attachCount;
+    lastMentions.current = showMentions;
   });
+
+  useEffect(() => {
+    const el = promptRef.current;
+    const scroller = el?.closest(".main");
+    if (!el || !(scroller instanceof HTMLElement)) return;
+    const remember = () => {
+      if (holding.current) return;
+      if (!window.matchMedia(PHONE_LAYOUT_QUERY).matches) return;
+      anchorTop.current = el.getBoundingClientRect().top;
+    };
+    remember();
+    scroller.addEventListener("scroll", remember, { passive: true });
+    window.addEventListener("scroll", remember, { passive: true });
+    const viewport = window.visualViewport;
+    viewport?.addEventListener("scroll", remember, { passive: true });
+    viewport?.addEventListener("resize", remember, { passive: true });
+    return () => {
+      scroller.removeEventListener("scroll", remember);
+      window.removeEventListener("scroll", remember);
+      viewport?.removeEventListener("scroll", remember);
+      viewport?.removeEventListener("resize", remember);
+      releaseHold.current?.();
+      const main = el.closest(".main");
+      if (main instanceof HTMLElement) main.style.removeProperty("--attach-grow");
+    };
+  }, []);
 
   function syncPromptScroll() {
     const prompt = promptRef.current;
@@ -1340,7 +1421,7 @@ export function Composer(props: Props) {
         </div>
 
         {props.attachments.length > 0 || (props.documents ?? []).length > 0 ? (
-          <div className="attach-preview">
+          <div className="attach-preview" ref={attachPreviewRef}>
             {mediaSections.map((section) => {
               const indices = section.entries.map((entry) => entry.index);
               const dragPosition =
@@ -1614,7 +1695,7 @@ export function Composer(props: Props) {
             ) : null}
           </div>
         ) : props.attachSummary ? (
-          <div className="attach-preview attach-preview-empty">
+          <div className="attach-preview attach-preview-empty" ref={attachPreviewRef}>
             <button
               type="button"
               className={`ghost-btn attach-summary${props.attachSummary.partial ? " is-partial" : ""}`}

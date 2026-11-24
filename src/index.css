@@ -891,11 +891,11 @@ a {
   transition: padding var(--motion-large-duration) var(--motion-large-easing);
 }
 
-/* Extra prompt height lengthens this column instead of pushing the composer up over the media. */
+/* Extra prompt or attachment height lengthens this column instead of pushing the composer up over the media. */
 .main-column {
   display: grid;
   grid-template-rows: auto minmax(min-content, 1fr) auto;
-  min-height: calc(100% + var(--composer-grow, 0px));
+  min-height: calc(100% + var(--composer-grow, 0px) + var(--attach-grow, 0px));
   min-width: 0;
 }
 
@@ -2675,6 +2675,12 @@ button.history-expand-preview {
 
   .composer {
     padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  /* A menu taller than the visible screen makes Android scroll the page to reveal it. */
+  .mention-menu {
+    max-height: min(180px, 40dvh);
+    overscroll-behavior: contain;
   }
 
   .primary-btn {
@@ -4970,6 +4976,26 @@ button.history-expand-preview {
 
 .attach input {
   display: none;
+}
+
+@media (max-width: 860px) {
+  /* A display:none file input has no box, so Android scrolls the page to it when the picker closes. */
+  .attach {
+    position: relative;
+  }
+
+  .attach input {
+    display: block;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    opacity: 0;
+    cursor: pointer;
+    font-size: 16px;
+  }
 }
 
 .primary-btn {
