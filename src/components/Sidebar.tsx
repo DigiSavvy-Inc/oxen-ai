@@ -289,6 +289,7 @@ export function Sidebar({
   galleryAdding,
   galleryStatus,
   onGalleryAddFiles,
+  onGalleryImportInto,
   onGalleryRemove,
   onCreateGallery,
   onCreateGalleryClose,
@@ -365,6 +366,7 @@ export function Sidebar({
   galleryAdding: boolean;
   galleryStatus: string | null;
   onGalleryAddFiles: (files: FileList | File[] | null) => void;
+  onGalleryImportInto: (galleryId: string, files: FileList | File[] | null, name?: string) => void;
   onGalleryRemove: (index: number) => void;
   onCreateGallery: () => void;
   onCreateGalleryClose: () => void;
@@ -831,6 +833,7 @@ export function Sidebar({
           accept={galleryAccept}
           dropLabel={galleryDropLabel}
           onAddFiles={onGalleryAddFiles}
+          onImportInto={onGalleryImportInto}
           onDropHistory={onDropHistoryMedia}
         />
       ) : null}

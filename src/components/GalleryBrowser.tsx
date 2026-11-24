@@ -3,6 +3,7 @@ import { createPortal, flushSync } from "react-dom";
 import type { GallerySummary } from "../lib/api";
 import { GALLERY_CARD_DRAG_TYPE } from "../lib/collections";
 import type { GalleryDraftItem } from "../lib/gallery-draft";
+import { GALLERY_IMPORT_NEW } from "../lib/gallery-import";
 import { gallerySwipeSlides } from "../lib/gallery-slides";
 import { fileDragOffered, historyDragOffered, readHistoryDrag } from "../lib/history-drag";
 import type { DeleteScope } from "../lib/media-delete";
@@ -47,6 +48,8 @@ type Props = {
   accept: string;
   dropLabel: string;
   onAddFiles: (files: FileList | File[] | null) => void;
+  /** Import into a chosen gallery, or create one when the id is empty or New gallery. */
+  onImportInto?: (galleryId: string, files: File[], name: string) => void;
   onDropHistory: (ids: string[]) => void;
   onOpen: (id: string) => void;
   onBack: () => void;
@@ -88,6 +91,8 @@ export function GalleryBrowser(props: Props) {
   const [fitId, setFitId] = useState<string | null>(null);
   const [playing, setPlaying] = useState<Playing | null>(null);
   const [dropHot, setDropHot] = useState(false);
+  const [importTarget, setImportTarget] = useState("");
+  const [importName, setImportName] = useState("");
   const dropDepth = useRef(0);
   const reorder = useTileReorder({
     items: props.items,
@@ -104,6 +109,9 @@ export function GalleryBrowser(props: Props) {
 
   if (!props.detail) {
     const collections = props.collections ?? null;
+    const knownImport = props.summaries.some((gallery) => gallery.id === importTarget);
+    const creatingImport = !knownImport;
+    const importValue = knownImport ? importTarget : importTarget === GALLERY_IMPORT_NEW ? GALLERY_IMPORT_NEW : "";
     const card = (gallery: GallerySummary) => (
       <GalleryCard
         key={gallery.id}
@@ -117,6 +125,40 @@ export function GalleryBrowser(props: Props) {
     return (
       <div className="gallery-browser" aria-label="Galleries">
         {props.status ? <p className="gallery-status">{props.status}</p> : null}
+        <div className="gallery-list-import">
+          <select
+            className="field"
+            aria-label="Gallery to import into"
+            value={importValue}
+            onChange={(event) => setImportTarget(event.target.value)}
+          >
+            <option value="">Choose a gallery</option>
+            <option value={GALLERY_IMPORT_NEW}>New gallery</option>
+            {props.summaries.map((gallery) => (
+              <option key={gallery.id} value={gallery.id}>
+                {gallery.count == null
+                  ? gallery.name
+                  : `${gallery.name}, ${gallery.count} ${gallery.count === 1 ? "item" : "items"}`}
+              </option>
+            ))}
+          </select>
+          {creatingImport ? (
+            <input
+              className="field gallery-import-name"
+              value={importName}
+              placeholder="Gallery name"
+              aria-label="New gallery name"
+              onChange={(event) => setImportName(event.target.value)}
+            />
+          ) : null}
+          <GalleryImportControl
+            accept={props.accept}
+            adding={props.adding}
+            disabled={props.adding}
+            title={props.dropLabel || "Images, video, and audio"}
+            onPick={(files) => props.onImportInto?.(knownImport ? importTarget : importValue, files, importName)}
+          />
+        </div>
         {props.loading && props.summaries.length === 0 ? (
           <div className="history-empty">
             <Loader size="md" label="Loading galleries" />
@@ -132,7 +174,7 @@ export function GalleryBrowser(props: Props) {
               />
             ) : props.summaries.length === 0 ? (
               props.status ? null : (
-                <div className="history-empty">No galleries yet. Create one, then pick library tiles.</div>
+                <div className="history-empty">No galleries yet. Import files to start one, or create one and pick library tiles.</div>
               )
             ) : (
               <div className="gallery-card-list">{props.summaries.map(card)}</div>
@@ -283,6 +325,13 @@ export function GalleryBrowser(props: Props) {
         onTakeChange={props.onTakeChange}
       />
       <div className="gallery-manage-actions">
+        <GalleryImportControl
+          accept={props.accept}
+          adding={props.adding}
+          disabled={props.adding}
+          title={props.dropLabel || "Images, video, and audio"}
+          onPick={(files) => props.onAddFiles(files)}
+        />
         <button type="button" className="ghost-btn" disabled={!canSave} onClick={props.onSave}>
           {props.saving && !deleting ? "Saving…" : "Save"}
         </button>
@@ -419,19 +468,7 @@ export function GalleryBrowser(props: Props) {
       ) : null}
       {props.skipped.length > 0 ? <p className="gallery-skipped">Skipped {props.skipped.join(", ")}</p> : null}
       {props.status ? <p className="gallery-status">{props.status}</p> : null}
-      <label className={`gallery-drop${dropHot ? " is-hot" : ""}`}>
-        {props.adding ? "Adding…" : props.dropLabel || "Drop media"}
-        <span className="gallery-drop-hint">Images, video, and audio sort into their own groups.</span>
-        <input
-          type="file"
-          accept={props.accept}
-          multiple
-          onChange={(event) => {
-            props.onAddFiles(event.target.files);
-            event.target.value = "";
-          }}
-        />
-      </label>
+      <p className="gallery-drop-hint">Images, video, and audio sort into their own groups.</p>
       {props.items.length === 0 ? (
         <div className="history-empty">This gallery is empty.</div>
       ) : (
@@ -565,6 +602,38 @@ export function GalleryBrowser(props: Props) {
         <GalleryAudioPop src={playing.src} name={playing.name} onClose={() => setPlaying(null)} />
       ) : null}
     </div>
+  );
+}
+
+function GalleryImportControl({
+  accept,
+  adding,
+  disabled,
+  title,
+  onPick,
+}: {
+  accept: string;
+  adding: boolean;
+  disabled?: boolean;
+  title?: string;
+  onPick: (files: File[]) => void;
+}) {
+  return (
+    <label className={`ghost-btn gallery-import${disabled ? " is-disabled" : ""}`} title={title}>
+      {adding ? "Importing…" : "Import"}
+      <input
+        type="file"
+        accept={accept}
+        multiple
+        disabled={Boolean(disabled) || adding}
+        aria-label="Import"
+        onChange={(event) => {
+          const files = event.target.files ? Array.from(event.target.files) : [];
+          event.target.value = "";
+          if (files.length > 0) onPick(files);
+        }}
+      />
+    </label>
   );
 }
 

@@ -4362,6 +4362,61 @@ button.history-expand-preview {
   flex-wrap: wrap;
 }
 
+.gallery-list-import {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.gallery-import-name {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.gallery-list-import .field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gallery-import {
+  position: relative;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.gallery-import input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.gallery-import.is-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+@media (max-width: 860px) {
+  .gallery-import {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 10px 14px;
+    justify-content: center;
+  }
+
+  .gallery-list-import .field {
+    min-height: 44px;
+    font-size: 16px;
+  }
+}
+
 .gallery-delete {
   color: var(--danger);
 }

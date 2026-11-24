@@ -244,7 +244,9 @@ describe("one gallery panel, two ways in", () => {
   it("keeps a file added or removed while a save is in flight", () => {
     const change = app.slice(app.indexOf("function changeGallerySet("), app.indexOf("async function onGallerySave("));
     expect(change).toContain("galleryEdit.current += 1;");
-    expect(app).toContain("changeGallerySet((prev) => [...prev, ...added].slice(0, GALLERY_ITEM_CAP));");
+    expect(app).toContain(
+      "changeGallerySet((prev) => appendGalleryUploads(prev, result.uploaded, GALLERY_ITEM_CAP).items);",
+    );
     expect(app).toContain("changeGallerySet(() => result.items);");
     expect(app).toContain("onGalleryRemove={(index) => changeGallerySet(");
   });

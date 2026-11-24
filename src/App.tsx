@@ -115,6 +115,14 @@ import {
 import { chatMessagesFromTurns, type ChatTurn } from "./lib/chat";
 import { filesFromList, partitionMediaFiles } from "./lib/files";
 import {
+  appendGalleryUploads,
+  galleryImportCandidate,
+  galleryImportCreates,
+  galleryImportNote,
+  isGalleryImportKind,
+  planGalleryImport,
+} from "./lib/gallery-import";
+import {
   acceptedMediaKinds,
   attachKindCap,
   fileAcceptValue,
@@ -425,6 +433,8 @@ export default function App() {
   const galleryEdit = useRef(0);
   const galleryAutosave = useRef(false);
   const saveGalleryRef = useRef<() => void>(() => {});
+  /** An import note to keep when the autosave that follows a pick clears the status line. */
+  const galleryHoldStatus = useRef<string | null>(null);
 
   function rememberParam<T>(setter: (value: T) => void) {
     return (value: T) => {
@@ -1922,40 +1932,140 @@ export default function App() {
     }
   }
 
-  async function onGalleryAddFiles(list: FileList | File[] | null) {
+  /** Upload the files a gallery can take, in pick order. New files are new library uploads. */
+  async function collectGalleryImport(current: readonly GalleryDraftItem[], list: FileList | File[] | null) {
     const incoming = filesFromList(list);
-    const galleryFileKinds = ["image", "video", "audio"] as const;
-    const { accepted, rejected } = partitionMediaFiles(incoming, galleryFileKinds);
-    if (rejected.length > 0) {
-      setGalleryStatus("A gallery takes images, video, and audio.");
+    const candidates = incoming.map((file) => galleryImportCandidate(file));
+    const plan = planGalleryImport(
+      current.map((item) => item.key),
+      candidates,
+      GALLERY_ITEM_CAP,
+    );
+    const uploaded: GalleryDraftItem[] = [];
+    for (const index of plan.take) {
+      const file = incoming[index];
+      const kind = candidates[index]?.kind;
+      if (!file || !isGalleryImportKind(kind)) continue;
+      const stored = await api.upload(file, { folder: "galleries" });
+      uploaded.push({
+        id: crypto.randomUUID(),
+        kind,
+        name: file.name || stored.name,
+        preview: stored.url,
+        key: stored.key,
+        url: stored.url,
+        role: kind === "audio" ? undefined : "character",
+      });
     }
-    if (accepted.length === 0) return;
-    const room = Math.max(0, GALLERY_ITEM_CAP - galleryItems.length);
-    if (room === 0) {
-      setGalleryStatus(`A gallery holds ${GALLERY_ITEM_CAP} items`);
+    const merged = appendGalleryUploads(current, uploaded, GALLERY_ITEM_CAP);
+    return {
+      uploaded,
+      merged,
+      note: galleryImportNote({
+        added: merged.added,
+        leftOut: plan.leftOut + merged.leftOut,
+        skipped: plan.skipped,
+        already: plan.already + merged.already,
+      }),
+    };
+  }
+
+  async function onGalleryAddFiles(list: FileList | File[] | null) {
+    if (filesFromList(list).length === 0) return;
+    setGalleryAdding(true);
+    try {
+      const result = await collectGalleryImport(galleryItems, list);
+      if (result.merged.added > 0) {
+        const willSave = Boolean(galleryId && galleryName.trim());
+        galleryAutosave.current = willSave;
+        galleryHoldStatus.current = willSave ? result.note : null;
+        changeGallerySet((prev) => appendGalleryUploads(prev, result.uploaded, GALLERY_ITEM_CAP).items);
+      }
+      setGalleryStatus(result.note);
+    } catch (err) {
+      setGalleryStatus(err instanceof Error ? err.message : "Couldn’t add that file");
+    } finally {
+      setGalleryAdding(false);
+    }
+  }
+
+  function unusedImportName(wanted: string): string {
+    const base = wanted.trim() || "Imported";
+    const taken = new Set(gallerySummaries.map((gallery) => gallery.name.trim().toLowerCase()));
+    if (!taken.has(base.toLowerCase())) return base;
+    for (let n = 2; n < 100; n += 1) {
+      const next = `${base} ${n}`;
+      if (!taken.has(next.toLowerCase())) return next;
+    }
+    return base;
+  }
+
+  /** A pick with no gallery, or New gallery, creates one and puts the files in it. */
+  async function createGalleryFromImport(list: FileList | File[] | null, name: string) {
+    if (filesFromList(list).length === 0) return;
+    setGalleryAdding(true);
+    setGalleryStatus(null);
+    try {
+      const result = await collectGalleryImport([], list);
+      if (result.merged.added === 0) {
+        setGalleryStatus(result.note);
+        return;
+      }
+      const saved = await api.saveGallery({
+        name: unusedImportName(name),
+        items: galleryPayload(result.merged.items),
+      });
+      galleryEdit.current += 1;
+      galleryAutosave.current = false;
+      setManagingGallery(true);
+      setGalleryId(saved.gallery.id);
+      setGalleryName(saved.gallery.name);
+      setGalleryHandle(saved.gallery.handle);
+      setGalleryTake(saved.gallery.takeCount || 1);
+      setGalleryItems(keepDraftIds(result.merged.items, saved.gallery.items.map(draftFromGalleryItem)));
+      setGalleryDetails((prev) => new Map(prev).set(saved.gallery.id, saved.gallery));
+      const listed = await api.galleries().catch(() => null);
+      if (listed) setGallerySummaries(listed.galleries);
+      setGalleryStatus(result.note);
+    } catch (err) {
+      setGalleryStatus(err instanceof Error ? err.message : "Couldn’t add that file");
+    } finally {
+      setGalleryAdding(false);
+    }
+  }
+
+  /** Import into a gallery picked from the list. The open gallery uses the same add path. */
+  async function onGalleryImportInto(targetId: string, list: FileList | File[] | null, name = "") {
+    if (galleryImportCreates(targetId)) {
+      await createGalleryFromImport(list, name);
       return;
     }
+    if (targetId === galleryId) {
+      setManagingGallery(true);
+      await onGalleryAddFiles(list);
+      return;
+    }
+    if (filesFromList(list).length === 0) return;
     setGalleryAdding(true);
-    if (rejected.length === 0) setGalleryStatus(null);
+    setGalleryStatus(null);
     try {
-      const added: GalleryDraftItem[] = [];
-      for (const item of accepted.slice(0, room)) {
-        if (item.kind === "document") continue;
-        const uploaded = await api.upload(item.file, { folder: "galleries" });
-        added.push({
-          id: crypto.randomUUID(),
-          kind: item.kind,
-          name: item.file.name || uploaded.name,
-          preview: uploaded.url,
-          key: uploaded.key,
-          url: uploaded.url,
-          role: item.kind === "audio" ? undefined : "character",
-        });
+      const { gallery } = await api.gallery(targetId);
+      const current = gallery.items.map(draftFromGalleryItem);
+      const result = await collectGalleryImport(current, list);
+      if (result.merged.added > 0) {
+        galleryEdit.current += 1;
+        const willSave = Boolean(gallery.name.trim());
+        galleryAutosave.current = willSave;
+        galleryHoldStatus.current = willSave ? result.note : null;
+        setManagingGallery(true);
+        setGalleryId(gallery.id);
+        setGalleryName(gallery.name);
+        setGalleryHandle(gallery.handle);
+        setGalleryTake(gallery.takeCount || 1);
+        setGalleryItems(result.merged.items);
+        setGalleryDetails((prev) => new Map(prev).set(gallery.id, gallery));
       }
-      changeGallerySet((prev) => [...prev, ...added].slice(0, GALLERY_ITEM_CAP));
-      if (rejected.length > 0) {
-        setGalleryStatus("A gallery takes images, video, and audio.");
-      }
+      setGalleryStatus(result.note);
     } catch (err) {
       setGalleryStatus(err instanceof Error ? err.message : "Couldn’t add that file");
     } finally {
@@ -1974,8 +2084,10 @@ export default function App() {
     const items = nextItems ?? galleryItems;
     if (!name || gallerySaving) return false;
     const edit = galleryEdit.current;
+    const held = galleryHoldStatus.current;
+    galleryHoldStatus.current = null;
     setGallerySaving(true);
-    setGalleryStatus(null);
+    if (!held) setGalleryStatus(null);
     try {
       // Create gallery pressed while a collection was open files the new gallery into it.
       const fileInto = !galleryId && createGalleryOpen ? collectionNav.createInto : null;
@@ -3961,6 +4073,7 @@ export default function App() {
         galleryAdding={galleryAdding}
         galleryStatus={galleryStatus}
         onGalleryAddFiles={(files) => void onGalleryAddFiles(files)}
+        onGalleryImportInto={(id, files, name) => void onGalleryImportInto(id, files, name)}
         onGalleryRemove={(index) => changeGallerySet((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
         onCreateGallery={openCreateGallery}
         onCreateGalleryClose={cancelCreateGallery}
