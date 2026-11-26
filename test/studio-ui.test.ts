@@ -1810,6 +1810,20 @@ describe("gallery panel", () => {
     expect(css).toMatch(/\.gallery-bulk\s*\{[^}]*top:\s*-12px/);
     expect(css).toMatch(/\.gallery-bulk\s*\{[^}]*background:\s*var\(--bg-panel\)/);
   });
+
+  it("keeps the gallery path stuck above the selection bar", () => {
+    const css = readFileSync(new URL("../src/index.css", import.meta.url), "utf8");
+    const browser = readFileSync(new URL("../src/components/GalleryBrowser.tsx", import.meta.url), "utf8");
+    expect(css).toMatch(/\.gallery-manage-head\s*\{[^}]*position:\s*sticky/);
+    expect(css).toMatch(/\.gallery-manage-head\s*\{[^}]*top:\s*-12px/);
+    expect(css).toMatch(/\.gallery-manage-head\s*\{[^}]*z-index:\s*6/);
+    expect(css).toMatch(/\.gallery-manage-head\s*\{[^}]*background:\s*var\(--bg-panel\)/);
+    expect(css).toMatch(
+      /\.gallery-browser:has\(\.gallery-manage-head\) \.gallery-bulk\s*\{[^}]*top:\s*calc\(-12px \+ var\(--gallery-path-h,\s*0px\)\)/,
+    );
+    expect(browser).toContain("--gallery-path-h");
+    expect(browser).toContain("pathRef");
+  });
 });
 
 describe("last frame beside the video", () => {

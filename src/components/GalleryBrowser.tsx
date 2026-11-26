@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type DragEvent } from "react";
 import { createPortal, flushSync } from "react-dom";
 import type { GallerySummary } from "../lib/api";
 import { GALLERY_CARD_DRAG_TYPE } from "../lib/collections";
@@ -94,6 +94,8 @@ export function GalleryBrowser(props: Props) {
   const [importTarget, setImportTarget] = useState("");
   const [importName, setImportName] = useState("");
   const dropDepth = useRef(0);
+  const browserRef = useRef<HTMLDivElement>(null);
+  const pathRef = useRef<HTMLDivElement>(null);
   const reorder = useTileReorder({
     items: props.items,
     onReorder: props.onReorder,
@@ -106,6 +108,23 @@ export function GalleryBrowser(props: Props) {
     setFitId(null);
     setPlaying(null);
   }, [props.galleryId]);
+
+  // The path sticks at the top of the open gallery. Its height lets the selection bar stick just under it.
+  useLayoutEffect(() => {
+    const path = pathRef.current;
+    const scroller = browserRef.current;
+    if (!path || !scroller) return;
+    const apply = () => {
+      scroller.style.setProperty("--gallery-path-h", `${path.offsetHeight}px`);
+    };
+    apply();
+    const watch = new ResizeObserver(apply);
+    watch.observe(path);
+    return () => {
+      watch.disconnect();
+      scroller.style.removeProperty("--gallery-path-h");
+    };
+  }, [props.detail, props.collectionName]);
 
   if (!props.detail) {
     const collections = props.collections ?? null;
@@ -277,6 +296,7 @@ export function GalleryBrowser(props: Props) {
 
   return (
     <div
+      ref={browserRef}
       className={`gallery-browser${dropHot ? " is-drop-hot" : ""}`}
       aria-label="Gallery"
       onDragEnter={onDragEnter}
@@ -284,7 +304,7 @@ export function GalleryBrowser(props: Props) {
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      <div className={`gallery-manage-head${props.collectionName ? " has-trail" : ""}`}>
+      <div ref={pathRef} className={`gallery-manage-head${props.collectionName ? " has-trail" : ""}`}>
         <button
           type="button"
           className="ghost-btn"

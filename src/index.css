@@ -4358,6 +4358,18 @@ button.history-expand-preview {
   flex: 1 1 auto;
 }
 
+/* The path stays put while the set scrolls. It fills the scroller's padding so tiles
+   pass under the row instead of showing through the gutters, and it does not sit on
+   the first row until that row has scrolled up. */
+.gallery-manage-head {
+  position: sticky;
+  top: -12px;
+  z-index: 6;
+  margin: 0 -12px 0;
+  padding: 0 12px 8px;
+  background: var(--bg-panel);
+}
+
 .gallery-manage-actions {
   flex-wrap: wrap;
 }
@@ -4514,6 +4526,11 @@ button.history-expand-preview {
   padding: 8px 12px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
+}
+
+/* The path is already stuck at the top. The selection bar stops under that row. */
+.gallery-browser:has(.gallery-manage-head) .gallery-bulk {
+  top: calc(-12px + var(--gallery-path-h, 0px));
 }
 
 .gallery-bulk-count {
