@@ -18,6 +18,7 @@ import {
   type ProjectJobJson,
 } from "./job-record";
 import { looksFromParams } from "./looks";
+import { promptsFromParams } from "./project-prompts";
 import { displayStoredMediaUrl } from "./media";
 import { normalizeMediaRole } from "./schema";
 import type { Env } from "./types";
@@ -165,6 +166,7 @@ export async function presentJob(
     prompt: first.prompt ?? "",
     basePrompt: record.basePrompt,
     looks: looksFromParams(first.params_json),
+    prompts: promptsFromParams(first.params_json),
     refs,
     settings: jobSettingsFromParams(first.params_json),
     multiPrompt: multiPromptFromParams(first.params_json),

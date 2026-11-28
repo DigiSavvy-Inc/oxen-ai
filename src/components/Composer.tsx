@@ -22,10 +22,13 @@ import {
   type GenerationMode,
   type ModelControls,
   type OxenModel,
+  type ProjectPrompt,
   type SavedPrompt,
   type StudioLook,
 } from "../lib/api";
 import { LookPicker, type LookDraft } from "./LookPicker";
+import { ProjectPromptPicker } from "./ProjectPromptPicker";
+import { everySceneCounts, onProjectPrompts } from "../../worker/project-prompts";
 import {
   attachmentForMention,
   deleteMentionToken,
@@ -275,6 +278,21 @@ type Props = {
   onCreateLook?: (draft: LookDraft) => Promise<StudioLook | null>;
   onStarLook?: (id: string, starred: boolean) => void;
   onDeleteLook?: (id: string) => void;
+  /**
+   * The open project's prompts in list order. Absent with no project open, and then the
+   * Prompts control, the prompt chips, and the save-to-project choices do not show.
+   */
+  projectPrompts?: ProjectPrompt[];
+  /** Project prompts on for this job. Switching one never edits the project or the text box. */
+  projectPromptIds?: string[];
+  onToggleProjectPrompt?: (id: string) => void;
+  /** Turn every Every scene prompt back on for this job. */
+  onRestoreProjectPrompts?: () => void;
+  onSaveProjectPrompt?: (name: string, body: string, everyScene: boolean) => Promise<void> | void;
+  /** Copy an account saved prompt into the open project as an On request prompt. */
+  onCopySavedPromptToProject?: (item: SavedPrompt) => Promise<void> | void;
+  /** Looks, project prompts, and scene text together run past what the job record keeps. */
+  promptLengthNotice?: string | null;
   /** Why Generate is held, e.g. a mention of a reference that is not attached. */
   generateBlock?: string | null;
   /** "N of M attached" for the open project, with a way to choose which are active. */
@@ -319,11 +337,17 @@ export function Composer(props: Props) {
   const [promptHeight, setPromptHeight] = useState(PROMPT_HEIGHT_BASE);
   const [promptMenu, setPromptMenu] = useState<"save" | "load" | null>(null);
   const [savingPrompt, setSavingPrompt] = useState(false);
-  const [promptDraft, setPromptDraft] = useState<{ id: string | null; name: string; body: string } | null>(
-    null,
-  );
+  const [promptDraft, setPromptDraft] = useState<{
+    id: string | null;
+    name: string;
+    body: string;
+    /** Where a new prompt goes while a project is open. Edits of account prompts stay "account". */
+    target?: "project" | "account";
+    everyScene?: boolean;
+  } | null>(null);
   const [savedMark, setSavedMark] = useState<string | null>(null);
   const [lookMenu, setLookMenu] = useState<{ draft: LookDraft | null } | null>(null);
+  const [projectPromptMenu, setProjectPromptMenu] = useState(false);
   const [promptSelection, setPromptSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
   const savedMenuRef = useRef<HTMLDivElement>(null);
   const mentionMenuRef = useRef<HTMLDivElement>(null);
@@ -530,6 +554,13 @@ export function Composer(props: Props) {
   const showSaved = savedMark !== null && props.prompt === savedMark;
   const looksEnabled = Boolean(props.looks && props.onToggleLook);
   const appliedLooks = props.appliedLooks ?? [];
+  const projectPromptsEnabled = Boolean(props.projectPrompts && props.onToggleProjectPrompt);
+  const projectPrompts = props.projectPrompts ?? [];
+  const projectPromptIds = props.projectPromptIds ?? [];
+  const onPrompts = onProjectPrompts(projectPromptIds, projectPrompts);
+  const sceneCounts = everySceneCounts(projectPromptIds, projectPrompts);
+  const promptsPartial = sceneCounts.on < sceneCounts.total;
+  const canSaveToProject = projectPromptsEnabled && Boolean(props.onSaveProjectPrompt);
   const selectedPromptText = props.prompt
     .slice(
       Math.min(promptSelection.start, promptSelection.end),
@@ -545,16 +576,39 @@ export function Composer(props: Props) {
     setPromptMenu(null);
     setPromptDraft(null);
     setMentionOpen(false);
+    setProjectPromptMenu(false);
     setLookMenu({ draft });
   }
 
-  function saveSelectionAsLook() {
+  function openProjectPromptMenu() {
+    setPromptMenu(null);
+    setPromptDraft(null);
+    setMentionOpen(false);
+    setLookMenu(null);
+    setProjectPromptMenu(true);
+  }
+
+  function currentSelectionText(): string {
     const el = promptRef.current;
     const start = el ? Math.min(el.selectionStart, el.selectionEnd) : promptSelection.start;
     const end = el ? Math.max(el.selectionStart, el.selectionEnd) : promptSelection.end;
-    const text = props.prompt.slice(start, end).trim() || selectedPromptText;
+    return props.prompt.slice(start, end).trim() || selectedPromptText;
+  }
+
+  function saveSelectionAsLook() {
+    const text = currentSelectionText();
     if (!text) return;
     openLookMenu({ name: "", body: text, group: null });
+  }
+
+  function saveSelectionAsProjectPrompt() {
+    const text = currentSelectionText();
+    if (!text || !canSaveToProject) return;
+    setLookMenu(null);
+    setProjectPromptMenu(false);
+    setMentionOpen(false);
+    setPromptDraft({ id: null, name: "", body: text, target: "project", everyScene: false });
+    setPromptMenu("save");
   }
 
   function loadSavedPrompt(body: string) {
@@ -566,8 +620,17 @@ export function Composer(props: Props) {
   }
 
   function openNewPromptDraft() {
-    if (!props.prompt.trim() || !props.onSavePrompt) return;
-    setPromptDraft({ id: null, name: "", body: props.prompt });
+    if (!props.prompt.trim() || (!props.onSavePrompt && !canSaveToProject)) return;
+    setProjectPromptMenu(false);
+    setLookMenu(null);
+    // With a project open, Save prompt asks where it goes; this project is the first choice.
+    setPromptDraft({
+      id: null,
+      name: "",
+      body: props.prompt,
+      target: canSaveToProject ? "project" : "account",
+      everyScene: false,
+    });
     setPromptMenu("save");
   }
 
@@ -578,7 +641,8 @@ export function Composer(props: Props) {
 
   async function commitPromptDraft() {
     if (!promptDraft || savingPrompt) return;
-    if (promptDraft.id ? !props.onUpdateSavedPrompt : !props.onSavePrompt) return;
+    const toProject = !promptDraft.id && promptDraft.target === "project" && canSaveToProject;
+    if (promptDraft.id ? !props.onUpdateSavedPrompt : toProject ? false : !props.onSavePrompt) return;
     const draft = promptDraft;
     setSavingPrompt(true);
     try {
@@ -586,6 +650,10 @@ export function Composer(props: Props) {
         await props.onUpdateSavedPrompt?.(draft.id, draft.name, draft.body);
         setPromptDraft(null);
         setPromptMenu("load");
+      } else if (toProject) {
+        await props.onSaveProjectPrompt?.(draft.name, draft.body, draft.everyScene === true);
+        setPromptDraft(null);
+        setPromptMenu(null);
       } else {
         await props.onSavePrompt?.(draft.name, draft.body);
         setPromptDraft(null);
@@ -651,6 +719,41 @@ export function Composer(props: Props) {
             setPromptDraft((draft) => (draft ? { ...draft, body: event.target.value } : draft))
           }
         />
+        {!promptDraft.id && canSaveToProject ? (
+          <div className="prompt-save-target" role="radiogroup" aria-label="Save to">
+            <label>
+              <input
+                type="radio"
+                name="prompt-save-target"
+                checked={promptDraft.target === "project"}
+                onChange={() => setPromptDraft((draft) => (draft ? { ...draft, target: "project" } : draft))}
+              />
+              This project
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="prompt-save-target"
+                checked={promptDraft.target !== "project"}
+                disabled={!props.onSavePrompt}
+                onChange={() => setPromptDraft((draft) => (draft ? { ...draft, target: "account" } : draft))}
+              />
+              My prompts
+            </label>
+            {promptDraft.target === "project" ? (
+              <label title="Every scene prompts are on for each new job. On request prompts wait to be picked.">
+                <input
+                  type="checkbox"
+                  checked={promptDraft.everyScene === true}
+                  onChange={(event) =>
+                    setPromptDraft((draft) => (draft ? { ...draft, everyScene: event.target.checked } : draft))
+                  }
+                />
+                Every scene
+              </label>
+            ) : null}
+          </div>
+        ) : null}
         <button
           type="submit"
           className="prompt-action"
@@ -1143,13 +1246,17 @@ export function Composer(props: Props) {
               <button
                 type="button"
                 className="prompt-action"
-                disabled={!props.prompt.trim() || savingPrompt || !props.onSavePrompt}
+                disabled={!props.prompt.trim() || savingPrompt || (!props.onSavePrompt && !canSaveToProject)}
                 onClick={openNewPromptDraft}
               >
                 Save prompt
               </button>
               {promptMenu === "save" && promptDraft && !promptDraft.id ? (
-                <div className="saved-prompts-menu" role="dialog" aria-label="Save prompt">
+                <div
+                  className="saved-prompts-menu"
+                  role="dialog"
+                  aria-label={promptDraft.target === "project" ? "Save project prompt" : "Save prompt"}
+                >
                   {promptEditor("Save")}
                 </div>
               ) : null}
@@ -1195,6 +1302,17 @@ export function Composer(props: Props) {
                         >
                           Edit
                         </button>
+                        {canSaveToProject && props.onCopySavedPromptToProject ? (
+                          <button
+                            type="button"
+                            className="saved-prompt-edit"
+                            aria-label={`Copy ${savedPromptLabel(item)} to this project`}
+                            title="Copy into the open project as an On request prompt. My prompts keeps it too."
+                            onClick={() => void props.onCopySavedPromptToProject?.(item)}
+                          >
+                            To project
+                          </button>
+                        ) : null}
                         {props.onDeleteSavedPrompt ? (
                           <button
                             type="button"
@@ -1255,6 +1373,61 @@ export function Composer(props: Props) {
                 ) : null}
               </div>
             ) : null}
+            {projectPromptsEnabled ? (
+              <div className="saved-prompts look-actions project-prompt-actions">
+                <button
+                  type="button"
+                  className={`prompt-action${projectPromptMenu ? " is-open" : ""}`}
+                  data-project-prompt-trigger
+                  aria-expanded={projectPromptMenu}
+                  aria-haspopup="dialog"
+                  title="Switch this project's prompts on or off for this job"
+                  onClick={() => (projectPromptMenu ? setProjectPromptMenu(false) : openProjectPromptMenu())}
+                >
+                  {promptsPartial
+                    ? `Prompts · ${sceneCounts.on} of ${sceneCounts.total} on`
+                    : onPrompts.length > 0
+                      ? `Prompts · ${onPrompts.length}`
+                      : "Prompts"}
+                </button>
+                {promptsPartial && props.onRestoreProjectPrompts ? (
+                  <button
+                    type="button"
+                    className="prompt-action"
+                    title="Turn the Every scene prompts back on for this job"
+                    onClick={() => props.onRestoreProjectPrompts?.()}
+                  >
+                    Put back
+                  </button>
+                ) : null}
+                {canSaveToProject ? (
+                  <button
+                    type="button"
+                    className="prompt-action"
+                    data-project-prompt-trigger
+                    disabled={!selectedPromptText}
+                    title={
+                      selectedPromptText
+                        ? "Keep the selected prompt text as a prompt in this project"
+                        : "Select prompt text first"
+                    }
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={saveSelectionAsProjectPrompt}
+                  >
+                    Save as project prompt
+                  </button>
+                ) : null}
+                {projectPromptMenu ? (
+                  <ProjectPromptPicker
+                    prompts={projectPrompts}
+                    onIds={projectPromptIds}
+                    onToggle={(id) => props.onToggleProjectPrompt?.(id)}
+                    onRestore={() => props.onRestoreProjectPrompts?.()}
+                    onClose={() => setProjectPromptMenu(false)}
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div
             className="prompt-resize"
@@ -1294,6 +1467,29 @@ export function Composer(props: Props) {
               ))}
             </ul>
           ) : null}
+          {projectPromptsEnabled && onPrompts.length > 0 ? (
+            <ul className="look-chips prompt-chips" aria-label="Project prompts on for this job">
+              {onPrompts.map((item) => (
+                <li key={item.id} className="look-chip prompt-chip" title={item.body}>
+                  <span className="prompt-chip-mark" aria-hidden>
+                    ¶
+                  </span>
+                  <span className="look-chip-name">{item.name}</span>
+                  {item.everyScene ? <span className="look-chip-group">Every scene</span> : null}
+                  <button
+                    type="button"
+                    className="look-chip-remove"
+                    aria-label={`Turn off ${item.name} for this job`}
+                    title="Turn this prompt off for this job. The project keeps it."
+                    onClick={() => props.onToggleProjectPrompt?.(item.id)}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {props.promptLengthNotice ? <p className="composer-hint prompt-length-notice">{props.promptLengthNotice}</p> : null}
           {props.modelDelivery &&
           (props.modelDelivery !== props.prompt.trim() || (props.deliveryNotes ?? []).length > 0) ? (
             <details className="model-delivery">

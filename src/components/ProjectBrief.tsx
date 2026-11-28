@@ -10,6 +10,7 @@ import {
 import { appliedLooks, PROJECT_LOOKS_MAX, sortLooks } from "../../worker/looks";
 import { copyPromptText } from "../lib/clipboard";
 import { ModelMenu } from "./ModelMenu";
+import { ProjectPromptsSection, type ProjectPromptDraft } from "./ProjectPromptsSection";
 
 type Props = {
   project: StudioProject;
@@ -38,6 +39,10 @@ type Props = {
   /** Where the composer's contents came from this visit. */
   origin: ComposerOrigin;
   onNewJob: () => void;
+  onCreatePrompt: (draft: ProjectPromptDraft) => Promise<boolean>;
+  onUpdatePrompt: (id: string, patch: Partial<ProjectPromptDraft>) => Promise<boolean>;
+  onDeletePrompt: (id: string) => void;
+  onReorderPrompts: (ids: string[]) => void;
 };
 
 function modeLabel(mode: string | null): string {
@@ -144,6 +149,14 @@ export function ProjectBrief(props: Props) {
           ))}
         </select>
       </div>
+      <ProjectPromptsSection
+        prompts={props.project.prompts ?? []}
+        busy={props.busy}
+        onCreate={props.onCreatePrompt}
+        onUpdate={props.onUpdatePrompt}
+        onDelete={props.onDeletePrompt}
+        onReorder={props.onReorderPrompts}
+      />
       <div className="project-editor-look project-brief-model">
         <div className="project-editor-head">
           <h3>Model</h3>

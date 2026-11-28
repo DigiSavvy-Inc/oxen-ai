@@ -213,6 +213,22 @@ import { acceptComposerDefaults, acceptComposerDraft } from "./project-draft";
 import { parseJobParams } from "./job-record";
 import { acceptBasePrompt, acceptJobCost, acceptJobRefs, listProjectJobs } from "./project-jobs";
 import { acceptAppliedLooks, acceptLookGroup, acceptLookIds, looksFromParams } from "./looks";
+import {
+  createProjectPrompt,
+  deleteProjectPrompt,
+  listProjectPrompts,
+  reorderProjectPrompts,
+  updateProjectPrompt,
+  type ProjectPromptFailure,
+} from "./project-prompt-store";
+import {
+  acceptAppliedPrompts,
+  acceptPromptIds,
+  PROJECT_PROMPT_MAX,
+  PROJECT_PROMPT_NAME_MAX,
+  PROJECT_PROMPTS_MAX,
+  promptsFromParams,
+} from "./project-prompts";
 import { parseServedThumbWidth, resizeServedImage } from "./gallery-thumbs";
 import {
   deleteSavedPrompt,
@@ -818,6 +834,7 @@ function toGenerationJson(
     draftTaskId: draftMetaFromParams(row.params_json)?.draftTaskId ?? null,
     draftExpiresAt: draftMetaFromParams(row.params_json)?.draftExpiresAt ?? null,
     looks: looksFromParams(row.params_json),
+    prompts: promptsFromParams(row.params_json),
     writtenPrompt: acceptBasePrompt(parseJobParams(row.params_json)?.studio_prompt),
   };
 }
@@ -2125,6 +2142,76 @@ app.put("/api/projects/:id/draft", async (c) => {
   return c.json({ ok: true });
 });
 
+async function requireOwnedProject(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  userId: string,
+  projectId: string,
+): Promise<void> {
+  await assertProjectInRequestProfile(c, userId, projectId);
+  if (!(await ownsProject(c.env.DB, userId, projectId))) {
+    throw new HTTPException(404, { message: "Project not found" });
+  }
+}
+
+function projectPromptError(error: ProjectPromptFailure): HTTPException {
+  switch (error) {
+    case "missing":
+      return new HTTPException(404, { message: "Project prompt not found" });
+    case "limit":
+      return new HTTPException(400, { message: `A project keeps up to ${PROJECT_PROMPTS_MAX} prompts` });
+    default:
+      return new HTTPException(400, {
+        message: `A project prompt needs a name up to ${PROJECT_PROMPT_NAME_MAX} characters and text up to ${PROJECT_PROMPT_MAX.toLocaleString("en-US")}`,
+      });
+  }
+}
+
+app.get("/api/projects/:id/prompts", async (c) => {
+  const user = await requireUser(c);
+  const projectId = c.req.param("id");
+  await requireOwnedProject(c, user.id, projectId);
+  return c.json({ prompts: await listProjectPrompts(c.env.DB, user.id, projectId) });
+});
+
+app.post("/api/projects/:id/prompts", async (c) => {
+  const user = await requireUser(c);
+  const projectId = c.req.param("id");
+  await requireOwnedProject(c, user.id, projectId);
+  const body = await c.req.json<{ name?: unknown; body?: unknown; everyScene?: unknown }>();
+  const result = await createProjectPrompt(c.env.DB, user.id, projectId, body);
+  if ("error" in result) throw projectPromptError(result.error);
+  return c.json({ prompt: result.prompt });
+});
+
+app.put("/api/projects/:id/prompts/order", async (c) => {
+  const user = await requireUser(c);
+  const projectId = c.req.param("id");
+  await requireOwnedProject(c, user.id, projectId);
+  const body = await c.req.json<{ ids?: unknown }>();
+  const ids = acceptPromptIds(body.ids);
+  if (!ids) throw new HTTPException(400, { message: "Send the prompt ids in their new order" });
+  return c.json({ prompts: await reorderProjectPrompts(c.env.DB, user.id, projectId, ids) });
+});
+
+app.patch("/api/projects/:id/prompts/:promptId", async (c) => {
+  const user = await requireUser(c);
+  const projectId = c.req.param("id");
+  await requireOwnedProject(c, user.id, projectId);
+  const body = await c.req.json<{ name?: unknown; body?: unknown; everyScene?: unknown }>();
+  const result = await updateProjectPrompt(c.env.DB, user.id, projectId, c.req.param("promptId"), body);
+  if ("error" in result) throw projectPromptError(result.error);
+  return c.json({ prompt: result.prompt });
+});
+
+app.delete("/api/projects/:id/prompts/:promptId", async (c) => {
+  const user = await requireUser(c);
+  const projectId = c.req.param("id");
+  await requireOwnedProject(c, user.id, projectId);
+  const removed = await deleteProjectPrompt(c.env.DB, user.id, projectId, c.req.param("promptId"));
+  if (!removed) throw projectPromptError("missing");
+  return c.json({ ok: true });
+});
+
 app.post("/api/projects/:id/shares", async (c) => {
   const user = await requireUser(c);
   const body = await c.req.json<{ days?: unknown }>();
@@ -2451,6 +2538,8 @@ app.post("/api/generate", async (c) => {
     multi_prompt?: { prompt?: string; duration?: number | string }[];
     /** Looks applied for this run, ids and names only. Recorded, never sent to Oxen. */
     looks?: unknown;
+    /** Project prompts switched on for this run, ids and names only. Recorded, never sent to Oxen. */
+    prompts?: unknown;
     /** The project this run belongs to. Recorded on the rows so the Jobs view can list it. */
     project_id?: unknown;
     /** The references as attached: project number, role, name, Studio key. Recorded only. */
@@ -2884,6 +2973,8 @@ app.post("/api/generate", async (c) => {
   const appliedLooks = draftTaskId ? [] : acceptAppliedLooks(body.looks);
   const studioRecord: Record<string, unknown> = {};
   if (appliedLooks.length > 0) studioRecord.studio_looks = appliedLooks;
+  const appliedPrompts = draftTaskId ? [] : acceptAppliedPrompts(body.prompts);
+  if (appliedPrompts.length > 0) studioRecord.studio_prompts = appliedPrompts;
   const basePrompt = acceptBasePrompt(body.base_prompt);
   if (basePrompt && basePrompt !== storedPrompt) studioRecord.studio_prompt = basePrompt;
   if (projectId) {

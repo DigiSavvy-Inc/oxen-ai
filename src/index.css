@@ -7089,6 +7089,165 @@ select.attach-role {
   padding: 0 2px;
 }
 
+/* Project prompts (#88): chips sit under the look chips with a dashed edge so the two read apart. */
+.prompt-chip {
+  border-style: dashed;
+  background: transparent;
+}
+
+.prompt-chip-mark {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.project-prompt-state {
+  flex: none;
+  min-width: 26px;
+  padding: 0 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-align: right;
+}
+
+.project-prompt-state.is-on {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.project-prompt-menu .look-row.is-hot .look-pick {
+  background: var(--bg-hover);
+}
+
+.project-prompt-menu .look-row.is-hot .look-pick[aria-pressed="true"],
+.project-prompt-menu .look-pick[aria-pressed="true"] {
+  background: var(--accent-soft);
+}
+
+.project-prompt-close {
+  display: none;
+}
+
+.prompt-save-target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.prompt-save-target label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.prompt-length-notice {
+  margin: 6px 10px 0;
+}
+
+.project-prompt-group .look-section-label {
+  padding-left: 0;
+}
+
+.project-prompt-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 4px 4px 4px 2px;
+}
+
+.project-prompt-row:hover {
+  background: var(--bg-hover);
+}
+
+.project-prompt-row.is-drop,
+.project-prompt-tail.is-drop {
+  border-color: var(--border);
+  box-shadow: inset 0 2px 0 var(--text-dim);
+}
+
+.project-prompt-row.is-dragging {
+  opacity: 0.45;
+}
+
+.project-prompt-row.is-editing {
+  display: block;
+}
+
+.project-prompt-grip {
+  flex: none;
+  cursor: grab;
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: -2px;
+  padding: 0 2px;
+}
+
+.project-prompt-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.project-prompt-switch {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.project-brief label.project-prompt-switch {
+  flex-direction: row;
+  font-size: 11px;
+}
+
+.project-prompt-tail {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.project-prompt-add {
+  margin-top: 4px;
+}
+
+@media (max-width: 860px) {
+  /* On a phone the prompts picker is full screen, like the other panels. */
+  .saved-prompts-menu.project-prompt-menu {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    width: auto;
+    max-height: none;
+    border-radius: 0;
+    border: 0;
+    padding: 12px;
+  }
+
+  .project-prompt-close {
+    display: inline-flex;
+  }
+}
+
 .model-delivery {
   margin: 8px 10px 0;
   font-size: 12px;

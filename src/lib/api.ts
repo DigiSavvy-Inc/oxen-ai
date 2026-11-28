@@ -3,6 +3,7 @@ import { firstSupportedMode, modelSupportsMode } from "../../worker/model-modes"
 import { estimateGenerationCost, type OxenPricing } from "../../worker/pricing";
 import type { ComposerDefaults, ComposerDraft, ComposerSettings } from "../../worker/project-draft";
 import type { JobOutputJson, JobRefJson, JobStatus, ProjectJobJson } from "../../worker/job-record";
+import type { AppliedPrompt, ProjectPrompt } from "../../worker/project-prompts";
 import type { ReferenceCaps, ReferenceModel } from "../../worker/reference-models";
 import type { MediaRole } from "../../worker/schema";
 import { withLiveMediaRefs } from "./media-links";
@@ -10,6 +11,7 @@ import { withLiveMediaRefs } from "./media-links";
 export { firstSupportedMode, modelSupportsMode };
 export { estimateGenerationCost, type OxenPricing };
 export type { AppliedLook, LookGroup };
+export type { AppliedPrompt, ProjectPrompt };
 export type { ComposerDefaults, ComposerDraft, ComposerSettings };
 export type { ReferenceCaps, ReferenceModel };
 export type ProjectJob = ProjectJobJson;
@@ -179,6 +181,8 @@ export type Generation = {
   projectId?: string | null;
   /** Looks applied when this run was sent, ids and names. */
   looks?: AppliedLook[];
+  /** Project prompts that were on when this run was sent, ids and names. */
+  prompts?: AppliedPrompt[];
   /** The prompt as written, when it differs from the prompt that was sent. */
   writtenPrompt?: string | null;
 };
@@ -418,12 +422,16 @@ export type StudioProject = {
   shares: ProjectShare[];
   /** Handles of slots kept to this project. */
   slotHandles?: string[];
+  /** The project's own prompts in list order. */
+  prompts?: ProjectPrompt[];
 };
 
 export type SharedProject = {
   name: string;
   prompt: string;
   looks: StudioLook[];
+  /** The project's Every scene prompts, in list order. */
+  prompts?: ProjectPrompt[];
   budget: number;
   cast: ProjectCastEntry[];
 };
@@ -960,6 +968,32 @@ export const api = {
     fetch(`/api/projects/${encodeURIComponent(projectId)}/jobs`).then((r) =>
       parseJson<{ jobs: ProjectJob[] }>(r),
     ),
+  createProjectPrompt: (projectId: string, body: { name: string; body: string; everyScene: boolean }) =>
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/prompts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then((r) => parseJson<{ prompt: ProjectPrompt }>(r)),
+  updateProjectPrompt: (
+    projectId: string,
+    id: string,
+    patch: { name?: string; body?: string; everyScene?: boolean },
+  ) =>
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/prompts/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }).then((r) => parseJson<{ prompt: ProjectPrompt }>(r)),
+  deleteProjectPrompt: (projectId: string, id: string) =>
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/prompts/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }).then((r) => parseJson<{ ok: boolean }>(r)),
+  reorderProjectPrompts: (projectId: string, ids: string[]) =>
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/prompts/order`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }).then((r) => parseJson<{ prompts: ProjectPrompt[] }>(r)),
   saveProjectDraft: (
     projectId: string,
     body: { draft?: ComposerDraft; defaults?: ComposerDefaults },
