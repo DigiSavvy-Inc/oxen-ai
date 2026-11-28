@@ -144,6 +144,7 @@ const params = {
   num_generations: 2,
   images: ["https://studio.test/media/lead", "https://studio.test/media/room"],
   studio_looks: [{ id: "l1", name: "Look 1" }],
+  studio_prompts: [{ id: "pp1", name: "House rules" }],
   studio_refs: refs,
   studio_cost: 0.09,
   studio_prompt: "A quiet room with @Image1 and @Image2",
@@ -226,6 +227,8 @@ describe("jobs from the database", () => {
     expect(latest.refs[0]?.url).toMatch(/^https:\/\/studio\.test\//);
     expect(latest.refs[0]?.role).toBe("character");
     expect(latest.looks).toEqual([{ id: "l1", name: "Look 1" }]);
+    // The project prompts that were on come back with the job, ids and names only.
+    expect(latest.prompts).toEqual([{ id: "pp1", name: "House rules" }]);
     expect(latest.basePrompt).toBe(params.studio_prompt);
     expect(latest.cost).toBe(0.09);
     expect(latest.settings).toEqual({ aspect_ratio: "16:9", resolution: "2K", num_generations: 1 });
@@ -348,6 +351,7 @@ function job(overrides: Partial<ProjectJobJson> = {}): ProjectJobJson {
     prompt: "Look 1\n\nA quiet room with @Image1",
     basePrompt: "A quiet room with @Image1",
     looks: [{ id: "l1", name: "Look 1" }],
+    prompts: [],
     refs: [
       { ...refs[0]!, kind: "image", role: "character", url: "https://studio.test/lead", thumbUrl: "https://studio.test/lead" },
       { ...refs[1]!, kind: "image", role: "background", url: null, thumbUrl: null },
@@ -450,6 +454,7 @@ describe("Load into composer", () => {
     expect(state).toEqual({
       prompt: "A quiet room with @Image1",
       lookIds: ["l1"],
+      promptIds: [],
       mode: "image-to-image",
       model: "bytedance/seedream-5-0",
       settings: {

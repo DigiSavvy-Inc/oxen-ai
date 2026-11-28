@@ -14,6 +14,7 @@ import {
   type ReferenceModel,
   type StudioProject,
 } from "./api";
+import { everyScenePromptIds, livePromptIds } from "../../worker/project-prompts";
 
 /** Modes that send references, in the order a pinned model prefers them. */
 const REFERENCE_MODES: GenerationMode[] = ["reference-to-video", "image-to-image", "video-to-video"];
@@ -75,31 +76,42 @@ export function defaultsAfterRun(previous: ComposerDefaults | null, run: Compose
 export type ProjectComposerState = {
   prompt: string;
   lookIds: string[];
+  /** Project prompts on for this job: the Every scene set on a new job, the draft's on open. */
+  promptIds: string[];
   defaults: ComposerDefaults | null;
   origin: ComposerOrigin;
 };
 
-type ProjectSource = Pick<StudioProject, "prompt" | "lookIds" | "draft" | "defaults">;
+type ProjectSource = Pick<StudioProject, "prompt" | "lookIds" | "draft" | "defaults" | "prompts">;
 
-/** New job: the brief's prompt and looks, with the project model and its saved settings. */
+/** New job: the brief's prompt and looks, the Every scene prompts, the project model and its settings. */
 export function composerStateForNewJob(project: ProjectSource): ProjectComposerState {
-  return { prompt: project.prompt, lookIds: project.lookIds, defaults: project.defaults, origin: "new-job" };
+  return {
+    prompt: project.prompt,
+    lookIds: project.lookIds,
+    promptIds: everyScenePromptIds(project.prompts ?? []),
+    defaults: project.defaults,
+    origin: "new-job",
+  };
 }
 
 /**
  * Opening a project: the draft comes back when there is one. A pinned model still wins
  * over whatever the draft last used, keeping the draft's settings only when they were for it.
+ * The draft's project prompts come back too, less any deleted from the project since.
  */
 export function composerStateOnOpen(project: ProjectSource): ProjectComposerState {
   const draft = project.draft;
   if (!draft) return composerStateForNewJob(project);
   const prompt = draft.prompt ?? project.prompt;
+  const promptIds = livePromptIds(draft.promptIds, project.prompts ?? []);
   const pinned = project.defaults?.pinned ? project.defaults : null;
   if (pinned) {
     const sameModel = draft.model === pinned.model;
     return {
       prompt,
       lookIds: project.lookIds,
+      promptIds,
       defaults: { ...pinned, settings: sameModel ? draft.settings : pinned.settings },
       origin: "draft",
     };
@@ -107,6 +119,7 @@ export function composerStateOnOpen(project: ProjectSource): ProjectComposerStat
   return {
     prompt,
     lookIds: project.lookIds,
+    promptIds,
     defaults: { mode: draft.mode, model: draft.model, settings: draft.settings },
     origin: "draft",
   };

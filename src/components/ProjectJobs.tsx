@@ -398,7 +398,7 @@ export function ProjectJobs(props: Props) {
                       type="button"
                       className="ghost-btn"
                       disabled={props.busy}
-                      title="Put this prompt, these looks, the model, and the settings back in the composer"
+                      title="Put this prompt, these looks and project prompts, the model, and the settings back in the composer"
                       onClick={() => props.onLoad(job)}
                     >
                       Load into composer
@@ -462,6 +462,18 @@ export function ProjectJobs(props: Props) {
                             {index + 1}
                           </span>
                           <span className="look-chip-name">{look.name}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {job.prompts && job.prompts.length > 0 ? (
+                    <ul className="look-chips job-looks prompt-chips" aria-label="Project prompts on">
+                      {job.prompts.map((item) => (
+                        <li key={item.id} className="look-chip prompt-chip">
+                          <span className="prompt-chip-mark" aria-hidden>
+                            ¶
+                          </span>
+                          <span className="look-chip-name">{item.name}</span>
                         </li>
                       ))}
                     </ul>

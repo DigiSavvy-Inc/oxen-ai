@@ -187,6 +187,8 @@ export function composerSettingsFromJob(settings: Record<string, JobSettingValue
 export type ComposerLoad = {
   prompt: string;
   lookIds: string[];
+  /** Project prompts the run had on. The caller drops any deleted since. */
+  promptIds: string[];
   mode: string;
   model: string;
   settings: ComposerSettings;
@@ -197,6 +199,7 @@ export function composerStateForJob(job: ProjectJob): ComposerLoad {
   return {
     prompt: job.basePrompt ?? job.prompt,
     lookIds: job.looks.map((look) => look.id),
+    promptIds: (job.prompts ?? []).map((prompt) => prompt.id),
     mode: job.mode,
     model: job.model,
     settings: composerSettingsFromJob(job.settings),
@@ -227,6 +230,7 @@ export function rerunBodyForJob(job: ProjectJob): RerunPlan {
   if (job.multiPrompt && job.multiPrompt.length > 0) body.multi_prompt = job.multiPrompt;
   body.prompt = job.prompt;
   if (job.looks.length > 0) body.looks = job.looks;
+  if (job.prompts && job.prompts.length > 0) body.prompts = job.prompts;
   body.project_id = job.projectId;
   if (job.refs.length > 0) {
     body.refs = job.refs.map(({ kind, number, role, name, key }) => ({ kind, number, role, name, key }));

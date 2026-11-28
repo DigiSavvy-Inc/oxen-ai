@@ -1,11 +1,12 @@
 import type { AppliedLook } from "./looks";
+import type { AppliedPrompt } from "./project-prompts";
 import type { MediaKind, MediaRole } from "./schema";
 
 /**
  * A job is one generation batch (`batch_id`) run from a project. The record of what was
  * sent lives on the generation rows: the prompt as sent, the redacted Oxen payload, and
- * Studio bookkeeping in params_json (`studio_looks`, `studio_refs`, `studio_cost`,
- * `studio_prompt`). Nothing here stores a data URI.
+ * Studio bookkeeping in params_json (`studio_looks`, `studio_prompts`, `studio_refs`,
+ * `studio_cost`, `studio_prompt`). Nothing here stores a data URI.
  *
  * This module has no bindings so the client can share the types and the pure helpers.
  */
@@ -53,6 +54,8 @@ export type ProjectJobJson = {
   /** The composer prompt before the looks were placed ahead of it. Null when they match. */
   basePrompt: string | null;
   looks: AppliedLook[];
+  /** Project prompts that were on for this run, ids and names, in list order. */
+  prompts: AppliedPrompt[];
   refs: JobRefJson[];
   settings: Record<string, JobSettingValue>;
   multiPrompt: JobShot[] | null;
@@ -63,7 +66,8 @@ export type ProjectJobJson = {
 
 export const JOB_REFS_MAX = 96;
 export const JOB_NAME_MAX = 180;
-const JOB_PROMPT_MAX = 8000;
+/** The longest written prompt a job record keeps. */
+export const JOB_PROMPT_MAX = 8000;
 export const PROJECT_JOBS_MAX = 60;
 
 /** Oxen payload fields that are settings, as opposed to the prompt, the model, or media. */

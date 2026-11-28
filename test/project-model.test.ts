@@ -178,6 +178,7 @@ describe("New job and opening a project", () => {
     expect(composerStateForNewJob(project)).toEqual({
       prompt: "brief prompt",
       lookIds: ["look-1"],
+      promptIds: [],
       defaults: pinned,
       origin: "new-job",
     });
@@ -187,6 +188,7 @@ describe("New job and opening a project", () => {
     expect(composerStateOnOpen(project)).toEqual({
       prompt: "scene text",
       lookIds: ["look-1"],
+      promptIds: [],
       defaults: pinned,
       origin: "draft",
     });
@@ -202,6 +204,7 @@ describe("New job and opening a project", () => {
     expect(composerStateOnOpen({ ...project, defaults: unpinned })).toEqual({
       prompt: "scene text",
       lookIds: ["look-1"],
+      promptIds: [],
       defaults: { mode: "image-to-image", model: "seedream-5-0", settings: otherSettings },
       origin: "draft",
     });
@@ -211,6 +214,7 @@ describe("New job and opening a project", () => {
     expect(composerStateOnOpen({ ...project, draft: null })).toEqual({
       prompt: "brief prompt",
       lookIds: ["look-1"],
+      promptIds: [],
       defaults: pinned,
       origin: "new-job",
     });

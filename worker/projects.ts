@@ -23,13 +23,15 @@ import {
   type ComposerDraft,
 } from "./project-draft";
 import { projectJobStats } from "./project-jobs";
+import { listProjectPrompts } from "./project-prompt-store";
+import { PROJECT_PROMPT_MAX, sortProjectPrompts, type ProjectPrompt } from "./project-prompts";
 import { deleteSlotsForProject, projectSlotHandles } from "./slots";
 import type { Env } from "./types";
 
 export const PROJECT_NAME_MAX = 80;
 export const STYLE_NAME_MAX = LOOK_NAME_MAX;
 export const STYLE_BODY_MAX = LOOK_BODY_MAX;
-export const PROJECT_PROMPT_MAX = 8000;
+export { PROJECT_PROMPT_MAX };
 export const PROJECT_MAX = 50;
 export const LOOKS_PER_PROFILE_MAX = 200;
 
@@ -73,12 +75,16 @@ export type ProjectRecord = {
   shares: ShareRecord[];
   /** Handles of slots kept to this project, in slot order. */
   slotHandles: string[];
+  /** The project's own prompts in list order, Every scene and On request. */
+  prompts: ProjectPrompt[];
 };
 
 export type ShareSnapshot = {
   name: string;
   prompt: string;
   looks: Look[];
+  /** The Every scene project prompts, in list order. On request prompts stay with the owner. */
+  prompts: ProjectPrompt[];
   budget: number;
   cast: CastEntryJson[];
 };
@@ -395,7 +401,17 @@ export async function getProject(
       createdAt: share.created_at,
     })),
     slotHandles: await projectSlotHandles(env.DB, userId, id),
+    prompts: await projectPromptsOrNone(env.DB, userId, id),
   };
+}
+
+/** A database without the project_prompts table yet reads as a project with no prompts. */
+async function projectPromptsOrNone(db: D1Database, userId: string, id: string): Promise<ProjectPrompt[]> {
+  try {
+    return await listProjectPrompts(db, userId, id);
+  } catch {
+    return [];
+  }
 }
 
 export async function updateProject(
@@ -441,6 +457,13 @@ export async function deleteProject(db: D1Database, userId: string, id: string):
   const current = await ownedProject(db, userId, id);
   if (!current) return false;
   await deleteSlotsForProject(db, userId, id);
+  await db
+    .prepare(`DELETE FROM project_prompts WHERE project_id = ? AND user_id = ?`)
+    .bind(id, userId)
+    .run()
+    .catch(() => {
+      /* no project_prompts table yet, so there is nothing to delete */
+    });
   await db.batch([
     db.prepare(`DELETE FROM project_media WHERE project_id = ? AND user_id = ?`).bind(id, userId),
     db.prepare(`DELETE FROM project_galleries WHERE project_id = ?`).bind(id),
@@ -576,6 +599,7 @@ export async function readShare(env: Env, token: string): Promise<ShareSnapshot 
     name: project.name,
     prompt: project.prompt,
     looks,
+    prompts: sortProjectPrompts(project.prompts.filter((prompt) => prompt.everyScene)),
     budget: project.budget,
     cast: project.cast,
   };

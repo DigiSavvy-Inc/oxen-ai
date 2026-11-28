@@ -82,6 +82,7 @@ import {
   type GallerySummary,
   type ProjectJob,
   type ProjectJobOutput,
+  type ProjectPrompt,
   type ReferenceModel,
   type SavedPrompt,
   type StudioProfile,
@@ -170,6 +171,15 @@ import {
 } from "../worker/schema";
 import { GALLERY_MAX_ITEMS as GALLERY_ITEM_CAP } from "../worker/gallery-limits";
 import { appliedLooks, joinLooks, toggleLookId } from "../worker/looks";
+import {
+  everyScenePromptIds,
+  joinProjectPrompts,
+  livePromptIds,
+  onProjectPrompts,
+  promptPlanText,
+  togglePromptId,
+} from "../worker/project-prompts";
+import { JOB_PROMPT_MAX } from "../worker/job-record";
 import { DEFAULT_HISTORY_PAGE_SIZE } from "../worker/history-page-size";
 import { DEFAULT_VIDEO_THUMB_SECONDS } from "../worker/video-thumb";
 import { deliveryForRun } from "./lib/model-prompt";
@@ -321,6 +331,10 @@ export default function App() {
   const [lookIds, setLookIds] = useState<string[]>([]);
   const [shareName, setShareName] = useState<string | null>(null);
   const [shareLooks, setShareLooks] = useState<StudioLook[]>([]);
+  /** Project prompts on for the job in progress. Only read while a project or share is open. */
+  const [promptIds, setPromptIds] = useState<string[]>([]);
+  /** A share link's Every scene prompts. */
+  const [sharePrompts, setSharePrompts] = useState<ProjectPrompt[]>([]);
   const [projectView, setProjectView] = useState<ProjectPanelView>("list");
   const [projectBusy, setProjectBusy] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
@@ -921,6 +935,8 @@ export default function App() {
         if (cancelled) return;
         setShareName(share.name);
         setShareLooks(share.looks);
+        setSharePrompts(share.prompts ?? []);
+        setPromptIds((share.prompts ?? []).map((item) => item.id));
         setActiveProject(null);
         setProjectJobs([]);
         setLookIds([]);
@@ -1644,18 +1660,35 @@ export default function App() {
     () => (refsOn ? nameCatalog : noteOnlyCatalog(nameCatalog)),
     [nameCatalog, refsOn],
   );
+  // Project prompts that are on. Their names resolve with the scene's in one plan (promptPlanText).
+  const projectPrompts = useMemo(
+    () => (shareName ? sharePrompts : (activeProject?.prompts ?? [])),
+    [activeProject, shareName, sharePrompts],
+  );
+  const promptsOpen = Boolean(shareName || activeProject);
+  const onPromptList = useMemo(
+    () => (promptsOpen ? onProjectPrompts(promptIds, projectPrompts) : []),
+    [projectPrompts, promptIds, promptsOpen],
+  );
+  const promptBlockRaw = joinProjectPrompts(onPromptList);
+  const planText = promptPlanText(prompt, promptBlockRaw);
   const namePlan = useMemo(
     () =>
       planNameAttachments({
-        prompt: namesOn ? prompt : "",
+        prompt: namesOn ? planText : "",
         galleries: namesOn ? planCatalog : [],
         hand: staged.map((item) => ({ key: item.key, kind: item.kind, number: item.number })),
         // A frames-only model takes no references, so a name adds its note and no image.
         caps: { image: framesOnly ? 0 : imageCap, video: videoCap, audio: audioCap },
         flagMissing: refsOn,
       }),
-    [audioCap, framesOnly, imageCap, namesOn, planCatalog, prompt, refsOn, staged, videoCap],
+    [audioCap, framesOnly, imageCap, namesOn, planCatalog, planText, refsOn, staged, videoCap],
   );
+  /** Names the text box shows: the plan also covers the project prompts, past the scene's end. */
+  const sceneNameStarts = namePlan.unresolved
+    .filter((mention) => mention.start < prompt.length)
+    .map((mention) => mention.start);
+  const sceneNameHovers = namePlan.hovers.filter((hover) => hover.start < prompt.length);
   const stagedFrames = useMemo(() => {
     const images = takeStagedOfKind(staged, "image", imageCap);
     const tags = assignFrames(
@@ -1699,7 +1732,7 @@ export default function App() {
 
   useEffect(() => {
     if (!refsOn) return;
-    const ids = mentionedGalleryIds(prompt, nameCatalog).filter((id) => {
+    const ids = mentionedGalleryIds(planText, nameCatalog).filter((id) => {
       if (nameFetchSkip.current.has(id)) return false;
       const detail = galleryDetails.get(id);
       const summary = gallerySummaries.find((item) => item.id === id);
@@ -1734,7 +1767,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [galleryDetails, gallerySummaries, nameCatalog, prompt, refsOn]);
+  }, [galleryDetails, gallerySummaries, nameCatalog, planText, refsOn]);
 
   function castItemForStaged(item: StagedMedia | undefined): CastItem | null {
     if (!item || item.number == null) return null;
@@ -1873,7 +1906,10 @@ export default function App() {
   );
   const unattachedMention =
     mode && mode !== "chat" && controls?.mentions
-      ? (missingMention(prompt, staged) ?? namePlan.unresolved[0]?.token ?? null)
+      ? (missingMention(prompt, staged) ??
+        (promptBlockRaw ? missingMention(promptBlockRaw, staged) : null) ??
+        namePlan.unresolved[0]?.token ??
+        null)
       : null;
   const generateBlock = unattachedMention
     ? `The prompt mentions ${unattachedMention}, which isn’t attached. Attach it in the references or take it out of the prompt.`
@@ -2896,6 +2932,7 @@ export default function App() {
 
   function applyProjectComposerState(state: ProjectComposerState) {
     setLookIds(state.lookIds);
+    setPromptIds(state.promptIds);
     setPrompt(state.prompt);
     if (state.defaults) applyComposerDefaults(state.defaults);
     setNumGenerations(1);
@@ -2971,6 +3008,7 @@ export default function App() {
     setJobsNotice(null);
     setShareName(null);
     setShareLooks([]);
+    setSharePrompts([]);
     flushDraft();
     const { project } = await api.project(id);
     draftSkip.current = true;
@@ -3355,7 +3393,7 @@ export default function App() {
       );
       recordProjectRun(
         activeProject.id,
-        activeProject.draft ?? { prompt, mode, model, settings: composerSettings() },
+        activeProject.draft ?? { prompt, mode, model, settings: composerSettings(), promptIds },
       );
       void refreshCredits();
     } catch (err) {
@@ -3370,6 +3408,7 @@ export default function App() {
     const state = composerStateForJob(job);
     setPrompt(state.prompt);
     setLookIds(state.lookIds.filter((id) => looks.some((look) => look.id === id)));
+    setPromptIds(livePromptIds(state.promptIds, activeProject.prompts ?? []));
     applyComposerDefaults({ mode: state.mode, model: state.model, settings: state.settings });
     setNumGenerations(1);
     clearCanvasUnlessRunning();
@@ -3441,7 +3480,7 @@ export default function App() {
   );
 
   const draftProjectId = activeProject && !shareName ? activeProject.id : null;
-  const currentDraft: ComposerDraft = { prompt, mode, model, settings: composerSettings() };
+  const currentDraft: ComposerDraft = { prompt, mode, model, settings: composerSettings(), promptIds };
   composerDraftRef.current = currentDraft;
   const draftKey = draftProjectId ? JSON.stringify(currentDraft) : null;
   useEffect(() => {
@@ -3480,10 +3519,12 @@ export default function App() {
       ...(imageRouted ? (["image"] as const) : []),
       ...(videoRouted ? (["video"] as const) : []),
     ];
-    const scene = namesOn ? namePlan.expanded : prompt;
+    const scene = namesOn ? expandNameText(prompt, namePlan.kept, namePlan.removed) : prompt;
+    const promptBlock = namesOn ? expandNameText(promptBlockRaw, namePlan.kept, namePlan.removed) : promptBlockRaw;
     const result = deliveryForRun({
       prompt: scene,
       lookBlock: joinLooks(activeLooks),
+      promptBlock,
       attachments: shown.map((item) => ({ name: item.name, kind: item.kind, role: item.role, number: item.number })),
       routedKinds,
       faceFirst: imageRouted || videoRouted,
@@ -3491,10 +3532,107 @@ export default function App() {
     const notice = namesOn ? namePlanNotice(namePlan) : null;
     if (!notice) return result;
     return { prompt: result.prompt, notes: [...result.notes, notice] };
-  }, [activeLooks, imageRouted, namePlan, namesOn, prompt, shown, videoRouted]);
+  }, [activeLooks, imageRouted, namePlan, namesOn, prompt, promptBlockRaw, shown, videoRouted]);
+  const promptLengthNotice =
+    promptsOpen && delivery.prompt.length > JOB_PROMPT_MAX
+      ? `Looks, project prompts, and the scene come to ${delivery.prompt.length.toLocaleString("en-US")} characters, past the ${JOB_PROMPT_MAX.toLocaleString("en-US")} a job record keeps. Nothing is cut, but turn a prompt off or shorten the scene to stay inside it.`
+      : null;
 
   function toggleLook(id: string) {
     setLookIds((prev) => toggleLookId(prev, id));
+  }
+
+  /** Switch one project prompt for this job only. The project keeps its lists as they are. */
+  function toggleProjectPrompt(id: string) {
+    setPromptIds((prev) => togglePromptId(prev, id, projectPrompts));
+  }
+
+  /** Put every Every scene prompt back on for this job, keeping any On request ones already on. */
+  function restoreProjectPrompts() {
+    setPromptIds((prev) => livePromptIds([...prev, ...everyScenePromptIds(projectPrompts)], projectPrompts));
+  }
+
+  function setActivePrompts(projectId: string, update: (prompts: ProjectPrompt[]) => ProjectPrompt[]) {
+    setActiveProject((prev) =>
+      prev && prev.id === projectId ? { ...prev, prompts: update(prev.prompts ?? []) } : prev,
+    );
+  }
+
+  /**
+   * `switchOn` also turns the new prompt on for the job in progress. The Brief does that for an
+   * Every scene prompt; the composer does not, since the text it saves is already in the box.
+   */
+  async function createProjectPrompt(
+    draft: { name: string; body: string; everyScene: boolean },
+    switchOn = false,
+  ): Promise<boolean> {
+    if (!activeProject) return false;
+    const projectId = activeProject.id;
+    setProjectError(null);
+    try {
+      const { prompt: created } = await api.createProjectPrompt(projectId, draft);
+      setActivePrompts(projectId, (prompts) => [...prompts.filter((item) => item.id !== created.id), created]);
+      if (switchOn) setPromptIds((prev) => (prev.includes(created.id) ? prev : [...prev, created.id]));
+      return true;
+    } catch (err) {
+      setProjectError(err instanceof Error ? err.message : "Couldn’t save that prompt");
+      return false;
+    }
+  }
+
+  async function updateProjectPrompt(
+    id: string,
+    patch: { name?: string; body?: string; everyScene?: boolean },
+  ): Promise<boolean> {
+    if (!activeProject) return false;
+    const projectId = activeProject.id;
+    setProjectError(null);
+    try {
+      const { prompt: saved } = await api.updateProjectPrompt(projectId, id, patch);
+      setActivePrompts(projectId, (prompts) => prompts.map((item) => (item.id === saved.id ? saved : item)));
+      return true;
+    } catch (err) {
+      setProjectError(err instanceof Error ? err.message : "Couldn’t update that prompt");
+      return false;
+    }
+  }
+
+  function deleteProjectPrompt(id: string) {
+    if (!activeProject) return;
+    const projectId = activeProject.id;
+    setActivePrompts(projectId, (prompts) => prompts.filter((item) => item.id !== id));
+    setPromptIds((prev) => prev.filter((item) => item !== id));
+    void api.deleteProjectPrompt(projectId, id).catch((err) => {
+      setProjectError(err instanceof Error ? err.message : "Couldn’t delete that prompt");
+    });
+  }
+
+  function reorderProjectPrompts(ids: string[]) {
+    if (!activeProject) return;
+    const projectId = activeProject.id;
+    const position = new Map(ids.map((id, index) => [id, index]));
+    setActivePrompts(projectId, (prompts) =>
+      prompts.map((item) => ({ ...item, position: position.get(item.id) ?? item.position })),
+    );
+    void api
+      .reorderProjectPrompts(projectId, ids)
+      .then(({ prompts }) => setActivePrompts(projectId, () => prompts))
+      .catch((err) => setProjectError(err instanceof Error ? err.message : "Couldn’t reorder the prompts"));
+  }
+
+  /** Save prompt with "This project" chosen. Throws so the composer keeps the form open. */
+  async function saveProjectPromptFromComposer(name: string, body: string, everyScene: boolean) {
+    if (!(await createProjectPrompt({ name, body, everyScene }))) {
+      setError("Couldn’t save that prompt to the project");
+      throw new Error("not saved");
+    }
+  }
+
+  async function copySavedPromptToProject(item: SavedPrompt) {
+    const name = item.name.trim() || item.body.trim().split("\n")[0]?.slice(0, 80) || "Prompt";
+    if (!(await createProjectPrompt({ name, body: item.body, everyScene: false }))) {
+      setError("Couldn’t copy that prompt into the project");
+    }
   }
 
   async function createLook(draft: { name: string; body: string; group: StudioLook["group"] }) {
@@ -3696,6 +3834,9 @@ export default function App() {
       if (activeLooks.length > 0) {
         payload.looks = activeLooks.map((look) => ({ id: look.id, name: look.name }));
       }
+      if (onPromptList.length > 0) {
+        payload.prompts = onPromptList.map((item) => ({ id: item.id, name: item.name }));
+      }
       const sendAspect =
         mode !== "text-to-audio" ||
         Boolean(controls?.aspectRatios && controls.aspectRatios.length > 0);
@@ -3785,7 +3926,7 @@ export default function App() {
       setSelectedId(created[0]?.id ?? null);
       if (projectRun) {
         setJobsNotice(null);
-        recordProjectRun(projectRun.id, { prompt, mode, model, settings: composerSettings() });
+        recordProjectRun(projectRun.id, { prompt, mode, model, settings: composerSettings(), promptIds });
       }
       void refreshCredits();
     } catch (err) {
@@ -3992,6 +4133,10 @@ export default function App() {
             hasDraft={prompt !== briefSavedPrompt || !sameIds(lookIds, activeProject.lookIds)}
             origin={composerOrigin}
             onNewJob={startNewJob}
+            onCreatePrompt={(draft) => createProjectPrompt(draft, draft.everyScene)}
+            onUpdatePrompt={updateProjectPrompt}
+            onDeletePrompt={deleteProjectPrompt}
+            onReorderPrompts={reorderProjectPrompts}
           />
         ) : null}
       </ProjectRail>
@@ -4427,8 +4572,8 @@ export default function App() {
               origin: item.origin,
             }))}
             mentionGalleries={planCatalog}
-            missingNameStarts={refsOn ? namePlan.unresolved.map((mention) => mention.start) : []}
-            nameHovers={namePlan.hovers}
+            missingNameStarts={refsOn ? sceneNameStarts : []}
+            nameHovers={sceneNameHovers}
             nameNotice={namesOn ? namePlanNotice(namePlan) : null}
             onAddFiles={onAddFiles}
             onPasteUnsupported={() => setError(`A pasted image has to be ${PASTE_IMAGE_FORMATS}.`)}
@@ -4444,6 +4589,13 @@ export default function App() {
             onCreateLook={shareName ? undefined : createLook}
             onStarLook={shareName ? undefined : starLook}
             onDeleteLook={shareName ? undefined : deleteLook}
+            projectPrompts={promptsOpen ? projectPrompts : undefined}
+            projectPromptIds={promptIds}
+            onToggleProjectPrompt={promptsOpen ? toggleProjectPrompt : undefined}
+            onRestoreProjectPrompts={promptsOpen ? restoreProjectPrompts : undefined}
+            onSaveProjectPrompt={activeProject && !shareName ? saveProjectPromptFromComposer : undefined}
+            onCopySavedPromptToProject={activeProject && !shareName ? copySavedPromptToProject : undefined}
+            promptLengthNotice={promptLengthNotice}
             generateBlock={generateBlock}
             attachSummary={
               projectStaging

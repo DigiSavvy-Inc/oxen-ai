@@ -1,3 +1,5 @@
+import { acceptPromptIds } from "./project-prompts";
+
 /**
  * The composer state a project keeps between visits. Sessions folded into this:
  * one draft per project (scene prompt, mode, model, settings) and the defaults the
@@ -41,6 +43,11 @@ export type ComposerDefaults = {
 export type ComposerDraft = ComposerDefaults & {
   /** The scene text the composer showed last. Null when the draft has no prompt yet. */
   prompt: string | null;
+  /**
+   * Project prompts switched on for the job in progress, by id. Absent on a draft saved before
+   * project prompts, which reads as the Every scene set.
+   */
+  promptIds?: string[];
 };
 
 const SETTING_VALUE_MAX = 64;
@@ -74,12 +81,15 @@ export function acceptComposerDraft(raw: unknown): ComposerDraft | null {
   const record = raw as Record<string, unknown>;
   const prompt =
     typeof record.prompt === "string" && record.prompt.length <= DRAFT_PROMPT_MAX ? record.prompt : null;
-  return {
+  const draft: ComposerDraft = {
     prompt,
     mode: acceptMode(record.mode),
     model: acceptModel(record.model),
     settings: acceptComposerSettings(record.settings),
   };
+  const promptIds = record.promptIds === undefined ? null : acceptPromptIds(record.promptIds);
+  if (promptIds) draft.promptIds = promptIds;
+  return draft;
 }
 
 export function acceptComposerDefaults(raw: unknown): ComposerDefaults | null {
@@ -98,7 +108,13 @@ export function acceptComposerDefaults(raw: unknown): ComposerDefaults | null {
 export function draftFromJson(raw: string | null | undefined): ComposerDraft | null {
   const draft = acceptComposerDraft(parse(raw));
   if (!draft) return null;
-  if (draft.prompt == null && !draft.mode && !draft.model && Object.keys(draft.settings).length === 0) {
+  if (
+    draft.prompt == null &&
+    !draft.mode &&
+    !draft.model &&
+    Object.keys(draft.settings).length === 0 &&
+    draft.promptIds === undefined
+  ) {
     return null;
   }
   return draft;
